@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createJob, fetchJobs } from "./api";
 import { Editor } from "./Editor";
-import type { JobSummary } from "./types";
+import type { JobLang, JobSummary } from "./types";
 
 const STATUS_LABEL: Record<string, string> = {
   starting: "시작 중",
@@ -24,12 +24,27 @@ function statusLabel(j: JobSummary): string {
   return STATUS_LABEL[j.status] ?? j.status;
 }
 
+/** "Japanese (日本語)" -> "Japanese" for compact badges */
+function shortLang(label: string): string {
+  return label.split(" (")[0];
+}
+
+type SortKey = "recent" | "oldest" | "title" | "progress";
+const SORT_LABEL: Record<SortKey, string> = {
+  recent: "최근 추가순",
+  oldest: "오래된 순",
+  title: "제목순",
+  progress: "검수 진행률순",
+};
+
 export function App() {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [filter, setFilter] = useState("all"); // all | ko | <langcode>
+  const [sort, setSort] = useState<SortKey>("recent");
   const timer = useRef<number | null>(null);
 
   async function refresh() {
@@ -67,10 +82,35 @@ export function App() {
     }
   }
 
+  // every translation language that appears across all jobs (for the filter)
+  const allLangs = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const j of jobs) for (const l of j.languages) map.set(l.code, l.label);
+    return [...map.entries()].map(([code, label]) => ({ code, label }));
+  }, [jobs]);
+
+  const visible = useMemo(() => {
+    let list = jobs.slice();
+    if (filter === "ko") list = list.filter((j) => j.ko_complete);
+    else if (filter !== "all")
+      list = list.filter((j) => j.languages.some((l) => l.code === filter && l.complete));
+    list.sort((a, b) => {
+      if (sort === "title") return (a.title || a.video_id).localeCompare(b.title || b.video_id, "ko");
+      if (sort === "progress") {
+        const pa = a.segments ? a.reviewed / a.segments : 0;
+        const pb = b.segments ? b.reviewed / b.segments : 0;
+        return pb - pa;
+      }
+      const cmp = (a.created_at || "").localeCompare(b.created_at || "");
+      return sort === "oldest" ? cmp : -cmp;
+    });
+    return list;
+  }, [jobs, filter, sort]);
+
   if (selected) return <Editor videoId={selected} onBack={() => setSelected(null)} />;
 
   const runningCount = jobs.filter((j) => j.running).length;
-  const reviewedTotal = jobs.reduce((sum, j) => sum + j.reviewed, 0);
+  const koDoneCount = jobs.filter((j) => j.ko_complete).length;
 
   return (
     <div className="landing">
@@ -99,11 +139,37 @@ export function App() {
       <div className="dashboard-summary">
         <span>작업 {jobs.length}</span>
         <span>진행 중 {runningCount}</span>
-        <span>검수 완료 {reviewedTotal}</span>
+        <span>한국어 완료 {koDoneCount}</span>
+      </div>
+
+      <div className="filter-bar">
+        <label>
+          보기
+          <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <option value="all">모든 영상</option>
+            <option value="ko">한국어 검수 완료</option>
+            {allLangs.map((l) => (
+              <option key={l.code} value={l.code}>
+                {shortLang(l.label)} 번역 완료
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          정렬
+          <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
+            {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
+              <option key={k} value={k}>
+                {SORT_LABEL[k]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="filter-count">{visible.length}개</span>
       </div>
 
       <div className="job-grid">
-        {jobs.map((j) => {
+        {visible.map((j) => {
           const openable = j.segments > 0;
           const reviewedPct = j.segments ? Math.round((j.reviewed / j.segments) * 100) : 0;
           return (
@@ -126,9 +192,24 @@ export function App() {
                 </span>
                 {j.segments > 0 && (
                   <>
+                    <span className="lang-badges">
+                      <span className={"lbadge ko" + (j.ko_complete ? " done" : "")}>
+                        {j.ko_complete ? "한국어 완료" : `한국어 ${j.reviewed}/${j.segments}`}
+                      </span>
+                      {j.languages.map((l: JobLang) => (
+                        <span
+                          key={l.code}
+                          className={"lbadge" + (l.complete ? " done" : "")}
+                          title={`${l.label} 번역 검수 ${l.reviewed}/${j.segments}`}
+                        >
+                          {l.complete
+                            ? `${shortLang(l.label)} 완료`
+                            : `${shortLang(l.label)} ${l.reviewed}/${j.segments}`}
+                        </span>
+                      ))}
+                    </span>
                     <span className="meta">
-                      {Math.round(j.duration_seconds / 60)}분 · 자막 {j.segments}개 · 확인{" "}
-                      {j.reviewed}/{j.segments}
+                      {Math.round(j.duration_seconds / 60)}분 · 자막 {j.segments}개
                     </span>
                     <span className="job-progress" aria-label={`검수 진행률 ${reviewedPct}%`}>
                       <span style={{ width: `${reviewedPct}%` }} />
@@ -139,8 +220,12 @@ export function App() {
             </button>
           );
         })}
-        {jobs.length === 0 && !error && (
-          <p className="empty">아직 작업이 없습니다. 위에 링크를 붙여넣어 시작하세요.</p>
+        {visible.length === 0 && !error && (
+          <p className="empty">
+            {jobs.length === 0
+              ? "아직 작업이 없습니다. 위에 링크를 붙여넣어 시작하세요."
+              : "이 조건에 맞는 영상이 없습니다."}
+          </p>
         )}
       </div>
     </div>

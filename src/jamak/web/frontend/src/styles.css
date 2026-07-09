@@ -161,6 +161,62 @@ button {
   background: rgba(243, 247, 250, 0.86);
 }
 
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+.filter-bar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.filter-bar select {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--text);
+}
+.filter-count {
+  margin-left: auto;
+  color: var(--faint);
+}
+
+.lang-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 2px 0 2px;
+}
+.lbadge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #eef1f5;
+  color: #64748b;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.lbadge.ko {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+.lbadge.done {
+  background: #dcfce7;
+  color: #166534;
+  border-color: #bbf7d0;
+}
+.lbadge.done::before {
+  content: "✓ ";
+}
+
 .job-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));

@@ -1,3 +1,11 @@
+export interface JobLang {
+  code: string;
+  label: string;
+  translated: number;
+  reviewed: number;
+  complete: boolean;
+}
+
 export interface JobSummary {
   video_id: string;
   title: string;
@@ -5,6 +13,9 @@ export interface JobSummary {
   status: string;
   segments: number;
   reviewed: number;
+  ko_complete: boolean;
+  languages: JobLang[];
+  created_at: string;
   running: boolean;
 }
 

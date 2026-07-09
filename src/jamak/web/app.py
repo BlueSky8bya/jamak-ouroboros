@@ -75,6 +75,10 @@ def create_job(body: JobCreate) -> dict:
 
 @app.get("/api/jobs")
 def list_jobs() -> list[dict]:
+    from collections import defaultdict
+
+    from ..pipeline.translate import LANGUAGES
+
     running = _running_ids()
     with get_session() as session:
         jobs = session.exec(select(Job).order_by(Job.created_at.desc())).all()
@@ -82,9 +86,10 @@ def list_jobs() -> list[dict]:
         seen = set()
         for j in jobs:
             seen.add(j.video_id)
-            n_total = len(
+            seg_ids = list(
                 session.exec(select(Segment.id).where(Segment.job_id == j.id)).all()
             )
+            n_total = len(seg_ids)
             n_reviewed = len(
                 session.exec(
                     select(Segment.id).where(
@@ -92,6 +97,31 @@ def list_jobs() -> list[dict]:
                     )
                 ).all()
             )
+            ko_complete = n_total > 0 and n_reviewed == n_total
+
+            # per-language completion: a language is "done" when every segment
+            # has a human-reviewed translation
+            langs: list[dict] = []
+            if seg_ids:
+                trs = session.exec(
+                    select(Translation).where(Translation.segment_id.in_(seg_ids))
+                ).all()
+                by_lang: dict[str, list] = defaultdict(list)
+                for t in trs:
+                    by_lang[t.lang].append(t)
+                for code, rows in by_lang.items():
+                    reviewed = sum(1 for r in rows if r.reviewed)
+                    langs.append(
+                        {
+                            "code": code,
+                            "label": LANGUAGES.get(code, code),
+                            "translated": len(rows),
+                            "reviewed": reviewed,
+                            "complete": reviewed == n_total,
+                        }
+                    )
+                langs.sort(key=lambda x: x["code"])
+
             out.append(
                 {
                     "video_id": j.video_id,
@@ -100,6 +130,9 @@ def list_jobs() -> list[dict]:
                     "status": j.status,
                     "segments": n_total,
                     "reviewed": n_reviewed,
+                    "ko_complete": ko_complete,
+                    "languages": langs,
+                    "created_at": j.created_at.isoformat(),
                     "running": j.video_id in running,
                 }
             )
@@ -114,6 +147,9 @@ def list_jobs() -> list[dict]:
                     "status": "starting",
                     "segments": 0,
                     "reviewed": 0,
+                    "ko_complete": False,
+                    "languages": [],
+                    "created_at": "",
                     "running": True,
                 },
             )
