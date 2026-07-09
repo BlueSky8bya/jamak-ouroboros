@@ -28,6 +28,12 @@ Problem: rich 출력의 em-dash가 cp949 콘솔에서 UnicodeEncodeError.
 Change: CLI 문자열의 em-dash를 ASCII hyphen으로 교체.
 Validation: `jamak doctor` 재실행 PASS.
 
+### CHG-20260710-006 — FEAT — 세그먼트 분할 + 다국어 번역 export + 자동 흡수 (commit 54eddff)
+
+Change: split.py(자막 크기 분할), translate.py(10개 언어, 세그먼트+해시 캐시), export 파일명 `제목_자막_<lang>.srt`, export 시 absorb 자동 실행, config 레지스트리 API키 폴백.
+Validation: 104→168 분할 확인, en 번역 export PASS(에스더→Esther), 캐시 재요청 2.1s, 파일명 헤더 UTF-8 PASS.
+Rollback: commit 54eddff revert. Translation 테이블은 삭제해도 원문 무손실.
+
 ### CHG-20260710-005 — DOCS — WHITEHAVEN Agent Harness 도입 (MODE C)
 
 Change: agent-harness.yaml, AGENTS.md, docs/agent/* 생성. CLAUDE.md를 adapter로 축소. 기존 CLAUDE.md 내용은 CONSTITUTION/PROJECT_MAP으로 재배치.
