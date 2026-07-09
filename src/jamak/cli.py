@@ -110,6 +110,8 @@ def run(
             job = Job(video_id=res.video_id, url=url)
         job.title, job.channel = res.title, res.channel
         job.duration_seconds = res.duration_seconds
+        if res.upload_date:
+            job.upload_date = res.upload_date
         job.status, job.updated_at = "ingested", utcnow()
         session.add(job)
         session.commit()
@@ -293,6 +295,32 @@ def eval() -> None:  # noqa: A001
             f"{gain:+.2%}",
         )
     console.print(table)
+
+
+@app.command("backfill-dates")
+def backfill_dates() -> None:
+    """Fetch YouTube upload dates for jobs ingested before we stored them."""
+    from sqlmodel import select
+
+    from .pipeline.ingest import fetch_upload_date
+
+    with get_session() as session:
+        jobs = session.exec(select(Job).where(Job.upload_date == "")).all()
+        if not jobs:
+            console.print("all jobs already have upload dates")
+            return
+        for job in jobs:
+            try:
+                d = fetch_upload_date(job.video_id)
+            except Exception as e:  # noqa: BLE001
+                console.print(f"[yellow]skip[/] {job.video_id}: {e}")
+                continue
+            if d:
+                job.upload_date = d
+                session.add(job)
+                console.print(f"{job.video_id}: {d}")
+        session.commit()
+    console.print("done")
 
 
 @app.command()

@@ -18,6 +18,7 @@ class IngestResult:
     title: str
     channel: str
     duration_seconds: float
+    upload_date: str  # YouTube upload date, YYYYMMDD ('' if unknown)
     audio_path: Path
     captions_path: Path | None  # ko auto-captions (json3), None if unavailable
     job_dir: Path
@@ -28,6 +29,18 @@ def extract_video_id(url: str) -> str:
     if not m:
         raise ValueError(f"Cannot extract video id from URL: {url}")
     return m.group(1)
+
+
+def fetch_upload_date(video_id: str) -> str:
+    """Metadata-only fetch of the YouTube upload date (YYYYMMDD).
+
+    Used to backfill jobs ingested before we captured the date. No media
+    is downloaded.
+    """
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as ydl:
+        info = ydl.extract_info(url, download=False)
+    return info.get("upload_date") or ""
 
 
 def ingest(url: str) -> IngestResult:
@@ -69,6 +82,7 @@ def ingest(url: str) -> IngestResult:
                     "title": info.get("title", ""),
                     "channel": info.get("channel", ""),
                     "duration": info.get("duration", 0),
+                    "upload_date": info.get("upload_date", ""),
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -84,6 +98,7 @@ def ingest(url: str) -> IngestResult:
         title=info.get("title", ""),
         channel=info.get("channel", ""),
         duration_seconds=float(info.get("duration", 0)),
+        upload_date=info.get("upload_date", ""),
         audio_path=audio_path,
         captions_path=captions,
         job_dir=job_dir,

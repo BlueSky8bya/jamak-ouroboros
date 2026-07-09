@@ -470,6 +470,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     title: "재생과 이동",
     items: [
       { keys: ["Tab"], label: "재생 / 일시정지", detail: "스페이스바는 입력 전용" },
+      { keys: ["Ctrl+\\"], label: "이 자막 처음부터 다시 재생", detail: "편집 중에도 동작" },
       { keys: ["Shift+Tab"], label: "3초 뒤로", detail: "놓친 부분 다시 듣기" },
       { keys: ["Alt+↑", "Alt+↓"], label: "이전 / 다음 자막으로 이동" },
     ],
@@ -515,7 +516,7 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
   const [focusedId, setFocusedId] = useState<number | null>(null);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [statusMsg, setStatusMsg] = useState("");
-  const { currentTime, playing, seekTo, seekBy, pause, playPause } = usePlayer(videoId);
+  const { currentTime, playing, seekTo, seekBy, play, pause, playPause } = usePlayer(videoId);
 
   const rowsRef = useRef(new Map<number, RowHandle>());
   const focusedIdRef = useRef<number | null>(null);
@@ -615,6 +616,19 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
     window.setTimeout(() => rowsRef.current.get(seg.id)?.focus(), 0);
   }
 
+  // replay the subtitle you're on, from its start (works while typing)
+  function replayCurrent() {
+    const segs = segmentsRef.current;
+    const cur =
+      segs.find((s) => s.id === focusedIdRef.current) ??
+      segs.find((s) => currentTime >= s.start && currentTime < s.end) ??
+      segs.find((s) => s.id === activeId);
+    if (cur) {
+      seekTo(cur.start);
+      play();
+    }
+  }
+
   async function continueWork() {
     await flushAll();
     const target = nextWorkTarget(segmentsRef.current, focusedIdRef.current ?? activeId ?? null);
@@ -690,6 +704,12 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
       if (e.key === "Delete" && !isTypingTarget(e.target)) {
         e.preventDefault();
         deleteRow(currentRow());
+        return;
+      }
+      // Ctrl+\ = replay the current subtitle from its start (safe while typing)
+      if ((e.ctrlKey || e.metaKey) && (e.code === "Backslash" || e.key === "\\")) {
+        e.preventDefault();
+        replayCurrent();
         return;
       }
       if (e.key === "Tab" && !e.ctrlKey && !e.altKey) {
@@ -813,6 +833,13 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
         </button>
         <div id="yt-player" />
         <div className="play-controls">
+          <button
+            className="pc-btn"
+            title="지금 편집 중인 자막을 처음부터 다시 재생 (Ctrl+\)"
+            onClick={replayCurrent}
+          >
+            ⏮ 구간처음
+          </button>
           <button className="pc-btn" title="3초 뒤로 (Shift+Tab)" onClick={() => seekBy(-3)}>
             ⟲ 3초
           </button>

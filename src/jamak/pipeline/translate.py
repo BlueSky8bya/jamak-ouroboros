@@ -17,6 +17,7 @@ from ..config import TRANSLATE_MODEL
 from ..db import Translation, get_session
 
 # display order = rough global usage order (user-facing list)
+# English labels here are the translation TARGET names given to the model.
 LANGUAGES: dict[str, str] = {
     "en": "English",
     "ja": "Japanese (日本語)",
@@ -28,6 +29,21 @@ LANGUAGES: dict[str, str] = {
     "de": "German (Deutsch)",
     "pt": "Portuguese (Português)",
     "ru": "Russian (Русский)",
+}
+
+# short Korean names for the UI (badges, dropdowns)
+LANG_KO: dict[str, str] = {
+    "ko": "한국어",
+    "en": "영어",
+    "ja": "일본어",
+    "zh-Hans": "중국어(간체)",
+    "zh-Hant": "중국어(번체)",
+    "es": "스페인어",
+    "fr": "프랑스어",
+    "it": "이탈리아어",
+    "de": "독일어",
+    "pt": "포르투갈어",
+    "ru": "러시아어",
 }
 
 CHUNK_SIZE = 60

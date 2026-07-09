@@ -27,6 +27,7 @@ class Job(SQLModel, table=True):
     title: str = ""
     channel: str = ""
     duration_seconds: float = 0.0
+    upload_date: str = ""  # YouTube upload date YYYYMMDD ('' if unknown)
     # pending -> ingested -> transcribed -> corrected -> reviewing -> done
     status: str = Field(default="pending", index=True)
     created_at: datetime = Field(default_factory=utcnow)
@@ -126,6 +127,9 @@ def _ensure_columns(engine) -> None:
         "translation": {
             "reviewed": "BOOLEAN DEFAULT 0",
             "edited": "BOOLEAN DEFAULT 0",
+        },
+        "job": {
+            "upload_date": "VARCHAR DEFAULT ''",
         },
     }
     insp = inspect(engine)

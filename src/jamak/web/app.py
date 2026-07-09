@@ -77,7 +77,7 @@ def create_job(body: JobCreate) -> dict:
 def list_jobs() -> list[dict]:
     from collections import defaultdict
 
-    from ..pipeline.translate import LANGUAGES
+    from ..pipeline.translate import LANG_KO
 
     running = _running_ids()
     with get_session() as session:
@@ -114,7 +114,7 @@ def list_jobs() -> list[dict]:
                     langs.append(
                         {
                             "code": code,
-                            "label": LANGUAGES.get(code, code),
+                            "label": LANG_KO.get(code, code),
                             "translated": len(rows),
                             "reviewed": reviewed,
                             "complete": reviewed == n_total,
@@ -133,6 +133,7 @@ def list_jobs() -> list[dict]:
                     "ko_complete": ko_complete,
                     "languages": langs,
                     "created_at": j.created_at.isoformat(),
+                    "upload_date": j.upload_date,
                     "running": j.video_id in running,
                 }
             )
@@ -150,6 +151,7 @@ def list_jobs() -> list[dict]:
                     "ko_complete": False,
                     "languages": [],
                     "created_at": "",
+                    "upload_date": "",
                     "running": True,
                 },
             )
@@ -590,10 +592,10 @@ def export_srt(video_id: str, stage: str = "best", lang: str = "ko"):
 
 @app.get("/api/languages")
 def languages() -> list[dict]:
-    from ..pipeline.translate import LANGUAGES
+    from ..pipeline.translate import LANG_KO, LANGUAGES
 
     return [{"code": "ko", "label": "한국어 (원문)"}] + [
-        {"code": c, "label": l} for c, l in LANGUAGES.items()
+        {"code": c, "label": LANG_KO.get(c, l)} for c, l in LANGUAGES.items()
     ]
 
 

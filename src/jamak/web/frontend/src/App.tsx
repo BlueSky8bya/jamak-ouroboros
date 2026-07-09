@@ -24,13 +24,9 @@ function statusLabel(j: JobSummary): string {
   return STATUS_LABEL[j.status] ?? j.status;
 }
 
-/** "Japanese (日本語)" -> "Japanese" for compact badges */
-function shortLang(label: string): string {
-  return label.split(" (")[0];
-}
-
-type SortKey = "recent" | "oldest" | "title" | "progress";
+type SortKey = "uploaded" | "recent" | "oldest" | "title" | "progress";
 const SORT_LABEL: Record<SortKey, string> = {
+  uploaded: "유튜브 업로드 최신순",
   recent: "최근 추가순",
   oldest: "오래된 순",
   title: "제목순",
@@ -44,7 +40,8 @@ export function App() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [filter, setFilter] = useState("all"); // all | ko | <langcode>
-  const [sort, setSort] = useState<SortKey>("recent");
+  const [sort, setSort] = useState<SortKey>("uploaded");
+  const [query, setQuery] = useState("");
   const timer = useRef<number | null>(null);
 
   async function refresh() {
@@ -91,6 +88,8 @@ export function App() {
 
   const visible = useMemo(() => {
     let list = jobs.slice();
+    const q = query.trim().toLowerCase();
+    if (q) list = list.filter((j) => (j.title || j.video_id).toLowerCase().includes(q));
     if (filter === "ko") list = list.filter((j) => j.ko_complete);
     else if (filter !== "all")
       list = list.filter((j) => j.languages.some((l) => l.code === filter && l.complete));
@@ -101,11 +100,18 @@ export function App() {
         const pb = b.segments ? b.reviewed / b.segments : 0;
         return pb - pa;
       }
+      if (sort === "uploaded") {
+        // real YouTube upload date; jobs without one sort last
+        const ua = a.upload_date || "0";
+        const ub = b.upload_date || "0";
+        if (ua !== ub) return ub.localeCompare(ua);
+        return (b.created_at || "").localeCompare(a.created_at || "");
+      }
       const cmp = (a.created_at || "").localeCompare(b.created_at || "");
       return sort === "oldest" ? cmp : -cmp;
     });
     return list;
-  }, [jobs, filter, sort]);
+  }, [jobs, filter, sort, query]);
 
   if (selected) return <Editor videoId={selected} onBack={() => setSelected(null)} />;
 
@@ -143,14 +149,21 @@ export function App() {
       </div>
 
       <div className="filter-bar">
+        <input
+          className="search"
+          type="search"
+          placeholder="🔍 제목으로 검색"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
         <label>
           보기
           <select value={filter} onChange={(e) => setFilter(e.target.value)}>
             <option value="all">모든 영상</option>
-            <option value="ko">한국어 검수 완료</option>
+            <option value="ko">한국어 완료</option>
             {allLangs.map((l) => (
               <option key={l.code} value={l.code}>
-                {shortLang(l.label)} 번역 완료
+                {l.label} 완료
               </option>
             ))}
           </select>
@@ -193,8 +206,11 @@ export function App() {
                 {j.segments > 0 && (
                   <>
                     <span className="lang-badges">
-                      <span className={"lbadge ko" + (j.ko_complete ? " done" : "")}>
-                        {j.ko_complete ? "한국어 완료" : `한국어 ${j.reviewed}/${j.segments}`}
+                      <span
+                        className={"lbadge ko" + (j.ko_complete ? " done" : "")}
+                        title={`한국어 검수 ${j.reviewed}/${j.segments}`}
+                      >
+                        {j.ko_complete ? "한국어 ✓" : `한국어 ${j.reviewed}/${j.segments}`}
                       </span>
                       {j.languages.map((l: JobLang) => (
                         <span
@@ -202,14 +218,14 @@ export function App() {
                           className={"lbadge" + (l.complete ? " done" : "")}
                           title={`${l.label} 번역 검수 ${l.reviewed}/${j.segments}`}
                         >
-                          {l.complete
-                            ? `${shortLang(l.label)} 완료`
-                            : `${shortLang(l.label)} ${l.reviewed}/${j.segments}`}
+                          {l.complete ? `${l.label} ✓` : `${l.label} ${l.reviewed}/${j.segments}`}
                         </span>
                       ))}
                     </span>
                     <span className="meta">
                       {Math.round(j.duration_seconds / 60)}분 · 자막 {j.segments}개
+                      {j.upload_date &&
+                        ` · 업로드 ${j.upload_date.slice(0, 4)}.${j.upload_date.slice(4, 6)}.${j.upload_date.slice(6, 8)}`}
                     </span>
                     <span className="job-progress" aria-label={`검수 진행률 ${reviewedPct}%`}>
                       <span style={{ width: `${reviewedPct}%` }} />

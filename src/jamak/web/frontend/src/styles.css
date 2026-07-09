@@ -183,6 +183,20 @@ button {
   font-size: 13px;
   color: var(--text);
 }
+.filter-bar .search {
+  flex: 1 1 220px;
+  max-width: 340px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--text);
+}
+.filter-bar .search:focus {
+  outline: none;
+  border-color: var(--blue);
+}
 .filter-count {
   margin-left: auto;
   color: var(--faint);
@@ -212,9 +226,6 @@ button {
   background: #dcfce7;
   color: #166534;
   border-color: #bbf7d0;
-}
-.lbadge.done::before {
-  content: "✓ ";
 }
 
 .job-grid {

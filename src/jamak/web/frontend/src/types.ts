@@ -16,6 +16,7 @@ export interface JobSummary {
   ko_complete: boolean;
   languages: JobLang[];
   created_at: string;
+  upload_date: string; // YouTube upload date YYYYMMDD ('' if unknown)
   running: boolean;
 }
 
