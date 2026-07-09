@@ -152,15 +152,19 @@ def translate_segments(seg_dicts: list[dict], text_key: str, lang: str, console=
     with get_session() as session:
         for seg_id, text in sources.items():
             h = _hash(text)
-            cached = session.exec(
+            existing = session.exec(
                 select(Translation).where(
-                    Translation.segment_id == seg_id,
-                    Translation.lang == lang,
-                    Translation.source_hash == h,
+                    Translation.segment_id == seg_id, Translation.lang == lang
                 )
-            ).first()
-            if cached:
-                result[seg_id] = cached.text
+            ).all()
+            # human work (edited/reviewed) is never re-translated away, even if
+            # the Korean changed — the human re-translates explicitly if needed
+            protected = next((t for t in existing if t.edited or t.reviewed), None)
+            fresh = next((t for t in existing if t.source_hash == h), None)
+            if protected is not None:
+                result[seg_id] = protected.text
+            elif fresh is not None:
+                result[seg_id] = fresh.text
             else:
                 todo.append((seg_id, text))
 
@@ -170,12 +174,14 @@ def translate_segments(seg_dicts: list[dict], text_key: str, lang: str, console=
             for seg_id, text in todo:
                 if seg_id not in translated:
                     continue
-                # replace any stale cache rows for this segment+lang
+                # replace stale, non-protected cache rows for this segment+lang
                 for old in session.exec(
                     select(Translation).where(
                         Translation.segment_id == seg_id, Translation.lang == lang
                     )
                 ).all():
+                    if old.edited or old.reviewed:
+                        continue
                     session.delete(old)
                 session.add(
                     Translation(

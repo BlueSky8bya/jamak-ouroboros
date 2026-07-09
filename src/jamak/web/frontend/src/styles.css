@@ -348,6 +348,91 @@ button {
   color: #1e40af;
 }
 
+/* translation review */
+.tinfo,
+.tempty {
+  padding: 24px;
+  color: var(--muted, #556);
+  font-size: 14px;
+}
+.tempty .export {
+  margin-top: 12px;
+}
+.treview-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 4px 12px;
+  font-weight: 700;
+  color: var(--ink, #223);
+}
+.mini {
+  font-size: 12px;
+  padding: 5px 10px;
+  border: 1px solid var(--line, #d3d9e2);
+  background: var(--surface, #fff);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.trow {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--line, #e2e5ea);
+  border-radius: 8px;
+}
+.trow.reviewed {
+  border-left: 4px solid #16a34a;
+  opacity: 0.85;
+}
+.trow .time {
+  border: none;
+  background: none;
+  color: var(--blue, #4a7dff);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 0;
+  white-space: nowrap;
+}
+.tcol {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tko {
+  font-size: 13px;
+  color: var(--muted, #556);
+  line-height: 1.5;
+}
+.tlabel {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-right: 6px;
+  background: #e0e7ff;
+  color: #3730a3;
+}
+.ttext {
+  width: 100%;
+  border: 1px solid var(--line, #d8dce1);
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 15px;
+  line-height: 1.5;
+  resize: vertical;
+  font-family: inherit;
+}
+.ttext:focus {
+  outline: none;
+  border-color: var(--blue, #4a7dff);
+}
+
 .orientation,
 .workbar,
 .sources,

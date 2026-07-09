@@ -97,6 +97,46 @@ export async function deleteSegment(id: number): Promise<void> {
   if (!r.ok) throw new Error(`delete: ${r.status}`);
 }
 
+export interface TranslationRow {
+  segment_id: number;
+  idx: number;
+  start: number;
+  end: number;
+  ko: string;
+  text: string;
+  reviewed: boolean;
+  has_translation: boolean;
+}
+
+export async function makeTranslations(
+  videoId: string,
+  lang: string,
+): Promise<{ lang: string; translated: number; segments: number }> {
+  const r = await fetch(`/api/jobs/${videoId}/translate?lang=${lang}`, { method: "POST" });
+  if (!r.ok) throw new Error((await r.json()).detail ?? `translate: ${r.status}`);
+  return r.json();
+}
+
+export async function fetchTranslations(videoId: string, lang: string): Promise<TranslationRow[]> {
+  const r = await fetch(`/api/jobs/${videoId}/translations?lang=${lang}`);
+  if (!r.ok) throw new Error(`translations: ${r.status}`);
+  return r.json();
+}
+
+export async function updateTranslation(
+  segmentId: number,
+  lang: string,
+  body: { text?: string; reviewed?: boolean },
+): Promise<{ segment_id: number; text: string; reviewed: boolean }> {
+  const r = await fetch(`/api/translations/${segmentId}?lang=${lang}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`save translation: ${r.status}`);
+  return r.json();
+}
+
 export async function absorbFeedback(videoId: string): Promise<{
   reviewed_segments: number;
   new_pairs: number;

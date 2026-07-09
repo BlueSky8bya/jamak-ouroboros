@@ -97,6 +97,8 @@ class Translation(SQLModel, table=True):
     lang: str = Field(index=True)  # en, ja, zh-Hans, zh-Hant, es, fr, it, ...
     text: str
     source_hash: str
+    reviewed: bool = False  # human checked this translation
+    edited: bool = False  # human changed the text (protect from re-translate)
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -115,12 +117,36 @@ class GlossaryTerm(SQLModel, table=True):
 _engine = None
 
 
+def _ensure_columns(engine) -> None:
+    """Lightweight additive migration for SQLite (create_all won't add
+    columns to an existing table). Adds any missing nullable columns."""
+    from sqlalchemy import inspect, text
+
+    wanted = {
+        "translation": {
+            "reviewed": "BOOLEAN DEFAULT 0",
+            "edited": "BOOLEAN DEFAULT 0",
+        },
+    }
+    insp = inspect(engine)
+    existing_tables = set(insp.get_table_names())
+    with engine.begin() as conn:
+        for table, cols in wanted.items():
+            if table not in existing_tables:
+                continue
+            have = {c["name"] for c in insp.get_columns(table)}
+            for name, ddl in cols.items():
+                if name not in have:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+
+
 def get_engine():
     global _engine
     if _engine is None:
         ensure_dirs()
         _engine = create_engine(f"sqlite:///{DB_PATH}")
         SQLModel.metadata.create_all(_engine)
+        _ensure_columns(_engine)
     return _engine
 
 

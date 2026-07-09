@@ -561,6 +561,110 @@ def languages() -> list[dict]:
     ]
 
 
+def _best_ko(seg: Segment) -> str:
+    return seg.text_final or seg.text_llm or seg.text_whisper
+
+
+@app.post("/api/jobs/{video_id}/translate")
+def make_translations(video_id: str, lang: str) -> dict:
+    """Generate (context-aware, cached) translations for every segment.
+
+    Gated on the Korean review being complete — translating a draft wastes
+    API cost and forces re-translation after the Korean is fixed.
+    """
+    from ..pipeline.translate import LANGUAGES, translate_segments
+
+    if lang == "ko" or lang not in LANGUAGES:
+        raise HTTPException(400, f"unsupported language {lang}")
+
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+        segs = session.exec(
+            select(Segment).where(Segment.job_id == job.id).order_by(Segment.idx)
+        ).all()
+        total = len(segs)
+        reviewed = sum(1 for s in segs if s.reviewed)
+        if total == 0:
+            raise HTTPException(400, "no segments")
+        if reviewed < total:
+            raise HTTPException(
+                409,
+                f"한국어 검수를 먼저 끝내주세요 ({reviewed}/{total} 확인됨). "
+                "번역은 원문 검수가 끝난 뒤에 시작할 수 있습니다.",
+            )
+        seg_dicts = [s.model_dump() for s in segs]
+
+    for d in seg_dicts:
+        d["ko"] = d["text_final"] or d["text_llm"] or d["text_whisper"]
+    translated = translate_segments(seg_dicts, "ko", lang)
+    return {"lang": lang, "translated": len(translated), "segments": len(seg_dicts)}
+
+
+@app.get("/api/jobs/{video_id}/translations")
+def get_translations(video_id: str, lang: str) -> list[dict]:
+    """KO + translation per segment, for the translation review view."""
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+        segs = session.exec(
+            select(Segment).where(Segment.job_id == job.id).order_by(Segment.idx)
+        ).all()
+        rows = session.exec(
+            select(Translation).where(Translation.lang == lang)
+        ).all()
+        by_seg = {t.segment_id: t for t in rows}
+        out = []
+        for s in segs:
+            t = by_seg.get(s.id)
+            out.append(
+                {
+                    "segment_id": s.id,
+                    "idx": s.idx,
+                    "start": s.start,
+                    "end": s.end,
+                    "ko": _best_ko(s),
+                    "text": t.text if t else "",
+                    "reviewed": t.reviewed if t else False,
+                    "has_translation": t is not None,
+                }
+            )
+        return out
+
+
+class TranslationUpdate(BaseModel):
+    text: str | None = None
+    reviewed: bool | None = None
+
+
+@app.put("/api/translations/{segment_id}")
+def update_translation(segment_id: int, lang: str, body: TranslationUpdate) -> dict:
+    with get_session() as session:
+        seg = session.get(Segment, segment_id)
+        if seg is None:
+            raise HTTPException(404, "segment not found")
+        t = session.exec(
+            select(Translation).where(
+                Translation.segment_id == segment_id, Translation.lang == lang
+            )
+        ).first()
+        if t is None:
+            t = Translation(
+                segment_id=segment_id, lang=lang, text="", source_hash=""
+            )
+        if body.text is not None and body.text != t.text:
+            t.text = body.text
+            t.edited = True
+        if body.reviewed is not None:
+            t.reviewed = body.reviewed
+        session.add(t)
+        session.commit()
+        session.refresh(t)
+        return {"segment_id": segment_id, "text": t.text, "reviewed": t.reviewed}
+
+
 @app.post("/api/jobs/{video_id}/absorb")
 def absorb(video_id: str) -> dict:
     """Ouroboros feedback: pull reviewed diffs into the corrections DB."""

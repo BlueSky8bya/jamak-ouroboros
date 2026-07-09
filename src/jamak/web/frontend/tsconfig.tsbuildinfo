@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/editor.tsx","./src/api.ts","./src/main.tsx","./src/types.ts","./src/useplayer.ts"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/editor.tsx","./src/translatereview.tsx","./src/api.ts","./src/main.tsx","./src/types.ts","./src/useplayer.ts"],"version":"5.9.3"}

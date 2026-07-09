@@ -12,6 +12,7 @@ import {
   splitSegment,
   updateSegment,
 } from "./api";
+import { TranslateReview } from "./TranslateReview";
 import type { Segment } from "./types";
 import { usePlayer } from "./usePlayer";
 
@@ -506,6 +507,13 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
 
   const nReviewed = segments.filter((s) => s.reviewed).length;
   const nRemaining = Math.max(0, segments.length - nReviewed);
+  const koComplete = segments.length > 0 && nReviewed === segments.length;
+  const langLabel = langs.find((l) => l.code === lang)?.label ?? lang;
+
+  // never let a locked language stay selected
+  useEffect(() => {
+    if (lang !== "ko" && !koComplete) setLang("ko");
+  }, [lang, koComplete]);
 
   function markFocused(id: number) {
     focusedIdRef.current = id;
@@ -797,10 +805,15 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
           <strong>{nRemaining ? `${nRemaining}개 남음` : "완료"}</strong>
         </button>
         <div className="export-row">
-          <select value={lang} onChange={(e) => setLang(e.target.value)}>
+          <select
+            value={lang}
+            onChange={(e) => setLang(e.target.value)}
+            title={koComplete ? "" : "한국어 검수를 마치면 번역 언어를 선택할 수 있어요"}
+          >
             {langs.map((l) => (
-              <option key={l.code} value={l.code}>
+              <option key={l.code} value={l.code} disabled={l.code !== "ko" && !koComplete}>
                 {l.label}
+                {l.code !== "ko" && !koComplete ? " (한국어 검수 후)" : ""}
               </option>
             ))}
           </select>
@@ -896,29 +909,39 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
         </div>
       </div>
       <div className="right">
-        {segments.map((seg) => (
-          <Row
-            key={seg.id}
-            seg={seg}
-            active={seg.id === activeId}
-            focused={seg.id === focusedId}
+        {lang !== "ko" ? (
+          <TranslateReview
+            videoId={videoId}
+            lang={lang}
+            langLabel={langLabel}
             currentTime={currentTime}
-            hasNext={segments.some((s) => s.job_id === seg.job_id && s.idx === seg.idx + 1)}
-            register={(h) => {
-              if (h) rowsRef.current.set(seg.id, h);
-              else rowsRef.current.delete(seg.id);
-            }}
             onSeek={seekTo}
-            onSave={save}
-            onTime={timeChange}
-            onTiming={timing}
-            onStructure={structure}
-            onTyping={() => {
-              if (pauseOnType && playing) pause();
-            }}
-            onFocusRow={markFocused}
           />
-        ))}
+        ) : (
+          segments.map((seg) => (
+            <Row
+              key={seg.id}
+              seg={seg}
+              active={seg.id === activeId}
+              focused={seg.id === focusedId}
+              currentTime={currentTime}
+              hasNext={segments.some((s) => s.job_id === seg.job_id && s.idx === seg.idx + 1)}
+              register={(h) => {
+                if (h) rowsRef.current.set(seg.id, h);
+                else rowsRef.current.delete(seg.id);
+              }}
+              onSeek={seekTo}
+              onSave={save}
+              onTime={timeChange}
+              onTiming={timing}
+              onStructure={structure}
+              onTyping={() => {
+                if (pauseOnType && playing) pause();
+              }}
+              onFocusRow={markFocused}
+            />
+          ))
+        )}
       </div>
     </div>
   );
