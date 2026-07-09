@@ -12,6 +12,7 @@ export function usePlayer(videoId: string) {
   const playerRef = useRef<any>(null);
   const [ready, setReady] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [playing, setPlaying] = useState(false);
 
   useEffect(() => {
     let disposed = false;
@@ -21,7 +22,10 @@ export function usePlayer(videoId: string) {
       playerRef.current = new window.YT.Player("yt-player", {
         videoId,
         playerVars: { rel: 0 },
-        events: { onReady: () => setReady(true) },
+        events: {
+          onReady: () => setReady(true),
+          onStateChange: (e: any) => setPlaying(e.data === 1),
+        },
       });
     }
 
@@ -52,16 +56,23 @@ export function usePlayer(videoId: string) {
     };
   }, [videoId]);
 
+  const p = () => playerRef.current;
+
   return {
     ready,
     currentTime,
-    seekTo: (t: number) => playerRef.current?.seekTo?.(t, true),
+    playing,
+    seekTo: (t: number) => p()?.seekTo?.(t, true),
+    seekBy: (delta: number) => {
+      const cur = p()?.getCurrentTime?.() ?? 0;
+      p()?.seekTo?.(Math.max(0, cur + delta), true);
+    },
+    play: () => p()?.playVideo?.(),
+    pause: () => p()?.pauseVideo?.(),
     playPause: () => {
-      const p = playerRef.current;
-      if (!p?.getPlayerState) return;
-      // 1 = playing
-      if (p.getPlayerState() === 1) p.pauseVideo();
-      else p.playVideo();
+      if (!p()?.getPlayerState) return;
+      if (p().getPlayerState() === 1) p().pauseVideo();
+      else p().playVideo();
     },
   };
 }

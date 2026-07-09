@@ -73,8 +73,8 @@ export function App() {
   return (
     <div className="landing">
       <header>
-        <h1>jamak<span>-ouroboros</span></h1>
-        <p>유튜브 링크를 넣으면 자막 초안을 만들고, 검수할수록 정확해집니다.</p>
+        <h1>자막 작업</h1>
+        <p>유튜브 링크를 넣으면 자막 초안이 만들어집니다. 고칠수록 다음 영상이 더 정확해집니다.</p>
       </header>
 
       <div className="url-box">
@@ -114,7 +114,7 @@ export function App() {
                 </span>
                 {j.segments > 0 && (
                   <span className="meta">
-                    {Math.round(j.duration_seconds / 60)}분 · {j.segments} 세그먼트 · 검수{" "}
+                    {Math.round(j.duration_seconds / 60)}분 · 자막 {j.segments}개 · 확인{" "}
                     {j.reviewed}/{j.segments}
                   </span>
                 )}
