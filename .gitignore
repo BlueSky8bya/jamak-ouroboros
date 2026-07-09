@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+
+# Data (large media + working files stay local)
+data/jobs/
+data/*.db
+data/*.db-journal
+
+# Node (M3 frontend)
+node_modules/
+src/jamak/web/frontend/dist/
+
+# Env
+.env
+
+# OS
+Thumbs.db
+Desktop.ini

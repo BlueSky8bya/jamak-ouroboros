@@ -1,0 +1,35 @@
+[project]
+name = "jamak"
+version = "0.1.0"
+description = "YouTube Korean subtitle pipeline with an ouroboros feedback loop (허경영 강연 자막 자동화)"
+readme = "README.md"
+authors = [
+    { name = "임상택", email = "blackspace665@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "yt-dlp>=2025.1.1",
+    "faster-whisper>=1.1.0",
+    "anthropic>=0.40.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "sqlmodel>=0.0.22",
+    "typer>=0.15.0",
+    "srt>=3.5.3",
+    "rapidfuzz>=3.10.0",
+    "jiwer>=3.0.5",
+    "rich>=13.9.0",
+]
+
+[project.optional-dependencies]
+cuda = [
+    "nvidia-cublas-cu12",
+    "nvidia-cudnn-cu12>=9.0",
+]
+
+[project.scripts]
+jamak = "jamak.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.10.2,<0.11.0"]
+build-backend = "uv_build"

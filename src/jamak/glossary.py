@@ -1,0 +1,51 @@
+"""Ouroboros read side: pull learned vocabulary and correction pairs
+out of the DB and shape them for injection into whisper / Claude."""
+
+from __future__ import annotations
+
+from sqlmodel import select
+
+from .db import Correction, GlossaryTerm, get_session
+
+
+def whisper_prompt(max_terms: int = 60) -> str:
+    """Approved glossary terms as an initial_prompt for whisper.
+
+    Whisper treats the prompt as preceding transcript, so a natural
+    sentence listing the vocabulary works better than a bare word list.
+    """
+    with get_session() as session:
+        terms = session.exec(
+            select(GlossaryTerm)
+            .where(GlossaryTerm.approved == True)  # noqa: E712
+            .limit(max_terms)
+        ).all()
+    if not terms:
+        return "허경영 강연입니다. 신인, 축지법, 공중부양, 하늘궁 같은 용어가 나옵니다."
+    words = ", ".join(t.term for t in terms)
+    return f"허경영 강연입니다. 다음 용어가 자주 나옵니다: {words}."
+
+
+def glossary_block(max_terms: int = 200) -> str:
+    """Glossary as a text block for the Claude correction prompt."""
+    with get_session() as session:
+        terms = session.exec(
+            select(GlossaryTerm)
+            .where(GlossaryTerm.approved == True)  # noqa: E712
+            .limit(max_terms)
+        ).all()
+    lines = []
+    for t in terms:
+        variants = f" (오인식 예: {t.variants})" if t.variants else ""
+        cat = f" [{t.category}]" if t.category else ""
+        lines.append(f"- {t.term}{cat}{variants}")
+    return "\n".join(lines)
+
+
+def fewshot_corrections(max_pairs: int = 40) -> list[tuple[str, str, str]]:
+    """Most frequent learned corrections: (wrong, right, context)."""
+    with get_session() as session:
+        rows = session.exec(
+            select(Correction).order_by(Correction.count.desc()).limit(max_pairs)
+        ).all()
+    return [(c.wrong, c.right, c.context) for c in rows]
