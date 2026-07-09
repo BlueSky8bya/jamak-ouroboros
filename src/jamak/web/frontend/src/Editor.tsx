@@ -51,47 +51,114 @@ function TimingStrip({
   activeId,
   focusedId,
   onSeek,
+  onBoundaryDrag,
 }: {
   segments: Segment[];
   currentTime: number;
   activeId: number | undefined;
   focusedId: number | null;
   onSeek: (t: number) => void;
+  onBoundaryDrag: (segId: number, time: number) => void;
 }) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  // while dragging a boundary, freeze the window + show a live preview time.
+  // dragRef mirrors state so move/up handlers see the current drag even
+  // between renders (fast drags would otherwise read a stale closure).
+  const [drag, setDrag] = useState<{ segId: number; time: number } | null>(null);
+  const dragRef = useRef<{ segId: number; time: number } | null>(null);
+  const winRef = useRef<{ start: number; span: number } | null>(null);
+  function setDragState(v: { segId: number; time: number } | null) {
+    dragRef.current = v;
+    setDrag(v);
+  }
+
   const focused = segments.find((s) => s.id === focusedId);
-  const active = segments.find((s) => s.id === activeId);
-  const center = focused ? (focused.start + focused.end) / 2 : currentTime;
-  const start = Math.max(0, center - 8);
-  const end = Math.max(start + 12, center + 8);
-  const span = end - start;
+  const live = (() => {
+    if (drag && winRef.current) return winRef.current;
+    const center = focused ? (focused.start + focused.end) / 2 : currentTime;
+    const start = Math.max(0, center - 8);
+    const end = Math.max(start + 12, center + 8);
+    return { start, span: end - start };
+  })();
+  const { start, span } = live;
+  const end = start + span;
   const local = segments.filter((s) => s.end >= start && s.start <= end);
   const marker = clamp(((currentTime - start) / span) * 100, 0, 100);
 
+  function timeAtClientX(clientX: number): number {
+    const rect = trackRef.current!.getBoundingClientRect();
+    const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
+    return start + ratio * span;
+  }
+
+  function startDrag(e: React.PointerEvent, seg: Segment) {
+    e.stopPropagation();
+    e.preventDefault();
+    winRef.current = { start, span }; // freeze window for the whole drag
+    try {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      /* capture unavailable (e.g. synthetic pointer) — drag still works */
+    }
+    setDragState({ segId: seg.id, time: seg.end });
+  }
+  function moveDrag(e: React.PointerEvent) {
+    const d = dragRef.current;
+    if (!d) return;
+    setDragState({ segId: d.segId, time: timeAtClientX(e.clientX) });
+  }
+  function endDrag(e: React.PointerEvent) {
+    const d = dragRef.current;
+    if (!d) return;
+    const t = timeAtClientX(e.clientX);
+    onBoundaryDrag(d.segId, t);
+    setDragState(null);
+    winRef.current = null;
+  }
+
   return (
     <div className="timing-strip">
-      <div className="strip-track">
+      <div className="strip-track" ref={trackRef} onPointerMove={moveDrag} onPointerUp={endDrag}>
         {local.map((s) => {
           const left = clamp(((s.start - start) / span) * 100, 0, 100);
           const right = clamp(((s.end - start) / span) * 100, 0, 100);
+          const hasNext = segments.some((o) => o.job_id === s.job_id && o.idx === s.idx + 1);
+          const handleLeft =
+            drag?.segId === s.id ? clamp(((drag.time - start) / span) * 100, 0, 100) : right;
           return (
-            <button
-              key={s.id}
-              className={
-                "strip-seg" +
-                (s.id === active?.id ? " active" : "") +
-                (s.id === focusedId ? " focused" : "")
-              }
-              style={{ left: `${left}%`, width: `${Math.max(1.5, right - left)}%` }}
-              title={`#${segmentNo(segments, s.id)} ${fmt(s.start)} - ${fmt(s.end)}`}
-              aria-label={`자막 ${segmentNo(segments, s.id)}로 이동`}
-              onClick={() => onSeek(s.start)}
-            />
+            <div key={s.id}>
+              <button
+                className={
+                  "strip-seg" +
+                  (s.id === activeId ? " active" : "") +
+                  (s.id === focusedId ? " focused" : "")
+                }
+                style={{ left: `${left}%`, width: `${Math.max(1.5, right - left)}%` }}
+                title={`#${segmentNo(segments, s.id)} ${fmt(s.start)} - ${fmt(s.end)}`}
+                aria-label={`자막 ${segmentNo(segments, s.id)}로 이동`}
+                onClick={() => onSeek(s.start)}
+              />
+              {hasNext && (
+                <span
+                  className={"strip-handle" + (drag?.segId === s.id ? " dragging" : "")}
+                  style={{ left: `${handleLeft}%` }}
+                  title="드래그해서 이 자막과 다음 자막의 경계를 조절"
+                  onPointerDown={(e) => startDrag(e, s)}
+                />
+              )}
+            </div>
           );
         })}
         <span className="strip-marker" style={{ left: `${marker}%` }} />
+        {drag && (
+          <span className="strip-drag-time" style={{ left: `${clamp(((drag.time - start) / span) * 100, 0, 100)}%` }}>
+            {fmt(drag.time)}
+          </span>
+        )}
       </div>
       <div className="strip-meta">
         <span>{fmt(start)}</span>
+        <span className="strip-hint">경계를 드래그해 미세조정</span>
         <span>{fmt(end)}</span>
       </div>
     </div>
@@ -693,13 +760,14 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
     }
   }
 
-  async function timing(action: "start-here" | "next-here", seg: Segment) {
+  async function timing(action: "start-here" | "next-here", seg: Segment, atTime?: number) {
     try {
+      const t = atTime ?? currentTime;
       pushUndo(action === "start-here" ? "시작 맞춤" : "넘김 맞춤");
       if (action === "start-here") {
-        await boundaryPrev(seg.id, currentTime);
+        await boundaryPrev(seg.id, t);
       } else {
-        await boundaryNext(seg.id, currentTime);
+        await boundaryNext(seg.id, t);
       }
       const nextSegments = await fetchSegments(videoId);
       segmentsRef.current = nextSegments;
@@ -779,6 +847,10 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
           activeId={activeId}
           focusedId={focusedId}
           onSeek={seekTo}
+          onBoundaryDrag={(segId, time) => {
+            const seg = segmentsRef.current.find((s) => s.id === segId);
+            if (seg) void timing("next-here", { ...seg }, time);
+          }}
         />
         <div className="workbar">
           <button className="undo-btn" disabled={!undoStack.length} onClick={() => void undoLast()}>

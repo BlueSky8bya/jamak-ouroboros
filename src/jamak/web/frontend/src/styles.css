@@ -496,10 +496,55 @@ button {
 .strip-track {
   position: relative;
   height: 30px;
-  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface-soft);
+  touch-action: none;
+}
+
+.strip-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  transform: translateX(-5px);
+  cursor: ew-resize;
+  z-index: 2;
+}
+.strip-handle::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: #94a3b8;
+  border-radius: 2px;
+}
+.strip-handle:hover::after,
+.strip-handle.dragging::after {
+  background: var(--blue);
+  width: 3px;
+  left: 3.5px;
+}
+
+.strip-drag-time {
+  position: absolute;
+  top: -18px;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--blue);
+  background: var(--surface);
+  padding: 0 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+  z-index: 3;
+}
+
+.strip-hint {
+  color: var(--faint);
+  font-size: 10px;
 }
 
 .strip-seg {
