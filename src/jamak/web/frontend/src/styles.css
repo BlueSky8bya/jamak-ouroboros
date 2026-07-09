@@ -444,6 +444,9 @@ button {
   opacity: 0.85;
 }
 .trow .time {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  min-width: 48px;
   border: none;
   background: none;
   color: var(--blue, #4a7dff);
@@ -451,6 +454,7 @@ button {
   font-size: 13px;
   padding: 2px 0;
   white-space: nowrap;
+  text-align: left;
 }
 .tcol {
   flex: 1;
