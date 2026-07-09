@@ -88,6 +88,9 @@ def transcribe(
         vad_parameters={"min_silence_duration_ms": 700},
         initial_prompt=initial_prompt or None,
         condition_on_previous_text=True,
+        # skip silent windows where whisper tends to regurgitate the
+        # initial_prompt / loop; the crosscheck stage also filters echoes
+        hallucination_silence_threshold=2.0,
     )
 
     results: list[SttSegment] = []

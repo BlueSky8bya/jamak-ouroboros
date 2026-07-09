@@ -13,6 +13,7 @@ from pathlib import Path
 
 from rapidfuzz import fuzz
 
+from .noise import is_prompt_echo
 from .stt import SttSegment
 
 # below this token-set similarity (0-100) the segment gets flagged
@@ -52,19 +53,47 @@ def _normalize(text: str) -> str:
 def crosscheck(
     stt_segments: list[SttSegment],
     captions_path: Path | None,
-) -> list[dict]:
+    prompt_text: str = "",
+) -> tuple[list[dict], int]:
     """Attach YouTube text + disagreement flag to each whisper segment.
 
-    Returns dicts ready to become Segment rows:
-    {start, end, text_whisper, text_youtube, flagged}
+    Returns (rows, n_prompt_echo). Rows are dicts ready to become Segment
+    rows: {start, end, text_whisper, text_youtube, flagged}.
+
+    Prompt-echo handling: when whisper regurgitated its initial_prompt over
+    a silent/music stretch, the whisper text is garbage. If YouTube heard
+    real speech there, we substitute it (so the reviewer/LLM works from the
+    real words, not the leaked prompt) and force-flag. With no YouTube text,
+    the echo segment is dropped entirely.
     """
     captions = parse_json3_captions(captions_path) if captions_path else []
 
     out: list[dict] = []
+    n_echo = 0
     for seg in stt_segments:
         yt_text = youtube_text_for_span(captions, seg.start, seg.end)
+        whisper_text = seg.text
+
+        if prompt_text and is_prompt_echo(whisper_text, prompt_text):
+            n_echo += 1
+            if not yt_text:
+                continue  # pure prompt leak over silence — drop
+            # whisper output here is garbage (leaked prompt); seed the working
+            # text from YouTube so there is real content even without the LLM,
+            # and force-flag so the human still verifies it
+            out.append(
+                {
+                    "start": seg.start,
+                    "end": seg.end,
+                    "text_whisper": yt_text,
+                    "text_youtube": yt_text,
+                    "flagged": True,
+                }
+            )
+            continue
+
         if yt_text:
-            score = fuzz.token_set_ratio(_normalize(seg.text), _normalize(yt_text))
+            score = fuzz.token_set_ratio(_normalize(whisper_text), _normalize(yt_text))
             flagged = score < FLAG_THRESHOLD
         else:
             # no second opinion: flag only if whisper itself was unsure
@@ -73,9 +102,9 @@ def crosscheck(
             {
                 "start": seg.start,
                 "end": seg.end,
-                "text_whisper": seg.text,
+                "text_whisper": whisper_text,
                 "text_youtube": yt_text,
                 "flagged": flagged,
             }
         )
-    return out
+    return out, n_echo

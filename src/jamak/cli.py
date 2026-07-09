@@ -145,8 +145,10 @@ def run(
         console.print(f"removed {n_noise} standalone audience-response segments")
 
     console.rule("[3/5] Crosscheck")
-    rows = crosscheck(stt_segments, res.captions_path)
+    rows, n_echo = crosscheck(stt_segments, res.captions_path, prompt)
     n_flagged = sum(1 for r in rows if r["flagged"])
+    if n_echo:
+        console.print(f"recovered {n_echo} prompt-hallucination segments from YouTube captions")
     console.print(f"flagged {n_flagged}/{len(rows)} segments for review priority")
 
     # persist segments (replace any previous run of this job)
