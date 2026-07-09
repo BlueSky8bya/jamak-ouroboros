@@ -1,12 +1,20 @@
 # Current State
 
-Last Updated: 2026-07-10 (spacebar-safe playback shortcuts)
+Last Updated: 2026-07-10 (fatigue-reduction batch: PLAN-20260710-010)
 Project Version: 0.1.0
 Harness Protocol: project-initializing_260710.md
 
 ## Current Objective
 
-전체 루프(M0~M4) 완성됨. 피드백 흡수와 검수 UI가 실사용 피로를 줄이도록 보강됨. 다음: 실제 검수 1회전에서 타이밍 보조/현재 영상 전파 체감 확인, CER 추이 관찰.
+전체 루프(M0~M4) 완성 + 검수/번역 피로 최소화 보강. 다음: 실제 다회차 검수로 CER 추이, 번역 검수 체감 확인.
+
+## PLAN-20260710-010 (6개 요청, 전부 done+verified)
+
+- M-A 재생 단축키 복구: ▶재생/⏸멈춤 + ⟲3초 버튼(플레이어 밑), Space=재생/정지(입력칸 밖), Tab 유지. 토스트 자동 사라짐(4/8/6s). 파일명 `{lang}_제목_자막.srt`.
+- M-B STT 프롬프트 환각 대응: `noise.is_prompt_echo` + crosscheck에서 유튜브 자막으로 대체/삭제, stt `hallucination_silence_threshold=2.0`. (현재 캐시엔 누출 없어 합성 검증)
+- M-C 타임라인 드래그 미세조정: TimingStrip 경계 핸들 드래그 → linked boundary(undo 가능). dragRef로 fast-drag 안전.
+- M-D 번역 검수 워크플로: 한국어 100% 검수 전 언어 잠금, 번역 생성→세그먼트별 수정/확인, edited/reviewed 보호(재번역 무시), export 반영. db 마이그레이션(translation.reviewed/edited).
+- 로컬 번역 모델(요청 3): 미구현 — 답변만. NLLB-200/m2m100(CTranslate2) 또는 Ollama 가능하나 종교/강연 문맥 품질 열세. 저비용 대안 `JAMAK_TRANSLATE_MODEL=claude-haiku-4-5`. Open Decision.
 
 ## Current Status
 
