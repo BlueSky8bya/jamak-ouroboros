@@ -67,6 +67,23 @@ class Correction(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class LlmCache(SQLModel, table=True):
+    """Cache of LLM outputs keyed by input content hash.
+
+    kind='correct': key = hash(pre-passed whisper text | youtube text),
+    value = corrected text ('' = no change needed). Re-running a video
+    costs zero API calls unless the source text changed.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    kind: str = Field(index=True)
+    source_hash: str = Field(index=True)
+    text: str = ""  # the resulting text (may legitimately be '' for noise)
+    changed: bool = False  # False = model left the source text as-is
+    uncertain: bool = False
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class Translation(SQLModel, table=True):
     """Cached translation of one segment into one language.
 

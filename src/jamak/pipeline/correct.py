@@ -1,23 +1,35 @@
 """Stage 4 — LLM correction: Claude fixes what whisper misheard.
 
+Cost structure (cheapest first):
+  1. pre-pass: learned correction pairs (count >= PREPASS_MIN_COUNT) are
+     applied as plain string replacement — zero API cost, grows with
+     every review the ouroboros absorbs
+  2. cache: segments whose source text was corrected before reuse the
+     stored answer (re-running a video costs nothing)
+  3. LLM: only the remainder goes to Claude, and Claude returns ONLY the
+     segments it changed — output tokens scale with mistakes, not with
+     transcript length
+
 The prompt is assembled ouroboros-style:
   system = task + glossary (from DB) + few-shot correction pairs (from DB)
-The system prompt is stable across chunks, so it's cached (prompt caching)
-and each chunk request only pays for the segments themselves.
+and is cached across chunks via prompt caching.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 
 from sqlmodel import select
 
-from ..config import CLAUDE_MODEL
-from ..db import Segment, get_session
+from ..config import CORRECT_MODEL, PREPASS_MIN_COUNT
+from ..db import Correction, LlmCache, Segment, get_session
 from ..glossary import fewshot_corrections, glossary_block
 
 CHUNK_SIZE = 50  # segments per request
 CONTEXT_OVERLAP = 5  # trailing segments repeated as read-only context
+PROMPT_VERSION = "v2"  # bump to invalidate the correction cache
 
 OUTPUT_SCHEMA = {
     "type": "object",
@@ -41,6 +53,30 @@ OUTPUT_SCHEMA = {
 }
 
 
+def _hash(*parts: str) -> str:
+    joined = "\x1f".join(parts)
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:20]
+
+
+def load_prepass_pairs() -> list[tuple[str, str]]:
+    """Learned pairs confirmed often enough to apply deterministically."""
+    with get_session() as session:
+        rows = session.exec(
+            select(Correction)
+            .where(Correction.count >= PREPASS_MIN_COUNT)
+            .order_by(Correction.count.desc())
+        ).all()
+    return [(c.wrong, c.right) for c in rows]
+
+
+def apply_prepass(text: str, pairs: list[tuple[str, str]]) -> str:
+    """Word-boundary replacement of learned pairs — free corrections."""
+    for wrong, right in pairs:
+        pattern = r"(?<![\w가-힣])" + re.escape(wrong) + r"(?![\w가-힣])"
+        text = re.sub(pattern, right, text)
+    return text
+
+
 def build_system_prompt() -> str:
     glossary = glossary_block()
     pairs = fewshot_corrections()
@@ -54,10 +90,11 @@ def build_system_prompt() -> str:
         "작업 규칙:",
         "1. 오인식된 단어를 문맥에 맞게 교정한다 (아래 용어사전과 과거 교정 사례 참고).",
         "2. 발화 내용을 절대 창작하거나 요약하지 않는다. 들린 대로, 다만 정확한 단어로.",
-        "3. 구어체는 유지한다. 사투리는 알아들을 수 있는 선에서 유지한다.",
-        "4. 명백한 잡음/박수 구간 텍스트는 빈 문자열로 만든다.",
+        "3. 구어체와 사투리는 유지한다. 표준어로 다듬지 않는다.",
+        "4. 명백한 잡음/박수 구간 텍스트는 text를 빈 문자열로 만든다.",
         "5. 확신이 없는 교정은 uncertain=true로 표시한다 (사람이 우선 검토).",
-        "6. 변경이 필요 없는 세그먼트도 corrections에 포함한다 (원문 그대로).",
+        "6. **수정이 필요한 세그먼트만 corrections에 포함한다.** 이상 없는 세그먼트는"
+        " 응답에 포함하지 않는다 (미포함 = 원문 유지로 처리됨).",
         "7. 두 자막 소스가 다르면 문맥상 더 그럴듯한 쪽을 선택하거나 조합한다.",
     ]
 
@@ -73,8 +110,10 @@ def build_system_prompt() -> str:
     return "\n".join(parts)
 
 
-def correct_chunk(client, system_prompt: str, chunk: list[dict], context_before: list[str]) -> list[dict]:
-    """One API call: chunk of segments in, corrected texts out."""
+def correct_chunk(
+    client, system_prompt: str, chunk: list[dict], context_before: list[str], usage: dict
+) -> list[dict]:
+    """One API call: chunk of segments in, changed segments out."""
     lines = []
     if context_before:
         lines.append("### 직전 문맥 (교정 대상 아님):")
@@ -84,11 +123,14 @@ def correct_chunk(client, system_prompt: str, chunk: list[dict], context_before:
     for seg in chunk:
         yt = f' | 자동자막: "{seg["text_youtube"]}"' if seg["text_youtube"] else ""
         flag = " [불일치]" if seg["flagged"] else ""
-        lines.append(f'[{seg["idx"]}] whisper: "{seg["text_whisper"]}"{yt}{flag}')
+        lines.append(f'[{seg["idx"]}] whisper: "{seg["base_text"]}"{yt}{flag}')
 
     response = client.messages.create(
-        model=CLAUDE_MODEL,
+        model=CORRECT_MODEL,
         max_tokens=16000,
+        # mechanical correction task — adaptive thinking would bill large
+        # invisible output tokens for no quality gain here
+        thinking={"type": "disabled"},
         system=[
             {
                 "type": "text",
@@ -99,16 +141,19 @@ def correct_chunk(client, system_prompt: str, chunk: list[dict], context_before:
         output_config={"format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
         messages=[{"role": "user", "content": "\n".join(lines)}],
     )
+    u = response.usage
+    usage["input"] += u.input_tokens + (u.cache_creation_input_tokens or 0)
+    usage["cached"] += u.cache_read_input_tokens or 0
+    usage["output"] += u.output_tokens
     text = next(b.text for b in response.content if b.type == "text")
     return json.loads(text)["corrections"]
 
 
 def correct_job(job_id: int, console=None) -> int:
-    """Run Claude correction over every segment of a job. Returns #changed."""
+    """Run correction over every segment of a job. Returns #changed."""
     import anthropic
 
-    client = anthropic.Anthropic()
-    system_prompt = build_system_prompt()
+    prepass_pairs = load_prepass_pairs()
 
     with get_session() as session:
         segments = session.exec(
@@ -116,32 +161,103 @@ def correct_job(job_id: int, console=None) -> int:
         ).all()
         seg_dicts = [s.model_dump() for s in segments]
 
-    n_changed = 0
-    results: dict[int, tuple[str, bool]] = {}
+    # ---- tier 1: free pre-pass from learned pairs
+    for d in seg_dicts:
+        d["base_text"] = apply_prepass(d["text_whisper"], prepass_pairs)
+        d["hash"] = _hash(PROMPT_VERSION, d["base_text"], d["text_youtube"])
 
-    for start in range(0, len(seg_dicts), CHUNK_SIZE):
-        chunk = seg_dicts[start : start + CHUNK_SIZE]
-        context_before = [
-            d["text_whisper"] for d in seg_dicts[max(0, start - CONTEXT_OVERLAP) : start]
-        ]
-        corrections = correct_chunk(client, system_prompt, chunk, context_before)
-        for c in corrections:
-            results[c["idx"]] = (c["text"], c["uncertain"])
-        if console:
-            console.print(f"  chunk {start // CHUNK_SIZE + 1}: {len(corrections)} segments")
-
+    # ---- tier 2: cache lookup
+    # results are keyed by segment id (idx can shift if the user edits
+    # structure in the web app while the LLM is running)
+    results: dict[int, tuple[str, bool]] = {}  # segment id -> (text, uncertain)
+    todo: list[dict] = []
     with get_session() as session:
-        segments = session.exec(
-            select(Segment).where(Segment.job_id == job_id)
-        ).all()
-        for seg in segments:
-            if seg.idx in results:
-                text, uncertain = results[seg.idx]
-                seg.text_llm = text
-                seg.llm_uncertain = uncertain
-                if text.strip() != seg.text_whisper.strip():
-                    n_changed += 1
-                session.add(seg)
+        for d in seg_dicts:
+            cached = session.exec(
+                select(LlmCache).where(
+                    LlmCache.kind == "correct", LlmCache.source_hash == d["hash"]
+                )
+            ).first()
+            if cached is not None:
+                text = cached.text if cached.changed else d["base_text"]
+                results[d["id"]] = (text, cached.uncertain)
+            else:
+                todo.append(d)
+
+    if console:
+        console.print(
+            f"  pre-pass pairs: {len(prepass_pairs)} | "
+            f"cache hits: {len(seg_dicts) - len(todo)}/{len(seg_dicts)} | "
+            f"to LLM: {len(todo)}"
+        )
+
+    # ---- tier 3: LLM for the remainder (returns changed segments only)
+    usage = {"input": 0, "cached": 0, "output": 0}
+    if todo:
+        client = anthropic.Anthropic()
+        system_prompt = build_system_prompt()
+        changed_by_idx: dict[int, tuple[str, bool]] = {}
+
+        for start in range(0, len(todo), CHUNK_SIZE):
+            chunk = todo[start : start + CHUNK_SIZE]
+            first_idx = chunk[0]["idx"]
+            context_before = [
+                d["base_text"]
+                for d in seg_dicts
+                if d["idx"] < first_idx and first_idx - d["idx"] <= CONTEXT_OVERLAP
+            ]
+            corrections = correct_chunk(client, system_prompt, chunk, context_before, usage)
+            for c in corrections:
+                changed_by_idx[c["idx"]] = (c["text"], c["uncertain"])
+            if console:
+                console.print(
+                    f"  chunk {start // CHUNK_SIZE + 1}: {len(chunk)} sent, "
+                    f"{len(corrections)} changed"
+                )
+
+        # fill results + write cache (idx maps back to id via this run's
+        # own snapshot, so concurrent structure edits can't shift rows)
+        with get_session() as session:
+            for d in todo:
+                if d["idx"] in changed_by_idx:
+                    text, unc = changed_by_idx[d["idx"]]
+                    changed = text != d["base_text"]
+                else:
+                    text, unc, changed = d["base_text"], False, False
+                results[d["id"]] = (text, unc)
+                session.add(
+                    LlmCache(
+                        kind="correct",
+                        source_hash=d["hash"],
+                        text=text,
+                        changed=changed,
+                        uncertain=unc,
+                    )
+                )
+            session.commit()
+
+    if console and (usage["input"] or usage["output"]):
+        # sonnet-5 intro pricing: $2/M input, $10/M output (cache read $0.2/M)
+        cost = (
+            usage["input"] * 2 + usage["cached"] * 0.2 + usage["output"] * 10
+        ) / 1_000_000
+        console.print(
+            f"  tokens: in {usage['input']:,} (+{usage['cached']:,} cached) / "
+            f"out {usage['output']:,}  ~ ${cost:.3f}"
+        )
+
+    # ---- persist by id (segments deleted mid-run are skipped safely)
+    n_changed = 0
+    with get_session() as session:
+        for seg_id, (text, uncertain) in results.items():
+            seg = session.get(Segment, seg_id)
+            if seg is None:
+                continue
+            seg.text_llm = text
+            seg.llm_uncertain = uncertain
+            if text.strip() != seg.text_whisper.strip():
+                n_changed += 1
+            session.add(seg)
         session.commit()
 
     return n_changed

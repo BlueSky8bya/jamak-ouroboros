@@ -13,7 +13,7 @@ import json
 
 from sqlmodel import select
 
-from ..config import CLAUDE_MODEL
+from ..config import TRANSLATE_MODEL
 from ..db import Translation, get_session
 
 # display order = rough global usage order (user-facing list)
@@ -90,6 +90,7 @@ def translate_texts(
     client = anthropic.Anthropic()
     system_prompt = _system_prompt(lang)
     out: dict[int, str] = {}
+    usage = {"input": 0, "cached": 0, "output": 0}
 
     for start in range(0, len(items), CHUNK_SIZE):
         chunk = items[start : start + CHUNK_SIZE]
@@ -103,8 +104,9 @@ def translate_texts(
         lines.extend(f"[{i}] {t}" for i, t in chunk)
 
         response = client.messages.create(
-            model=CLAUDE_MODEL,
+            model=TRANSLATE_MODEL,
             max_tokens=16000,
+            thinking={"type": "disabled"},  # mechanical task, see correct.py
             system=[
                 {
                     "type": "text",
@@ -115,11 +117,22 @@ def translate_texts(
             output_config={"format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
             messages=[{"role": "user", "content": "\n".join(lines)}],
         )
+        u = response.usage
+        usage["input"] += u.input_tokens + (u.cache_creation_input_tokens or 0)
+        usage["cached"] += u.cache_read_input_tokens or 0
+        usage["output"] += u.output_tokens
         text = next(b.text for b in response.content if b.type == "text")
         for t in json.loads(text)["translations"]:
             out[t["idx"]] = t["text"]
         if console:
             console.print(f"  {lang} chunk {start // CHUNK_SIZE + 1}: {len(chunk)}")
+
+    if console and (usage["input"] or usage["output"]):
+        cost = (usage["input"] * 2 + usage["cached"] * 0.2 + usage["output"] * 10) / 1_000_000
+        console.print(
+            f"  {lang} tokens: in {usage['input']:,} (+{usage['cached']:,} cached) / "
+            f"out {usage['output']:,}  ~ ${cost:.3f}"
+        )
 
     return out
 

@@ -138,7 +138,10 @@ function Row({
           <button
             className="danger"
             title="이 자막 삭제 (박수/잡음 구간 등)"
-            onClick={() => onStructure("delete", seg)}
+            onClick={() => {
+              if (window.confirm("이 자막을 삭제할까요?\n" + displayText(seg).slice(0, 40)))
+                onStructure("delete", seg);
+            }}
           >
             ✕ 삭제
           </button>

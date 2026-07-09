@@ -31,8 +31,15 @@ WHISPER_MODEL = os.environ.get("JAMAK_WHISPER_MODEL", "large-v3")
 WHISPER_DEVICE = os.environ.get("JAMAK_WHISPER_DEVICE", "cuda")
 WHISPER_COMPUTE = os.environ.get("JAMAK_WHISPER_COMPUTE", "int8_float16")
 
-# LLM correction
+# LLM stages — override per stage to trade quality for cost
+# (e.g. JAMAK_TRANSLATE_MODEL=claude-haiku-4-5 is ~3x cheaper)
 CLAUDE_MODEL = os.environ.get("JAMAK_CLAUDE_MODEL", "claude-sonnet-5")
+CORRECT_MODEL = os.environ.get("JAMAK_CORRECT_MODEL", CLAUDE_MODEL)
+TRANSLATE_MODEL = os.environ.get("JAMAK_TRANSLATE_MODEL", CLAUDE_MODEL)
+
+# learned pairs confirmed this many times are applied as free string
+# replacement before the LLM sees the text (ouroboros -> fewer API tokens)
+PREPASS_MIN_COUNT = 2
 
 # Korean subtitle conventions
 MAX_CHARS_PER_LINE = 18
