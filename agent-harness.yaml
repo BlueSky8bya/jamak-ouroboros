@@ -1,0 +1,50 @@
+schema_version: "1.0"
+protocol_source: "project-initializing_260710.md"
+protocol_date: "2026-07-10"
+initialized_at: "2026-07-10"
+initialization_mode: "MODE C (existing harness adapted)"
+last_harness_review: "2026-07-10"
+
+project:
+  name: "jamak-ouroboros"
+  version: "0.1.0"
+  type:
+    - cli
+    - ml-pipeline
+    - web (planned, M3)
+  status: "active development"
+
+risk_profiles:
+  - GENERAL
+  - ML_EVALUATION
+
+entrypoints:
+  constitution: "docs/agent/CONSTITUTION.md"
+  current_state: "docs/agent/CURRENT_STATE.md"
+  project_map: "docs/agent/PROJECT_MAP.md"
+  risk_profile: "docs/agent/RISK_PROFILE.md"
+  definition_of_done: "docs/agent/DEFINITION_OF_DONE.md"
+  changelog: "docs/agent/CHANGELOG_AGENT.md"
+  decision_index: "docs/agent/DECISION_INDEX.md"
+  active_plan: "docs/agent/plans/ACTIVE_PLAN.md"
+
+commands:
+  install: "uv sync --extra cuda"
+  doctor: "uv run jamak doctor"
+  run: "uv run jamak run <youtube-url>"
+  seed_import: "uv run jamak seed-import <dir>"
+  export: "uv run jamak export <video_id>"
+  test: null  # UNKNOWN — no test suite yet (see CURRENT_STATE Open Decisions)
+  lint: null
+
+version_policy: "semver"
+
+agent_policy:
+  default_task_risk: "L1"
+  ask_before_production_dependency: true
+  ask_before_destructive_command: true
+  auto_commit: false
+  auto_push: false
+  protected_paths:
+    - "data/jamak.db"    # ouroboros learning data — single source of truth
+    - "data/seeds/"      # human-reviewed corpus — irreplaceable
