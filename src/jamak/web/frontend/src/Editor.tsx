@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { exportUrl, fetchSegments, updateSegment } from "./api";
+import { absorbFeedback, exportUrl, fetchSegments, updateSegment } from "./api";
 import type { Filter, Segment } from "./types";
 import { usePlayer } from "./usePlayer";
 
@@ -116,6 +116,7 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
   const [segments, setSegments] = useState<Segment[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [error, setError] = useState("");
+  const [absorbMsg, setAbsorbMsg] = useState("");
   const { currentTime, seekTo } = usePlayer(videoId);
 
   useEffect(() => {
@@ -185,6 +186,23 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
         <a className="export" href={exportUrl(videoId)} download>
           .srt 다운로드
         </a>
+        <button
+          className="absorb"
+          title="검수한 수정 내역을 교정쌍 DB로 흡수 — 다음 영상부터 반영"
+          onClick={async () => {
+            try {
+              const r = await absorbFeedback(videoId);
+              setAbsorbMsg(
+                `흡수 완료: 검수 ${r.reviewed_segments}개 → 새 교정쌍 ${r.new_pairs}, 강화 ${r.bumped}`,
+              );
+            } catch (e) {
+              setError(String(e));
+            }
+          }}
+        >
+          ♻ 피드백 흡수 (우로보로스)
+        </button>
+        {absorbMsg && <div className="absorb-msg">{absorbMsg}</div>}
         {error && <div className="error">{error}</div>}
       </div>
       <div className="right">

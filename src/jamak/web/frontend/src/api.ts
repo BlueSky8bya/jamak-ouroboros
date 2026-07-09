@@ -28,3 +28,13 @@ export async function updateSegment(
 export function exportUrl(videoId: string, stage = "best"): string {
   return `/api/jobs/${videoId}/export?stage=${stage}`;
 }
+
+export async function absorbFeedback(videoId: string): Promise<{
+  reviewed_segments: number;
+  new_pairs: number;
+  bumped: number;
+}> {
+  const r = await fetch(`/api/jobs/${videoId}/absorb`, { method: "POST" });
+  if (!r.ok) throw new Error(`absorb: ${r.status}`);
+  return r.json();
+}

@@ -229,6 +229,45 @@ def export(
 
 
 @app.command()
+def absorb(video_id: str) -> None:
+    """Ouroboros feedback: diff reviewed segments into corrections DB."""
+    from .feedback import absorb_job
+
+    stats = absorb_job(video_id)
+    console.print(
+        f"absorbed [bold]{stats['reviewed_segments']}[/] reviewed segments: "
+        f"{stats['new_pairs']} new correction pairs, {stats['bumped']} reinforced"
+    )
+
+
+@app.command()
+def eval() -> None:  # noqa: A001
+    """CER trend: machine draft vs human final, per job."""
+    from rich.table import Table
+
+    from .evaluate import evaluate_all
+
+    rows = evaluate_all()
+    if not rows:
+        console.print("no reviewed jobs yet - review segments in the web app first")
+        raise typer.Exit(0)
+    table = Table(title="CER trend (lower is better)")
+    for col in ("video", "date", "segs", "STT CER", "corrected CER", "gain"):
+        table.add_column(col)
+    for r in rows:
+        gain = r["cer_whisper"] - r["cer_llm"]
+        table.add_row(
+            r["video_id"],
+            r["date"],
+            str(r["reviewed_segments"]),
+            f"{r['cer_whisper']:.2%}",
+            f"{r['cer_llm']:.2%}",
+            f"{gain:+.2%}",
+        )
+    console.print(table)
+
+
+@app.command()
 def serve(
     port: int = typer.Option(8710, help="Port for the review web app"),
 ) -> None:

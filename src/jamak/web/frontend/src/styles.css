@@ -41,6 +41,12 @@ body {
   border-radius: 6px; text-decoration: none; text-align: center; font-size: 14px;
 }
 .error { color: #dc2626; font-size: 13px; white-space: pre-wrap; }
+.absorb {
+  padding: 8px 12px; background: #7c3aed; color: #fff; border: none;
+  border-radius: 6px; cursor: pointer; font-size: 14px;
+}
+.absorb:hover { background: #6d28d9; }
+.absorb-msg { font-size: 13px; color: #166534; }
 
 /* segment rows */
 .row {

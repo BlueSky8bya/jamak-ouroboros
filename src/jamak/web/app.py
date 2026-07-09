@@ -124,6 +124,17 @@ def export_srt(video_id: str, stage: str = "best"):
     )
 
 
+@app.post("/api/jobs/{video_id}/absorb")
+def absorb(video_id: str) -> dict:
+    """Ouroboros feedback: pull reviewed diffs into the corrections DB."""
+    from ..feedback import absorb_job
+
+    try:
+        return absorb_job(video_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
 @app.get("/api/health")
 def health() -> PlainTextResponse:
     return PlainTextResponse("ok")
