@@ -31,23 +31,66 @@ _STOPWORDS = {
 }
 
 MIN_COUNT = 5  # a term must recur this often across the corpus to be a candidate
+MAX_CANDIDATES = 500  # cap so the review queue stays tractable
+
+# lecture-transcript .txt format:
+#   [2024.11.11] title...
+#   (19분 59초)
+#   01:14
+#   text paragraph...
+_HEADER_RE = re.compile(r"^\[\d{4}\.\d{2}\.\d{2}\]")
+_TIMECODE_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?\s*$")
+_DURATION_RE = re.compile(r"^\(\d+분(\s*\d+초)?\)\s*$")
+
+
+def _read_text(f: Path) -> str:
+    try:
+        return f.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return f.read_text(encoding="cp949")
+
+
+def _texts_from_srt(f: Path) -> tuple[list[str], int]:
+    subs = list(srt.parse(_read_text(f)))
+    return [s.content for s in subs], 1
+
+
+def _texts_from_txt(f: Path) -> tuple[list[str], int]:
+    """Strip headers/timecodes; count lecture documents by [date] headers."""
+    lines = _read_text(f).splitlines()
+    n_docs = 0
+    texts: list[str] = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if _HEADER_RE.match(line):
+            n_docs += 1
+            continue
+        if _TIMECODE_RE.match(line) or _DURATION_RE.match(line):
+            continue
+        texts.append(line)
+    return texts, max(n_docs, 1)
 
 
 def import_seeds(directory: Path) -> dict:
-    files = sorted(directory.glob("**/*.srt"))
+    files = sorted(list(directory.glob("**/*.srt")) + list(directory.glob("**/*.txt")))
     counter: Counter[str] = Counter()
+    n_docs = 0
 
     for f in files:
-        try:
-            subs = list(srt.parse(f.read_text(encoding="utf-8")))
-        except Exception:
-            subs = list(srt.parse(f.read_text(encoding="cp949")))
-        for sub in subs:
-            for token in _TOKEN_RE.findall(sub.content):
+        texts, docs = (
+            _texts_from_srt(f) if f.suffix == ".srt" else _texts_from_txt(f)
+        )
+        n_docs += docs
+        for text in texts:
+            for token in _TOKEN_RE.findall(text):
                 if token not in _STOPWORDS:
                     counter[token] += 1
 
-    candidates = [(term, n) for term, n in counter.most_common() if n >= MIN_COUNT]
+    candidates = [
+        (term, n) for term, n in counter.most_common(MAX_CANDIDATES) if n >= MIN_COUNT
+    ]
 
     added = 0
     with get_session() as session:
@@ -61,7 +104,7 @@ def import_seeds(directory: Path) -> dict:
                 GlossaryTerm(
                     term=term,
                     category="자동추출",
-                    note=f"검수 자막 {len(files)}개에서 {n}회 등장",
+                    note=f"검수 자막 {n_docs}개 문서에서 {n}회 등장",
                     confidence=min(1.0, n / 50),
                     # auto-extracted terms start unapproved; /glossary-review
                     # promotes the real vocabulary and deletes noise
@@ -71,4 +114,4 @@ def import_seeds(directory: Path) -> dict:
             added += 1
         session.commit()
 
-    return {"files": len(files), "terms": added, "pairs": 0}
+    return {"files": len(files), "docs": n_docs, "terms": added, "pairs": 0}

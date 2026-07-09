@@ -14,6 +14,26 @@ from pathlib import Path
 from ..config import WHISPER_COMPUTE, WHISPER_DEVICE, WHISPER_MODEL
 
 
+def _register_cuda_dlls() -> None:
+    """Windows: pip-installed cuBLAS/cuDNN DLLs live inside site-packages
+    (nvidia/*/bin) and are not on PATH — register them so ctranslate2
+    can load cublas64_12.dll etc."""
+    import os
+    import sys
+
+    if sys.platform != "win32":
+        return
+    for site in sys.path:
+        nvidia_dir = Path(site) / "nvidia"
+        if not nvidia_dir.is_dir():
+            continue
+        for bin_dir in nvidia_dir.glob("*/bin"):
+            os.add_dll_directory(str(bin_dir))
+            # ctranslate2 resolves CUDA DLLs via PATH, not the
+            # add_dll_directory search list — need both
+            os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ["PATH"]
+
+
 @dataclass
 class Word:
     start: float
@@ -52,6 +72,7 @@ def transcribe(
             for s in raw
         ]
 
+    _register_cuda_dlls()
     from faster_whisper import WhisperModel  # heavy import, keep it lazy
 
     model = WhisperModel(
