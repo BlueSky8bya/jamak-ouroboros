@@ -5,6 +5,7 @@ export interface JobSummary {
   status: string;
   segments: number;
   reviewed: number;
+  running: boolean;
 }
 
 export interface Segment {

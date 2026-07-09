@@ -35,6 +35,35 @@ export async function fetchLanguages(): Promise<{ code: string; label: string }[
   return r.json();
 }
 
+export async function createJob(url: string): Promise<{ video_id: string; status: string }> {
+  const r = await fetch("/api/jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  if (!r.ok) throw new Error((await r.json()).detail ?? `create: ${r.status}`);
+  return r.json();
+}
+
+export async function splitSegment(id: number, position: number): Promise<void> {
+  const r = await fetch(`/api/segments/${id}/split`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ position }),
+  });
+  if (!r.ok) throw new Error((await r.json()).detail ?? `split: ${r.status}`);
+}
+
+export async function mergeNext(id: number): Promise<void> {
+  const r = await fetch(`/api/segments/${id}/merge-next`, { method: "POST" });
+  if (!r.ok) throw new Error((await r.json()).detail ?? `merge: ${r.status}`);
+}
+
+export async function deleteSegment(id: number): Promise<void> {
+  const r = await fetch(`/api/segments/${id}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(`delete: ${r.status}`);
+}
+
 export async function absorbFeedback(videoId: string): Promise<{
   reviewed_segments: number;
   new_pairs: number;

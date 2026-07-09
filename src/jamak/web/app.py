@@ -7,27 +7,80 @@ diffs text_final against the machine draft to grow corrections/glossary.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlmodel import select
+from sqlmodel import delete as sql_delete, select
 
-from ..config import JOBS_DIR
-from ..db import Job, Segment, get_session, utcnow
+from ..config import JOBS_DIR, PROJECT_ROOT
+from ..db import Job, Segment, Translation, get_session, utcnow
 from ..pipeline.assemble import to_srt
 
 app = FastAPI(title="jamak-ouroboros review")
 
+# video_id -> running pipeline process (started from the web UI)
+_running: dict[str, subprocess.Popen] = {}
+
+
+def _running_ids() -> set[str]:
+    dead = [vid for vid, p in _running.items() if p.poll() is not None]
+    for vid in dead:
+        _running.pop(vid, None)
+    return set(_running.keys())
+
+
+class JobCreate(BaseModel):
+    url: str
+
+
+@app.post("/api/jobs")
+def create_job(body: JobCreate) -> dict:
+    """Kick off the full pipeline for a YouTube URL (background process)."""
+    from ..pipeline.ingest import extract_video_id
+
+    try:
+        video_id = extract_video_id(body.url)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    if video_id in _running_ids():
+        return {"video_id": video_id, "status": "running"}
+
+    # a re-run replaces all segments — never silently destroy review work
+    with get_session() as session:
+        existing = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if existing is not None:
+            raise HTTPException(
+                409,
+                "이미 등록된 영상입니다. 재처리하려면 CLI에서 실행하세요: "
+                f"uv run jamak run <url> (검수 내용이 초기화됩니다)",
+            )
+
+    proc = subprocess.Popen(
+        ["uv", "run", "jamak", "run", body.url],
+        cwd=PROJECT_ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+    )
+    _running[video_id] = proc
+    return {"video_id": video_id, "status": "starting"}
+
 
 @app.get("/api/jobs")
 def list_jobs() -> list[dict]:
+    running = _running_ids()
     with get_session() as session:
         jobs = session.exec(select(Job).order_by(Job.created_at.desc())).all()
         out = []
+        seen = set()
         for j in jobs:
+            seen.add(j.video_id)
             n_total = len(
                 session.exec(select(Segment.id).where(Segment.job_id == j.id)).all()
             )
@@ -46,7 +99,22 @@ def list_jobs() -> list[dict]:
                     "status": j.status,
                     "segments": n_total,
                     "reviewed": n_reviewed,
+                    "running": j.video_id in running,
                 }
+            )
+        # pipeline just launched, no DB row yet — show a placeholder card
+        for vid in running - seen:
+            out.insert(
+                0,
+                {
+                    "video_id": vid,
+                    "title": "",
+                    "duration_seconds": 0,
+                    "status": "starting",
+                    "segments": 0,
+                    "reviewed": 0,
+                    "running": True,
+                },
             )
         return out
 
@@ -91,6 +159,119 @@ def update_segment(segment_id: int, body: SegmentUpdate) -> dict:
         session.commit()
         session.refresh(seg)
         return seg.model_dump()
+
+
+def _display_text(seg: Segment) -> str:
+    return seg.text_final or seg.text_llm or seg.text_whisper
+
+
+class SplitBody(BaseModel):
+    position: int  # char offset in the segment's display text
+
+
+@app.post("/api/segments/{segment_id}/split")
+def split_segment(segment_id: int, body: SplitBody) -> dict:
+    """Cut one segment in two at a text position; timing is interpolated
+    by character ratio (human can nudge afterwards)."""
+    with get_session() as session:
+        seg = session.get(Segment, segment_id)
+        if seg is None:
+            raise HTTPException(404, "segment not found")
+        text = _display_text(seg)
+        left, right = text[: body.position].strip(), text[body.position :].strip()
+        if not left or not right:
+            raise HTTPException(400, "split position leaves an empty side")
+
+        ratio = body.position / max(1, len(text))
+        mid = round(seg.start + (seg.end - seg.start) * ratio, 3)
+
+        # shift the tail to make room at idx+1
+        tail = session.exec(
+            select(Segment).where(
+                Segment.job_id == seg.job_id, Segment.idx > seg.idx
+            )
+        ).all()
+        for t in tail:
+            t.idx += 1
+            session.add(t)
+
+        old_end = seg.end
+        seg.text_final = left
+        seg.end = mid
+        session.add(seg)
+        session.add(
+            Segment(
+                job_id=seg.job_id,
+                idx=seg.idx + 1,
+                start=mid,
+                end=old_end,
+                # machine texts stay on the left piece; diff-noise from the
+                # split is filtered by feedback.extract_pairs' size cap
+                text_final=right,
+                flagged=seg.flagged,
+                llm_uncertain=seg.llm_uncertain,
+            )
+        )
+        # stale translations regenerate via source_hash on next export
+        session.commit()
+    return {"ok": True}
+
+
+@app.post("/api/segments/{segment_id}/merge-next")
+def merge_next(segment_id: int) -> dict:
+    with get_session() as session:
+        seg = session.get(Segment, segment_id)
+        if seg is None:
+            raise HTTPException(404, "segment not found")
+        nxt = session.exec(
+            select(Segment).where(
+                Segment.job_id == seg.job_id, Segment.idx == seg.idx + 1
+            )
+        ).first()
+        if nxt is None:
+            raise HTTPException(400, "no next segment to merge")
+
+        seg.text_final = f"{_display_text(seg)} {_display_text(nxt)}".strip()
+        seg.text_whisper = f"{seg.text_whisper} {nxt.text_whisper}".strip()
+        seg.text_youtube = f"{seg.text_youtube} {nxt.text_youtube}".strip()
+        seg.text_llm = f"{seg.text_llm} {nxt.text_llm}".strip()
+        seg.end = nxt.end
+        seg.flagged = seg.flagged or nxt.flagged
+        seg.llm_uncertain = seg.llm_uncertain or nxt.llm_uncertain
+        seg.reviewed = False
+        session.add(seg)
+
+        session.exec(sql_delete(Translation).where(Translation.segment_id == nxt.id))
+        session.delete(nxt)
+        tail = session.exec(
+            select(Segment).where(
+                Segment.job_id == seg.job_id, Segment.idx > seg.idx + 1
+            )
+        ).all()
+        for t in tail:
+            t.idx -= 1
+            session.add(t)
+        session.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/segments/{segment_id}")
+def delete_segment(segment_id: int) -> dict:
+    with get_session() as session:
+        seg = session.get(Segment, segment_id)
+        if seg is None:
+            raise HTTPException(404, "segment not found")
+        job_id, idx = seg.job_id, seg.idx
+        session.exec(sql_delete(Translation).where(Translation.segment_id == seg.id))
+        session.delete(seg)
+        tail = session.exec(
+            select(Segment).where(Segment.job_id == job_id, Segment.idx > idx)
+        ).all()
+        for t in tail:
+            t.idx -= 1
+            session.add(t)
+        session.commit()
+    return {"ok": True}
 
 
 def _safe_filename(title: str) -> str:

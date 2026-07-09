@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   absorbFeedback,
+  deleteSegment,
   exportUrl,
   fetchLanguages,
   fetchSegments,
+  mergeNext,
+  splitSegment,
   updateSegment,
 } from "./api";
 import type { Filter, Segment } from "./types";
@@ -25,16 +28,19 @@ function Row({
   onSeek,
   onSave,
   onNudge,
+  onStructure,
 }: {
   seg: Segment;
   active: boolean;
   onSeek: (t: number) => void;
   onSave: (id: number, text: string, reviewed: boolean | null, next: boolean) => void;
   onNudge: (seg: Segment, field: "start" | "end", delta: number) => void;
+  onStructure: (action: "split" | "merge" | "delete", seg: Segment, position?: number) => void;
 }) {
   const [text, setText] = useState(displayText(seg));
   const [dirty, setDirty] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     setText(displayText(seg));
@@ -78,6 +84,7 @@ function Row({
         )}
       </div>
       <textarea
+        ref={taRef}
         value={text}
         rows={Math.max(2, Math.ceil(text.length / 40))}
         onChange={(e) => {
@@ -106,14 +113,37 @@ function Row({
           {seg.text_llm && seg.text_llm !== machineDraft && <div>L: {seg.text_llm}</div>}
         </div>
       )}
-      <label className="reviewed-check">
-        <input
-          type="checkbox"
-          checked={seg.reviewed}
-          onChange={(e) => onSave(seg.id, text, e.target.checked, false)}
-        />
-        검수 완료 (Ctrl+Enter = 저장+완료+다음)
-      </label>
+      <div className="row-foot">
+        <label className="reviewed-check">
+          <input
+            type="checkbox"
+            checked={seg.reviewed}
+            onChange={(e) => onSave(seg.id, text, e.target.checked, false)}
+          />
+          검수 완료 (Ctrl+Enter = 저장+완료+다음)
+        </label>
+        <span className="structure">
+          <button
+            title="텍스트 커서 위치에서 두 자막으로 분할 (시간은 비율로 배분)"
+            onClick={() => {
+              const pos = taRef.current?.selectionStart ?? 0;
+              onStructure("split", seg, pos);
+            }}
+          >
+            ✂ 커서에서 분할
+          </button>
+          <button title="아래 자막과 합치기" onClick={() => onStructure("merge", seg)}>
+            ⇣ 병합
+          </button>
+          <button
+            className="danger"
+            title="이 자막 삭제 (박수/잡음 구간 등)"
+            onClick={() => onStructure("delete", seg)}
+          >
+            ✕ 삭제
+          </button>
+        </span>
+      </div>
     </div>
   );
 }
@@ -173,6 +203,22 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
     setSegments((prev) => prev.map((s) => (s.id === seg.id ? updated : s)));
   }
 
+  async function structure(
+    action: "split" | "merge" | "delete",
+    seg: Segment,
+    position?: number,
+  ) {
+    try {
+      if (action === "split") await splitSegment(seg.id, position ?? 0);
+      else if (action === "merge") await mergeNext(seg.id);
+      else await deleteSegment(seg.id);
+      // idx numbering changed — reload the full list
+      setSegments(await fetchSegments(videoId));
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   return (
     <div className="editor">
       <div className="left">
@@ -212,7 +258,7 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
                 if (!r.ok) throw new Error(`export: ${r.status}`);
                 const blob = await r.blob();
                 const cd = r.headers.get("content-disposition") ?? "";
-                const m = /filename\*=UTF-8''([^;]+)/.exec(cd);
+                const m = /filename\*=utf-8''([^;]+)/i.exec(cd);
                 const name = m
                   ? decodeURIComponent(m[1])
                   : `${videoId}_자막_${lang}.srt`;
@@ -264,6 +310,7 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
             onSeek={seekTo}
             onSave={save}
             onNudge={nudge}
+            onStructure={structure}
           />
         ))}
       </div>

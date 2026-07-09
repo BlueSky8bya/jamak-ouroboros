@@ -160,8 +160,20 @@ def run(
         console.rule("[4/5] LLM correction (Claude)")
         from .pipeline.correct import correct_job
 
+        with get_session() as session:
+            job = session.get(Job, job_id)
+            job.status, job.updated_at = "correcting", utcnow()
+            session.add(job)
+            session.commit()
+
         n_changed = correct_job(job_id, console=console)
         console.print(f"corrected {n_changed} segments")
+
+        with get_session() as session:
+            job = session.get(Job, job_id)
+            job.status, job.updated_at = "corrected", utcnow()
+            session.add(job)
+            session.commit()
         text_key = "text_llm"
     else:
         console.rule("[4/5] LLM correction — skipped")
