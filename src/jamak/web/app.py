@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import re
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -119,6 +120,31 @@ def list_jobs() -> list[dict]:
         return out
 
 
+class SegmentUpdate(BaseModel):
+    text_final: str | None = None
+    start: float | None = None
+    end: float | None = None
+    reviewed: bool | None = None
+
+
+class SegmentSnapshot(BaseModel):
+    id: int | None = None
+    idx: int
+    start: float
+    end: float
+    text_whisper: str = ""
+    text_youtube: str = ""
+    text_llm: str = ""
+    text_final: str = ""
+    flagged: bool = False
+    llm_uncertain: bool = False
+    reviewed: bool = False
+
+
+class RestoreSegmentsBody(BaseModel):
+    segments: list[SegmentSnapshot]
+
+
 @app.get("/api/jobs/{video_id}/segments")
 def get_segments(video_id: str) -> list[dict]:
     with get_session() as session:
@@ -131,11 +157,50 @@ def get_segments(video_id: str) -> list[dict]:
         return [s.model_dump() for s in segs]
 
 
-class SegmentUpdate(BaseModel):
-    text_final: str | None = None
-    start: float | None = None
-    end: float | None = None
-    reviewed: bool | None = None
+@app.post("/api/jobs/{video_id}/segments/restore")
+def restore_segments(video_id: str, body: RestoreSegmentsBody) -> list[dict]:
+    """Restore one editor undo snapshot for a job's segment list."""
+    if not body.segments:
+        raise HTTPException(400, "empty segment snapshot")
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+
+        current_ids = session.exec(
+            select(Segment.id).where(Segment.job_id == job.id)
+        ).all()
+        if current_ids:
+            session.exec(
+                sql_delete(Translation).where(Translation.segment_id.in_(current_ids))
+            )
+        session.exec(sql_delete(Segment).where(Segment.job_id == job.id))
+
+        for i, snap in enumerate(sorted(body.segments, key=lambda s: s.idx)):
+            session.add(
+                Segment(
+                    id=snap.id,
+                    job_id=job.id,
+                    idx=i,
+                    start=round(max(0.0, snap.start), 3),
+                    end=round(max(snap.start + 0.1, snap.end), 3),
+                    text_whisper=snap.text_whisper,
+                    text_youtube=snap.text_youtube,
+                    text_llm=snap.text_llm,
+                    text_final=snap.text_final,
+                    flagged=snap.flagged,
+                    llm_uncertain=snap.llm_uncertain,
+                    reviewed=snap.reviewed,
+                )
+            )
+        job.status, job.updated_at = "reviewing", utcnow()
+        session.add(job)
+        session.commit()
+
+        segs = session.exec(
+            select(Segment).where(Segment.job_id == job.id).order_by(Segment.idx)
+        ).all()
+        return [s.model_dump() for s in segs]
 
 
 @app.put("/api/segments/{segment_id}")
@@ -147,9 +212,21 @@ def update_segment(segment_id: int, body: SegmentUpdate) -> dict:
         if body.text_final is not None:
             seg.text_final = body.text_final
         if body.start is not None:
-            seg.start = body.start
+            start = round(max(0.0, body.start), 3)
+            if start >= seg.end:
+                start = round(max(0.0, seg.end - 0.1), 3)
+            seg.start = start
+            prev = _previous_segment(session, seg)
+            if prev is not None and prev.end > start:
+                prev.end = start
+                session.add(prev)
         if body.end is not None:
-            seg.end = body.end
+            end = round(max(seg.start + 0.1, body.end), 3)
+            seg.end = end
+            nxt = _next_segment(session, seg)
+            if nxt is not None and nxt.start < end:
+                nxt.start = end
+                session.add(nxt)
         if body.reviewed is not None:
             seg.reviewed = body.reviewed
         session.add(seg)
@@ -163,6 +240,63 @@ def update_segment(segment_id: int, body: SegmentUpdate) -> dict:
 
 def _display_text(seg: Segment) -> str:
     return seg.text_final or seg.text_llm or seg.text_whisper
+
+
+def _join_dedup(left: str, right: str) -> str:
+    """Join adjacent subtitle text while removing repeated overlap."""
+    left = left.strip()
+    right = right.strip()
+    if not left:
+        return right
+    if not right:
+        return left
+
+    left_tokens = left.split()
+    right_tokens = right.split()
+    for n in range(min(len(left_tokens), len(right_tokens)), 0, -1):
+        if left_tokens[-n:] == right_tokens[:n]:
+            return " ".join(left_tokens + right_tokens[n:]).strip()
+
+    # Korean subtitles are mostly space-separated, but keep a small character
+    # fallback for punctuation-adjacent duplicate fragments.
+    for n in range(min(len(left), len(right), 30), 1, -1):
+        if left[-n:] == right[:n] and not left[-n:].isspace():
+            return f"{left}{right[n:]}".strip()
+    return f"{left} {right}".strip()
+
+
+def _text_weight(text: str) -> int:
+    tokens = re.findall(r"[\w가-힣]+|[^\s]", text)
+    return max(1, sum(len(t) for t in tokens))
+
+
+def _weighted_boundary(start: float, end: float, left_text: str, right_text: str) -> float:
+    duration = max(0.0, end - start)
+    if duration <= 0.2:
+        return round(start + duration / 2, 3)
+    left_weight = _text_weight(left_text)
+    right_weight = _text_weight(right_text)
+    ratio = left_weight / (left_weight + right_weight)
+    mid = start + duration * ratio
+    return round(min(max(mid, start + 0.1), end - 0.1), 3)
+
+
+def _next_segment(session, seg: Segment) -> Segment | None:
+    return session.exec(
+        select(Segment).where(
+            Segment.job_id == seg.job_id,
+            Segment.idx == seg.idx + 1,
+        )
+    ).first()
+
+
+def _previous_segment(session, seg: Segment) -> Segment | None:
+    return session.exec(
+        select(Segment).where(
+            Segment.job_id == seg.job_id,
+            Segment.idx == seg.idx - 1,
+        )
+    ).first()
 
 
 class SplitBody(BaseModel):
@@ -223,18 +357,14 @@ def merge_next(segment_id: int) -> dict:
         seg = session.get(Segment, segment_id)
         if seg is None:
             raise HTTPException(404, "segment not found")
-        nxt = session.exec(
-            select(Segment).where(
-                Segment.job_id == seg.job_id, Segment.idx == seg.idx + 1
-            )
-        ).first()
+        nxt = _next_segment(session, seg)
         if nxt is None:
             raise HTTPException(400, "no next segment to merge")
 
-        seg.text_final = f"{_display_text(seg)} {_display_text(nxt)}".strip()
-        seg.text_whisper = f"{seg.text_whisper} {nxt.text_whisper}".strip()
-        seg.text_youtube = f"{seg.text_youtube} {nxt.text_youtube}".strip()
-        seg.text_llm = f"{seg.text_llm} {nxt.text_llm}".strip()
+        seg.text_final = _join_dedup(_display_text(seg), _display_text(nxt))
+        seg.text_whisper = _join_dedup(seg.text_whisper, nxt.text_whisper)
+        seg.text_youtube = _join_dedup(seg.text_youtube, nxt.text_youtube)
+        seg.text_llm = _join_dedup(seg.text_llm, nxt.text_llm)
         seg.end = nxt.end
         seg.flagged = seg.flagged or nxt.flagged
         seg.llm_uncertain = seg.llm_uncertain or nxt.llm_uncertain
@@ -251,6 +381,94 @@ def merge_next(segment_id: int) -> dict:
         for t in tail:
             t.idx -= 1
             session.add(t)
+        session.commit()
+    return {"ok": True}
+
+
+class BoundaryBody(BaseModel):
+    time: float
+
+
+@app.post("/api/segments/{segment_id}/boundary-prev")
+def boundary_prev(segment_id: int, body: BoundaryBody) -> dict:
+    """Move the boundary between the previous segment and this one together."""
+    with get_session() as session:
+        seg = session.get(Segment, segment_id)
+        if seg is None:
+            raise HTTPException(404, "segment not found")
+        prev = _previous_segment(session, seg)
+
+        hi = seg.end - 0.1
+        if prev is None:
+            t = round(min(max(body.time, 0.0), hi), 3)
+            seg.start = t
+            session.add(seg)
+        else:
+            lo = prev.start + 0.1
+            if hi <= lo:
+                raise HTTPException(400, "segments are too short to move boundary")
+            t = round(min(max(body.time, lo), hi), 3)
+            prev.end = t
+            seg.start = t
+            session.add(prev)
+            session.add(seg)
+
+        job = session.get(Job, seg.job_id)
+        job.status, job.updated_at = "reviewing", utcnow()
+        session.add(job)
+        session.commit()
+    return {"ok": True}
+
+
+@app.post("/api/segments/{segment_id}/boundary-next")
+def boundary_next(segment_id: int, body: BoundaryBody) -> dict:
+    """Move the boundary between this segment and the next one together."""
+    with get_session() as session:
+        seg = session.get(Segment, segment_id)
+        if seg is None:
+            raise HTTPException(404, "segment not found")
+        nxt = _next_segment(session, seg)
+        lo = seg.start + 0.1
+
+        if nxt is None:
+            t = round(max(body.time, lo), 3)
+            seg.end = t
+            session.add(seg)
+        else:
+            hi = nxt.end - 0.1
+            if hi <= lo:
+                raise HTTPException(400, "segments are too short to move boundary")
+            t = round(min(max(body.time, lo), hi), 3)
+            seg.end = t
+            nxt.start = t
+            session.add(seg)
+            session.add(nxt)
+        job = session.get(Job, seg.job_id)
+        job.status, job.updated_at = "reviewing", utcnow()
+        session.add(job)
+        session.commit()
+    return {"ok": True}
+
+
+@app.post("/api/segments/{segment_id}/redistribute-next")
+def redistribute_next(segment_id: int) -> dict:
+    """Split this+next combined time span by current text lengths."""
+    with get_session() as session:
+        seg = session.get(Segment, segment_id)
+        if seg is None:
+            raise HTTPException(404, "segment not found")
+        nxt = _next_segment(session, seg)
+        if nxt is None:
+            raise HTTPException(400, "no next segment")
+
+        mid = _weighted_boundary(seg.start, nxt.end, _display_text(seg), _display_text(nxt))
+        seg.end = mid
+        nxt.start = mid
+        session.add(seg)
+        session.add(nxt)
+        job = session.get(Job, seg.job_id)
+        job.status, job.updated_at = "reviewing", utcnow()
+        session.add(job)
         session.commit()
     return {"ok": True}
 
@@ -283,6 +501,16 @@ def _safe_filename(title: str) -> str:
 @app.get("/api/jobs/{video_id}/export")
 def export_srt(video_id: str, stage: str = "best", lang: str = "ko"):
     key_map = {"whisper": "text_whisper", "llm": "text_llm", "final": "text_final"}
+
+    # Exporting is the end of a review pass. Absorb first, then read segments
+    # so any same-video propagation is included in the downloaded file.
+    from ..feedback import absorb_job
+
+    try:
+        absorb_job(video_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
     with get_session() as session:
         job = session.exec(select(Job).where(Job.video_id == video_id)).first()
         if job is None:
@@ -292,12 +520,6 @@ def export_srt(video_id: str, stage: str = "best", lang: str = "ko"):
         ).all()
         seg_dicts = [s.model_dump() for s in segs]
         title = job.title
-
-    # exporting IS the end of a review pass — absorb feedback automatically
-    # so the ouroboros loop never gets skipped (harness rule 1)
-    from ..feedback import absorb_job
-
-    absorb_job(video_id)
 
     if stage == "best":
         # per-segment best: final > llm > whisper, so a half-reviewed job
@@ -326,7 +548,7 @@ def export_srt(video_id: str, stage: str = "best", lang: str = "ko"):
     return FileResponse(
         path,
         media_type="application/x-subrip",
-        filename=f"{_safe_filename(title)}_자막_{lang}.srt",
+        filename=f"{lang}_{_safe_filename(title)}_자막.srt",
     )
 
 

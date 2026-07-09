@@ -6,6 +6,7 @@ from __future__ import annotations
 from sqlmodel import select
 
 from .db import Correction, GlossaryTerm, get_session
+from .learned_pairs import is_safe_correction_pair
 
 
 def whisper_prompt(max_terms: int = 60) -> str:
@@ -46,6 +47,10 @@ def fewshot_corrections(max_pairs: int = 40) -> list[tuple[str, str, str]]:
     """Most frequent learned corrections: (wrong, right, context)."""
     with get_session() as session:
         rows = session.exec(
-            select(Correction).order_by(Correction.count.desc()).limit(max_pairs)
+            select(Correction).order_by(Correction.count.desc()).limit(max_pairs * 3)
         ).all()
-    return [(c.wrong, c.right, c.context) for c in rows]
+    return [
+        (c.wrong, c.right, c.context)
+        for c in rows
+        if is_safe_correction_pair(c.wrong, c.right)
+    ][:max_pairs]

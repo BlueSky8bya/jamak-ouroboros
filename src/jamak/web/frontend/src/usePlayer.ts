@@ -21,7 +21,7 @@ export function usePlayer(videoId: string) {
       if (disposed) return;
       playerRef.current = new window.YT.Player("yt-player", {
         videoId,
-        playerVars: { rel: 0 },
+        playerVars: { rel: 0, disablekb: 1 },
         events: {
           onReady: () => setReady(true),
           onStateChange: (e: any) => setPlaying(e.data === 1),

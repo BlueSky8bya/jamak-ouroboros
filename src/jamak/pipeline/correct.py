@@ -26,10 +26,11 @@ from sqlmodel import select
 from ..config import CORRECT_MODEL, PREPASS_MIN_COUNT
 from ..db import Correction, LlmCache, Segment, get_session
 from ..glossary import fewshot_corrections, glossary_block
+from ..learned_pairs import is_safe_correction_pair
 
 CHUNK_SIZE = 50  # segments per request
 CONTEXT_OVERLAP = 5  # trailing segments repeated as read-only context
-PROMPT_VERSION = "v2"  # bump to invalidate the correction cache
+PROMPT_VERSION = "v3"  # bump to invalidate the correction cache
 
 OUTPUT_SCHEMA = {
     "type": "object",
@@ -66,12 +67,18 @@ def load_prepass_pairs() -> list[tuple[str, str]]:
             .where(Correction.count >= PREPASS_MIN_COUNT)
             .order_by(Correction.count.desc())
         ).all()
-    return [(c.wrong, c.right) for c in rows]
+    return [
+        (c.wrong, c.right)
+        for c in rows
+        if is_safe_correction_pair(c.wrong, c.right)
+    ]
 
 
 def apply_prepass(text: str, pairs: list[tuple[str, str]]) -> str:
     """Word-boundary replacement of learned pairs — free corrections."""
     for wrong, right in pairs:
+        if not is_safe_correction_pair(wrong, right):
+            continue
         pattern = r"(?<![\w가-힣])" + re.escape(wrong) + r"(?![\w가-힣])"
         text = re.sub(pattern, right, text)
     return text
@@ -96,6 +103,8 @@ def build_system_prompt() -> str:
         "6. **수정이 필요한 세그먼트만 corrections에 포함한다.** 이상 없는 세그먼트는"
         " 응답에 포함하지 않는다 (미포함 = 원문 유지로 처리됨).",
         "7. 두 자막 소스가 다르면 문맥상 더 그럴듯한 쪽을 선택하거나 조합한다.",
+        "8. 대명사/지시어(예: 그 여자, 그 사람, 그분)는 들린 그대로 둔다. "
+        "앞뒤 문맥만 보고 고유명사로 풀어쓰지 않는다.",
     ]
 
     if glossary:

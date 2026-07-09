@@ -12,6 +12,16 @@ export async function fetchSegments(videoId: string): Promise<Segment[]> {
   return r.json();
 }
 
+export async function restoreSegments(videoId: string, segments: Segment[]): Promise<Segment[]> {
+  const r = await fetch(`/api/jobs/${videoId}/segments/restore`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ segments }),
+  });
+  if (!r.ok) throw new Error((await r.json()).detail ?? `restore: ${r.status}`);
+  return r.json();
+}
+
 export async function updateSegment(
   id: number,
   body: Partial<Pick<Segment, "text_final" | "start" | "end" | "reviewed">>,
@@ -59,6 +69,29 @@ export async function mergeNext(id: number): Promise<void> {
   if (!r.ok) throw new Error((await r.json()).detail ?? `merge: ${r.status}`);
 }
 
+export async function boundaryNext(id: number, time: number): Promise<void> {
+  const r = await fetch(`/api/segments/${id}/boundary-next`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ time }),
+  });
+  if (!r.ok) throw new Error((await r.json()).detail ?? `boundary: ${r.status}`);
+}
+
+export async function boundaryPrev(id: number, time: number): Promise<void> {
+  const r = await fetch(`/api/segments/${id}/boundary-prev`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ time }),
+  });
+  if (!r.ok) throw new Error((await r.json()).detail ?? `boundary: ${r.status}`);
+}
+
+export async function redistributeNext(id: number): Promise<void> {
+  const r = await fetch(`/api/segments/${id}/redistribute-next`, { method: "POST" });
+  if (!r.ok) throw new Error((await r.json()).detail ?? `redistribute: ${r.status}`);
+}
+
 export async function deleteSegment(id: number): Promise<void> {
   const r = await fetch(`/api/segments/${id}`, { method: "DELETE" });
   if (!r.ok) throw new Error(`delete: ${r.status}`);
@@ -68,6 +101,10 @@ export async function absorbFeedback(videoId: string): Promise<{
   reviewed_segments: number;
   new_pairs: number;
   bumped: number;
+  applied: number;
+  propagated_segments: number;
+  propagated_replacements: number;
+  propagation_pairs: number;
 }> {
   const r = await fetch(`/api/jobs/${videoId}/absorb`, { method: "POST" });
   if (!r.ok) throw new Error(`absorb: ${r.status}`);

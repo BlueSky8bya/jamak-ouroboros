@@ -22,5 +22,3 @@ export interface Segment {
   llm_uncertain: boolean;
   reviewed: boolean;
 }
-
-export type Filter = "all" | "flagged" | "unreviewed";

@@ -134,7 +134,15 @@ def run(
 
     n_raw = len(stt_segments)
     stt_segments = split_segments(stt_segments)
-    console.print(f"{n_raw} raw segments -> {len(stt_segments)} subtitle-sized")
+    n_split = len(stt_segments)
+
+    from .pipeline.noise import filter_standalone_audience_responses
+
+    stt_segments = filter_standalone_audience_responses(stt_segments)
+    n_noise = n_split - len(stt_segments)
+    console.print(f"{n_raw} raw segments -> {n_split} subtitle-sized")
+    if n_noise:
+        console.print(f"removed {n_noise} standalone audience-response segments")
 
     console.rule("[3/5] Crosscheck")
     rows = crosscheck(stt_segments, res.captions_path)
@@ -253,7 +261,8 @@ def absorb(video_id: str) -> None:
     stats = absorb_job(video_id)
     console.print(
         f"absorbed [bold]{stats['reviewed_segments']}[/] reviewed segments: "
-        f"{stats['new_pairs']} new correction pairs, {stats['bumped']} reinforced"
+        f"{stats['new_pairs']} new correction pairs, {stats['bumped']} reinforced, "
+        f"{stats['applied']} later draft segments updated"
     )
 
 

@@ -4,7 +4,7 @@ import { Editor } from "./Editor";
 import type { JobSummary } from "./types";
 
 const STATUS_LABEL: Record<string, string> = {
-  starting: "시작 중...",
+  starting: "시작 중",
   pending: "대기",
   ingested: "음성 인식 중",
   transcribed: "인식 완료",
@@ -16,8 +16,8 @@ const STATUS_LABEL: Record<string, string> = {
 
 function statusLabel(j: JobSummary): string {
   if (j.running) {
-    if (j.status === "starting") return "다운로드 중...";
-    if (j.status === "ingested") return "음성 인식 중 (GPU)";
+    if (j.status === "starting") return "다운로드 중";
+    if (j.status === "ingested") return "음성 인식 중(GPU)";
     if (j.status === "transcribed") return "교차검증 중";
     return STATUS_LABEL[j.status] ?? j.status;
   }
@@ -38,7 +38,6 @@ export function App() {
       setJobs(list);
       const anyRunning = list.some((j) => j.running);
       if (timer.current) window.clearTimeout(timer.current);
-      // poll fast while a pipeline is running, slowly otherwise
       timer.current = window.setTimeout(refresh, anyRunning ? 3000 : 30000);
     } catch (e) {
       setError(String(e));
@@ -70,11 +69,17 @@ export function App() {
 
   if (selected) return <Editor videoId={selected} onBack={() => setSelected(null)} />;
 
+  const runningCount = jobs.filter((j) => j.running).length;
+  const reviewedTotal = jobs.reduce((sum, j) => sum + j.reviewed, 0);
+
   return (
     <div className="landing">
-      <header>
-        <h1>자막 작업</h1>
-        <p>유튜브 링크를 넣으면 자막 초안이 만들어집니다. 고칠수록 다음 영상이 더 정확해집니다.</p>
+      <header className="landing-header">
+        <div>
+          <span className="product-label">Jamak Ouroboros</span>
+          <h1>자막 검수 작업대</h1>
+        </div>
+        <p>유튜브 강연 자막을 만들고, 검수하고, 고친 내용을 다음 작업에 되먹임합니다.</p>
       </header>
 
       <div className="url-box">
@@ -86,14 +91,21 @@ export function App() {
           onKeyDown={(e) => e.key === "Enter" && submit()}
         />
         <button onClick={submit} disabled={submitting || !url.trim()}>
-          {submitting ? "시작 중..." : "자막 만들기"}
+          {submitting ? "시작 중" : "자막 만들기"}
         </button>
       </div>
       {error && <div className="error">{error}</div>}
 
+      <div className="dashboard-summary">
+        <span>작업 {jobs.length}</span>
+        <span>진행 중 {runningCount}</span>
+        <span>검수 완료 {reviewedTotal}</span>
+      </div>
+
       <div className="job-grid">
         {jobs.map((j) => {
           const openable = j.segments > 0;
+          const reviewedPct = j.segments ? Math.round((j.reviewed / j.segments) * 100) : 0;
           return (
             <button
               key={j.video_id}
@@ -113,10 +125,15 @@ export function App() {
                   {j.running && <span className="spinner" />} {statusLabel(j)}
                 </span>
                 {j.segments > 0 && (
-                  <span className="meta">
-                    {Math.round(j.duration_seconds / 60)}분 · 자막 {j.segments}개 · 확인{" "}
-                    {j.reviewed}/{j.segments}
-                  </span>
+                  <>
+                    <span className="meta">
+                      {Math.round(j.duration_seconds / 60)}분 · 자막 {j.segments}개 · 확인{" "}
+                      {j.reviewed}/{j.segments}
+                    </span>
+                    <span className="job-progress" aria-label={`검수 진행률 ${reviewedPct}%`}>
+                      <span style={{ width: `${reviewedPct}%` }} />
+                    </span>
+                  </>
                 )}
               </div>
             </button>
