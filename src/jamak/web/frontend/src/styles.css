@@ -36,10 +36,17 @@ body {
   border-radius: 6px; cursor: pointer; font-size: 13px;
 }
 .filters button.on { background: #4a7dff; color: #fff; border-color: #4a7dff; }
+.export-row { display: flex; gap: 6px; }
+.export-row select {
+  flex: 1; padding: 6px; border: 1px solid #d8dce1; border-radius: 6px; font-size: 13px;
+}
 .export {
   display: inline-block; padding: 8px 12px; background: #16a34a; color: #fff;
-  border-radius: 6px; text-decoration: none; text-align: center; font-size: 14px;
+  border: none; border-radius: 6px; text-decoration: none; text-align: center;
+  font-size: 14px; cursor: pointer;
 }
+.export:disabled { background: #86c9a2; cursor: wait; }
+.hint { font-size: 11px; color: #889; }
 .error { color: #dc2626; font-size: 13px; white-space: pre-wrap; }
 .absorb {
   padding: 8px 12px; background: #7c3aed; color: #fff; border: none;

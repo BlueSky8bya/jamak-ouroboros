@@ -44,3 +44,25 @@ MAX_SEGMENT_SECONDS = 7.0
 def ensure_dirs() -> None:
     for d in (DATA_DIR, JOBS_DIR, SEEDS_DIR):
         d.mkdir(parents=True, exist_ok=True)
+
+
+def _load_api_key_fallback() -> None:
+    """Windows: processes launched before the User env var was set don't
+    inherit ANTHROPIC_API_KEY — fall back to reading it from the registry
+    so `jamak serve` / `jamak run` work without a shell restart."""
+    import sys
+
+    if os.environ.get("ANTHROPIC_API_KEY") or sys.platform != "win32":
+        return
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as k:
+            value, _ = winreg.QueryValueEx(k, "ANTHROPIC_API_KEY")
+            if value:
+                os.environ["ANTHROPIC_API_KEY"] = value
+    except OSError:
+        pass
+
+
+_load_api_key_fallback()

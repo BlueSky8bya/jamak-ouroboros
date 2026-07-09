@@ -25,8 +25,14 @@ export async function updateSegment(
   return r.json();
 }
 
-export function exportUrl(videoId: string, stage = "best"): string {
-  return `/api/jobs/${videoId}/export?stage=${stage}`;
+export function exportUrl(videoId: string, stage = "best", lang = "ko"): string {
+  return `/api/jobs/${videoId}/export?stage=${stage}&lang=${lang}`;
+}
+
+export async function fetchLanguages(): Promise<{ code: string; label: string }[]> {
+  const r = await fetch("/api/languages");
+  if (!r.ok) throw new Error(`languages: ${r.status}`);
+  return r.json();
 }
 
 export async function absorbFeedback(videoId: string): Promise<{

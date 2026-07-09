@@ -129,7 +129,12 @@ def run(
             progress.update(task, completed=min(pos, res.duration_seconds))
 
         stt_segments = transcribe(res.audio_path, res.job_dir, prompt, cb)
-    console.print(f"{len(stt_segments)} segments")
+
+    from .pipeline.split import split_segments
+
+    n_raw = len(stt_segments)
+    stt_segments = split_segments(stt_segments)
+    console.print(f"{n_raw} raw segments -> {len(stt_segments)} subtitle-sized")
 
     console.rule("[3/5] Crosscheck")
     rows = crosscheck(stt_segments, res.captions_path)

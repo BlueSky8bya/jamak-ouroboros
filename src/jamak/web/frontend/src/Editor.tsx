@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { absorbFeedback, exportUrl, fetchSegments, updateSegment } from "./api";
+import {
+  absorbFeedback,
+  exportUrl,
+  fetchLanguages,
+  fetchSegments,
+  updateSegment,
+} from "./api";
 import type { Filter, Segment } from "./types";
 import { usePlayer } from "./usePlayer";
 
@@ -117,10 +123,14 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
   const [filter, setFilter] = useState<Filter>("all");
   const [error, setError] = useState("");
   const [absorbMsg, setAbsorbMsg] = useState("");
+  const [langs, setLangs] = useState<{ code: string; label: string }[]>([]);
+  const [lang, setLang] = useState("ko");
+  const [exporting, setExporting] = useState(false);
   const { currentTime, seekTo } = usePlayer(videoId);
 
   useEffect(() => {
     fetchSegments(videoId).then(setSegments).catch((e) => setError(String(e)));
+    fetchLanguages().then(setLangs).catch(() => {});
   }, [videoId]);
 
   const activeId = useMemo(() => {
@@ -183,9 +193,49 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
             </button>
           ))}
         </div>
-        <a className="export" href={exportUrl(videoId)} download>
-          .srt 다운로드
-        </a>
+        <div className="export-row">
+          <select value={lang} onChange={(e) => setLang(e.target.value)}>
+            {langs.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+          <button
+            className="export"
+            disabled={exporting}
+            onClick={async () => {
+              setExporting(true);
+              try {
+                // fetch first so slow first-time translation shows a spinner
+                const r = await fetch(exportUrl(videoId, "best", lang));
+                if (!r.ok) throw new Error(`export: ${r.status}`);
+                const blob = await r.blob();
+                const cd = r.headers.get("content-disposition") ?? "";
+                const m = /filename\*=UTF-8''([^;]+)/.exec(cd);
+                const name = m
+                  ? decodeURIComponent(m[1])
+                  : `${videoId}_자막_${lang}.srt`;
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = name;
+                a.click();
+                URL.revokeObjectURL(a.href);
+              } catch (e) {
+                setError(String(e));
+              } finally {
+                setExporting(false);
+              }
+            }}
+          >
+            {exporting
+              ? lang === "ko"
+                ? "내보내는 중..."
+                : "번역 중... (첫 번역은 1~2분)"
+              : ".srt 다운로드"}
+          </button>
+        </div>
+        <div className="hint">다운로드 시 검수 피드백이 자동으로 흡수됩니다</div>
         <button
           className="absorb"
           title="검수한 수정 내역을 교정쌍 DB로 흡수 — 다음 영상부터 반영"

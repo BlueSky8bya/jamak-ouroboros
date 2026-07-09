@@ -93,8 +93,14 @@ def update_segment(segment_id: int, body: SegmentUpdate) -> dict:
         return seg.model_dump()
 
 
+def _safe_filename(title: str) -> str:
+    bad = '\\/:*?"<>|'
+    cleaned = "".join(c for c in title if c not in bad).strip().rstrip(".")
+    return cleaned[:80] or "untitled"
+
+
 @app.get("/api/jobs/{video_id}/export")
-def export_srt(video_id: str, stage: str = "best"):
+def export_srt(video_id: str, stage: str = "best", lang: str = "ko"):
     key_map = {"whisper": "text_whisper", "llm": "text_llm", "final": "text_final"}
     with get_session() as session:
         job = session.exec(select(Job).where(Job.video_id == video_id)).first()
@@ -104,6 +110,13 @@ def export_srt(video_id: str, stage: str = "best"):
             select(Segment).where(Segment.job_id == job.id).order_by(Segment.idx)
         ).all()
         seg_dicts = [s.model_dump() for s in segs]
+        title = job.title
+
+    # exporting IS the end of a review pass — absorb feedback automatically
+    # so the ouroboros loop never gets skipped (harness rule 1)
+    from ..feedback import absorb_job
+
+    absorb_job(video_id)
 
     if stage == "best":
         # per-segment best: final > llm > whisper, so a half-reviewed job
@@ -116,12 +129,33 @@ def export_srt(video_id: str, stage: str = "best"):
     else:
         raise HTTPException(400, f"unknown stage {stage}")
 
+    if lang != "ko":
+        from ..pipeline.translate import LANGUAGES, translate_segments
+
+        if lang not in LANGUAGES:
+            raise HTTPException(400, f"unsupported language {lang}")
+        translated = translate_segments(seg_dicts, key, lang)
+        for d in seg_dicts:
+            d["text_export_t"] = translated.get(d["id"], "")
+        key = "text_export_t"
+
     out_dir = JOBS_DIR / video_id
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = to_srt(seg_dicts, key, out_dir / f"{video_id}.{stage}.srt")
+    path = to_srt(seg_dicts, key, out_dir / f"{video_id}.{stage}.{lang}.srt")
     return FileResponse(
-        path, media_type="text/plain", filename=f"{video_id}.{stage}.srt"
+        path,
+        media_type="application/x-subrip",
+        filename=f"{_safe_filename(title)}_자막_{lang}.srt",
     )
+
+
+@app.get("/api/languages")
+def languages() -> list[dict]:
+    from ..pipeline.translate import LANGUAGES
+
+    return [{"code": "ko", "label": "한국어 (원문)"}] + [
+        {"code": c, "label": l} for c, l in LANGUAGES.items()
+    ]
 
 
 @app.post("/api/jobs/{video_id}/absorb")

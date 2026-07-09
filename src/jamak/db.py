@@ -67,6 +67,22 @@ class Correction(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class Translation(SQLModel, table=True):
+    """Cached translation of one segment into one language.
+
+    source_hash ties the cache to the exact Korean text it was made from —
+    when a human edits the Korean after translating, the stale entry is
+    ignored and that segment is re-translated on next export.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    segment_id: int = Field(index=True, foreign_key="segment.id")
+    lang: str = Field(index=True)  # en, ja, zh-Hans, zh-Hant, es, fr, it, ...
+    text: str
+    source_hash: str
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class GlossaryTerm(SQLModel, table=True):
     """Domain vocabulary: 신인, 축지법, 하늘궁, 불교/유교/기독교 용어, 한자어..."""
 
