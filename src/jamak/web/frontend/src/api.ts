@@ -97,6 +97,14 @@ export async function deleteSegment(id: number): Promise<void> {
   if (!r.ok) throw new Error(`delete: ${r.status}`);
 }
 
+export async function repairStt(
+  videoId: string,
+): Promise<{ repaired: number; no_caption: number }> {
+  const r = await fetch(`/api/jobs/${videoId}/repair-stt`, { method: "POST" });
+  if (!r.ok) throw new Error((await r.json()).detail ?? `repair: ${r.status}`);
+  return r.json();
+}
+
 export interface TranslationRow {
   segment_id: number;
   idx: number;

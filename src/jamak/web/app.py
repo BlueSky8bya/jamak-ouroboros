@@ -703,6 +703,49 @@ def update_translation(segment_id: int, lang: str, body: TranslationUpdate) -> d
         return {"segment_id": segment_id, "text": t.text, "reviewed": t.reviewed}
 
 
+@app.post("/api/jobs/{video_id}/repair-stt")
+def repair_stt(video_id: str) -> dict:
+    """Recover segments where whisper hallucinated its initial_prompt.
+
+    Works on segments already in the DB (e.g. videos processed before the
+    crosscheck-time echo filter existed). Zero API cost: where the segment
+    text is a prompt echo and a YouTube caption exists for that span, we
+    replace the working text with the YouTube caption and re-open it for
+    review. Segments with no caption are left for the human.
+    """
+    from ..glossary import whisper_prompt
+    from ..pipeline.noise import is_prompt_echo
+
+    prompt = whisper_prompt()
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+        segs = session.exec(
+            select(Segment).where(Segment.job_id == job.id).order_by(Segment.idx)
+        ).all()
+        repaired = 0
+        no_caption = 0
+        for seg in segs:
+            base = seg.text_final or seg.text_llm or seg.text_whisper
+            if not is_prompt_echo(base, prompt):
+                continue
+            yt = seg.text_youtube.strip()
+            if yt:
+                seg.text_final = yt
+                seg.flagged = True
+                seg.reviewed = False
+                session.add(seg)
+                repaired += 1
+            else:
+                no_caption += 1
+        if repaired:
+            job.status, job.updated_at = "reviewing", utcnow()
+            session.add(job)
+        session.commit()
+    return {"repaired": repaired, "no_caption": no_caption}
+
+
 @app.post("/api/jobs/{video_id}/absorb")
 def absorb(video_id: str) -> dict:
     """Ouroboros feedback: pull reviewed diffs into the corrections DB."""

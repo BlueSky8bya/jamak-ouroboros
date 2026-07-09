@@ -1103,6 +1103,33 @@ kbd {
 .src-label.w { background: #e0e7ff; color: #3730a3; }
 .src-label.y { background: #fce7f3; color: #9d174d; }
 
+.sources-title b { color: var(--blue, #4a7dff); }
+.src-line { display: flex; align-items: flex-start; gap: 6px; margin-top: 3px; }
+.src-line .src-text { flex: 1; min-width: 0; }
+.src-fill {
+  flex: 0 0 auto;
+  font-size: 10px;
+  padding: 2px 8px;
+  border: 1px solid var(--line, #d3d9e2);
+  background: var(--surface, #fff);
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--blue, #4a7dff);
+  white-space: nowrap;
+}
+.src-fill:hover { background: #eef3ff; border-color: var(--blue, #4a7dff); }
+.repair-btn {
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid #f0b8b8;
+  background: #fef2f2;
+  color: #b91c1c;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.repair-btn:hover { background: #fee2e2; }
+
 .row-foot {
   display: flex;
   align-items: center;

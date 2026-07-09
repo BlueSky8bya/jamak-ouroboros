@@ -8,6 +8,7 @@ import {
   fetchLanguages,
   fetchSegments,
   mergeNext,
+  repairStt,
   restoreSegments,
   splitSegment,
   updateSegment,
@@ -292,6 +293,16 @@ function Row({
     }
   }
 
+  // one-click: replace the editable text with a machine source (no retyping
+  // when whisper mangled a whole region but YouTube heard it right)
+  function fillFrom(src: string) {
+    setText(src);
+    dirtyRef.current = false;
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    void onSave(seg.id, src, null, false);
+    taRef.current?.focus();
+  }
+
   useEffect(() => {
     const handle: RowHandle = {
       flush,
@@ -388,13 +399,25 @@ function Row({
       />
       {showSources && (
         <div className="sources">
-          <div className="sources-title">참고용 — 기계가 각자 들은 내용 (판단은 사람이)</div>
-          <div>
-            <span className="src-label w">음성인식</span> {seg.text_whisper}
+          <div className="sources-title">
+            참고용 — 기계가 각자 들은 내용. 맞는 걸 <b>가져오기</b>로 바로 채울 수 있어요
+          </div>
+          <div className="src-line">
+            <span className="src-label w">음성인식</span>
+            <span className="src-text">{seg.text_whisper}</span>
+            {seg.text_whisper.trim() && (
+              <button className="src-fill" title="이 내용을 편집칸에 채우기" onClick={() => fillFrom(seg.text_whisper.trim())}>
+                가져오기
+              </button>
+            )}
           </div>
           {seg.text_youtube && (
-            <div>
-              <span className="src-label y">유튜브 자막</span> {seg.text_youtube}
+            <div className="src-line">
+              <span className="src-label y">유튜브 자막</span>
+              <span className="src-text">{seg.text_youtube}</span>
+              <button className="src-fill" title="이 내용을 편집칸에 채우기" onClick={() => fillFrom(seg.text_youtube.trim())}>
+                가져오기
+              </button>
             </div>
           )}
         </div>
@@ -887,6 +910,29 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
             {statusMsg || (undoStack.length ? `${undoStack[undoStack.length - 1].label} 되돌릴 수 있음` : "변경 대기")}
           </span>
         </div>
+        <button
+          className="repair-btn"
+          title="음성인식이 프롬프트를 반복 출력한 구간을 유튜브 자막으로 한 번에 되돌립니다 (API 사용 안 함)"
+          onClick={async () => {
+            await flushAll();
+            try {
+              const r = await repairStt(videoId);
+              const next = await fetchSegments(videoId);
+              segmentsRef.current = next;
+              setSegments(next);
+              setStatusMsg(
+                r.repaired
+                  ? `음성인식 오류 ${r.repaired}곳을 유튜브 자막으로 복구했습니다` +
+                      (r.no_caption ? ` (유튜브 자막 없는 ${r.no_caption}곳은 직접 수정 필요)` : "")
+                  : "복구할 음성인식 오류를 찾지 못했습니다",
+              );
+            } catch (e) {
+              setError(String(e));
+            }
+          }}
+        >
+          🛠 음성인식 오류 복구
+        </button>
         <label className="pause-on-type" title="유튜브 스튜디오와 같은 기능">
           <input
             type="checkbox"
