@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "jamak-review",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "jamak", "serve"],
+      "port": 8710
+    }
+  ]
+}

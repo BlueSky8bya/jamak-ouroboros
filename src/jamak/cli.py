@@ -228,5 +228,17 @@ def export(
     console.print(f"[bold green]exported:[/] {out}")
 
 
+@app.command()
+def serve(
+    port: int = typer.Option(8710, help="Port for the review web app"),
+) -> None:
+    """Start the review web app (http://localhost:8710)."""
+    import uvicorn
+
+    config.ensure_dirs()
+    console.print(f"[bold green]review app:[/] http://localhost:{port}")
+    uvicorn.run("jamak.web.app:app", host="127.0.0.1", port=port)
+
+
 if __name__ == "__main__":
     app()
