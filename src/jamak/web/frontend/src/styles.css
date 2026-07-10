@@ -1101,6 +1101,25 @@ img.broken { opacity: 0; }
   border-left: 4px solid var(--green);
   opacity: 0.85;
 }
+.track-fork {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 11px 13px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+.fork-btn { align-self: flex-start; font-weight: 800; }
+.fork-hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  text-wrap: pretty;
+  word-break: keep-all;
+}
+
 .trow.stale {
   border-left: 4px solid var(--amber);
   opacity: 1;

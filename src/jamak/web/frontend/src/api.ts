@@ -6,14 +6,27 @@ export async function fetchJobs(): Promise<JobSummary[]> {
   return r.json();
 }
 
-export async function fetchSegments(videoId: string): Promise<Segment[]> {
-  const r = await fetch(`/api/jobs/${videoId}/segments`);
+export async function fetchSegments(videoId: string, lang = "ko"): Promise<Segment[]> {
+  const r = await fetch(`/api/jobs/${videoId}/segments?lang=${lang}`);
   if (!r.ok) throw new Error(`segments: ${r.status}`);
   return r.json();
 }
 
-export async function restoreSegments(videoId: string, segments: Segment[]): Promise<Segment[]> {
-  const r = await fetch(`/api/jobs/${videoId}/segments/restore`, {
+export async function forkTrack(
+  videoId: string,
+  lang: string,
+): Promise<{ video_id: string; lang: string; forked: boolean; created: number }> {
+  const r = await fetch(`/api/jobs/${videoId}/fork-track?lang=${lang}`, { method: "POST" });
+  if (!r.ok) throw new Error((await r.json()).detail ?? `fork: ${r.status}`);
+  return r.json();
+}
+
+export async function restoreSegments(
+  videoId: string,
+  segments: Segment[],
+  lang = "ko",
+): Promise<Segment[]> {
+  const r = await fetch(`/api/jobs/${videoId}/segments/restore?lang=${lang}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ segments }),
@@ -60,8 +73,9 @@ export async function replaceText(
   find: string,
   replace: string,
   apply: boolean,
+  lang = "ko",
 ): Promise<{ matches: number; segments: number; applied: boolean }> {
-  const r = await fetch(`/api/jobs/${videoId}/replace`, {
+  const r = await fetch(`/api/jobs/${videoId}/replace?lang=${lang}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ find, replace, apply }),

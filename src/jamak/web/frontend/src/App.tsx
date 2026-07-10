@@ -538,6 +538,7 @@ export function App() {
       <Editor
         videoId={selected}
         onBack={() => setSelected(null)}
+        koComplete={jobs.find((j) => j.video_id === selected)?.ko_complete ?? false}
         timingDone={jobs.find((j) => j.video_id === selected)?.timing_done ?? false}
       />
     );

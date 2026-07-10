@@ -203,7 +203,10 @@ cp949 콘솔에서 유니코드 특수문자 크래시 → CLI 문자열에서 e
   - ⚠️ fork 엔드포인트 UI 미노출(Phase 2b에서 ko 집계 엔드포인트 `lang=="ko"` 가드 후 노출).
   - **UI 수정**(이번 배치): 썸네일 완료 배지 제거(썸네일 가림 해결), ko 카드 스테이지 = **[자막][타이밍] 2축**(단일 완료 배지 대신), 번역 필터 "영어 있는 영상"(미완 포함).
   - **사용자 제기**(ACTIVE_PLAN 반영): 배포(SQLite→PG·GPU 워커·인증·잠금 → 별도 ADR), 언어별 파인튜닝(STT/교정=ko, 번역=lang별), DB 최적화(lazy-fork·source_hash·파생가능 데이터 미저장).
-  - 다음: Phase 2b(ko 가드) → Phase 3(에디터 임의 트랙) → Phase 4(랜딩 언어 축) → Phase 5(export/우로보로스).
+  - **Phase 2b (ko 격리 가드) 완료·검증** [커밋 383552c]: 모든 집계 엔드포인트 lang 스코프(fork 영속해도 ko 안전).
+  - **Phase 3 (에디터 임의 트랙 편집) 완료·검증**: 언어 선택→`✂ fork`→그 언어 세그먼트를 **같은 Row 에디터로 독립 편집**(분할·병합·타이밍·미리보기 재사용, ko 전용 도구 숨김). `fetchSegments(videoId,lang)`, `forkTrack`, `koComplete` prop. 검증: lFux en→124 영어 행·ja→124 일본어 행, ko 불변·복귀 정상, 테스트 정리. 서버 b09d6830.
+  - **눈에 보이는 핵심 기능 동작**: 이제 영어/일본어 등을 한국어와 다르게 분할·타이밍 편집 가능.
+  - 다음: Phase 4(랜딩 언어 축 — 트랙별 상태 태그·필터, `Track.timing_done` 이관) → Phase 5(우로보로스 언어별) + 배포 ADR.
 
 - **비용 구조 개편** (commit cee717a): thinking off(출력 3.6k tok, $0.074/영상), 교정 캐시(재실행 $0), pre-pass(count≥2 교정쌍 무료 치환 — 피드백 쌓일수록 API 의존 감소), id 기반 매핑(동시 편집 안전), 삭제 확인창, 단계별 모델 env, 토큰/비용 리포트 출력
 - 남은 비용 레버 (미적용): Batch API(-50%, 비동기 1h), JAMAK_CORRECT_MODEL=claude-haiku-4-5(-66%, 품질 검증 필요), M5 whisper 파인튜닝(교정 API 자체 제거)

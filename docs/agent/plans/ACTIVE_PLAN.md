@@ -26,10 +26,12 @@ DB 중복 최소화: 번역은 **기본 ko 구조·타이밍 상속**(`Translati
 - [x] **Phase 2b — ko 격리 가드 완료·검증**: confirm-safe/replace/restore = lang 파라미터(기본 ko); retranscribe·make_translations·get_translations·repair·tighten·export·feedback.absorb = `lang=="ko"` 스코프; export는 fork면 lang 세그먼트 직접·아니면 ko+번역. 검증: fork 영속 시 list_jobs=124(ko만), replace?lang=en=67곳(en만), **ko 텍스트 불변**, 정리 완료. fork를 UI 노출해도 안전.
 - [ ] `Job.timing_done`(ko) → `Track` 이관; timing 토글 (job,lang)별. (Phase 3~4)
 
-## Phase 3 — 에디터가 임의 트랙 편집
-- Editor에 `lang`(트랙) 전달. 분할·병합·삭제·타이밍·텍스트·미리보기 = 그 트랙 세그먼트에 작동(대부분 id 기반이라 재사용).
-- ko 전용 도구(WordMap 단어맵·무음다듬기·복구채우기·crosscheck 원문·safe/suspect·학습)는 번역 트랙에서 숨김/비활성.
-- 번역 트랙 타이밍: ko 복사에서 시작, 드래그 핸들로 재조정.
+## Phase 3 — 에디터가 임의 트랙 편집 [완료·검증]
+- [x] `get_segments?lang=`로 현재 트랙 로드(`fetchSegments(videoId, lang)`, lang 바뀌면 재fetch). 모든 refetch/restore/replace에 lang 전달.
+- [x] lang≠ko & 미포크 → TranslateReview + **`✂ 이 언어를 따로 분할·타이밍 편집` fork 버튼**. 포크되면 그 언어 세그먼트를 **같은 Row 에디터**로 편집(분할·병합·삭제·타이밍·미리보기 전부 재사용).
+- [x] ko 전용 도구 숨김(비-ko): WordMap/발화맞춤(words=[]), 무음다듬기·복구채우기·안심확인·학습(tools), 타이밍토글. sources/safe/suspect는 비-ko에서 자연히 빈값.
+- [x] `koComplete`를 prop으로(현재 트랙이 아니라 ko 트랙 완료 기준으로 언어 잠금). 미리보기 오버레이 = 포크/ko면 세그먼트 텍스트.
+- [x] 검증(lFux): en 전환→fork버튼→클릭→**124 영어 행**("It's recorded..."), 도구 숨김. ja도 동일(124 일본어 행). ko 불변(124)·ko 복귀 정상. 테스트 fork 정리.
 
 ## Phase 4 — 랜딩을 언어 축으로
 - 언어 선택 → (영상×언어) 트랙 카드. 단계 태그: 텍스트 검수중/완료, 타이밍 작업중/완료.
