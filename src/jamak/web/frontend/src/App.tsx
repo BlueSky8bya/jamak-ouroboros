@@ -2,43 +2,24 @@ import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useStat
 import { createJob, exportUrl, fetchJobs, retranscribe } from "./api";
 import { Editor } from "./Editor";
 import { ThemeToggle } from "./theme";
-import type { JobLang, JobSummary } from "./types";
+import type { JobSummary } from "./types";
 
-const STATUS_LABEL: Record<string, string> = {
-  starting: "시작 중",
-  pending: "대기",
-  ingested: "음성 인식 중",
-  transcribed: "인식 완료",
-  correcting: "AI 교정 중",
-  corrected: "검수 대기",
-  reviewing: "검수 중",
-  reviewed: "검수 완료",
-  done: "완료",
-};
-
-function statusLabel(j: JobSummary): string {
-  if (j.running) {
-    if (j.status === "starting") return "다운로드 중";
-    if (j.status === "ingested") return "음성 인식 중(GPU)";
-    if (j.status === "transcribed") return "교차검증 중";
-    return STATUS_LABEL[j.status] ?? j.status;
-  }
-  return STATUS_LABEL[j.status] ?? j.status;
-}
-
-type SortField = "uploaded" | "added" | "title" | "progress" | "duration";
+type SortField = "uploaded" | "added" | "title" | "progress" | "timing" | "duration";
 const SORT_LABEL: Record<SortField, string> = {
   uploaded: "유튜브 업로드일",
   added: "추가한 날짜",
-  progress: "검수 진행률",
+  progress: "텍스트 검수율",
+  timing: "타이밍 완료",
   duration: "영상 길이",
   title: "제목",
 };
 
-type StatusKey = "all" | "wip" | "done" | "running";
+type StatusKey = "all" | "text" | "timing" | "translate" | "done" | "running";
 const STATUS_FILTERS: { key: StatusKey; label: string }[] = [
   { key: "all", label: "전체" },
-  { key: "wip", label: "검수 중" },
+  { key: "text", label: "텍스트 검수 중" },
+  { key: "timing", label: "타이밍 필요" },
+  { key: "translate", label: "번역 중" },
   { key: "done", label: "완료" },
   { key: "running", label: "처리 중" },
 ];
@@ -107,6 +88,191 @@ const SHORTCUTS: { k: string; d: string }[] = [
   { k: "Esc", d: "검색어 지우기" },
   { k: "?", d: "이 도움말 열기/닫기" },
 ];
+
+type Tone = "muted" | "progress" | "warn" | "done" | "live";
+
+/** the one clear status chip for a card, for the selected language track */
+function stageFor(j: JobSummary, lang: string): { label: string; tone: Tone; icon?: string } {
+  if (j.running) return { label: "처리 중", tone: "live" };
+  if (lang === "ko") {
+    if (j.segments === 0) return { label: "대기 중", tone: "muted" };
+    if (!j.ko_complete) return { label: `텍스트 ${j.reviewed}/${j.segments}`, tone: "progress" };
+    if (!j.timing_done) return { label: "타이밍 조정 필요", tone: "warn", icon: "⏱" };
+    return { label: "완료", tone: "done", icon: "✓" };
+  }
+  const l = j.languages.find((x) => x.code === lang);
+  if (!l || l.translated === 0) return { label: "번역 전", tone: "muted" };
+  if (l.complete) return { label: "완료", tone: "done", icon: "✓" };
+  if (l.reviewed > 0) return { label: `번역 검수 ${l.reviewed}/${j.segments}`, tone: "progress" };
+  return { label: `번역됨 · 검수 전`, tone: "muted" };
+}
+
+function JobCard({
+  job: j,
+  query,
+  isCursor,
+  dataIdx,
+  onOpen,
+  onReroll,
+  onExport,
+  onCopyLink,
+}: {
+  job: JobSummary;
+  query: string;
+  isCursor: boolean;
+  dataIdx: number;
+  onOpen: (videoId: string) => void;
+  onReroll: (e: ReactMouseEvent, j: JobSummary) => void;
+  onExport: (e: ReactMouseEvent, j: JobSummary) => void;
+  onCopyLink: (e: ReactMouseEvent, j: JobSummary) => void;
+}) {
+  const [lang, setLang] = useState("ko");
+  const openable = j.segments > 0;
+  const stage = stageFor(j, lang);
+  const koPct = j.segments ? Math.round((j.reviewed / j.segments) * 100) : 0;
+  const selPct =
+    lang === "ko"
+      ? koPct
+      : (() => {
+          const l = j.languages.find((x) => x.code === lang);
+          return l && j.segments ? Math.round((l.reviewed / j.segments) * 100) : 0;
+        })();
+  const langOpts = [
+    { code: "ko", label: "한국어", done: j.ko_complete && j.timing_done },
+    ...j.languages.map((l) => ({ code: l.code, label: l.label, done: l.complete })),
+  ];
+
+  return (
+    <div
+      data-idx={dataIdx}
+      className={
+        "job-card" +
+        (j.running ? " running" : "") +
+        (openable ? "" : " disabled") +
+        (isCursor ? " cursor" : "")
+      }
+      role="button"
+      tabIndex={openable ? 0 : -1}
+      onClick={() => openable && onOpen(j.video_id)}
+      onKeyDown={(e) => {
+        if (openable && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onOpen(j.video_id);
+        }
+      }}
+      title={openable ? "검수 열기" : "파이프라인 처리 중"}
+    >
+      <span className="thumb">
+        <img
+          src={`https://img.youtube.com/vi/${j.video_id}/mqdefault.jpg`}
+          alt=""
+          loading="lazy"
+          onError={(e) => e.currentTarget.classList.add("broken")}
+        />
+        {j.running && <span className="thumb-scan" />}
+        {j.duration_seconds > 0 && (
+          <span className="thumb-dur">{Math.round(j.duration_seconds / 60)}분</span>
+        )}
+        {j.ko_complete && j.timing_done && <span className="thumb-done">✓ 완료</span>}
+        {openable && !j.ko_complete && (
+          <span className="thumb-prog">
+            <span style={{ width: `${koPct}%` }} />
+          </span>
+        )}
+        {openable && (
+          <span className="quick-actions">
+            {j.ko_complete && (
+              <span
+                className="qa"
+                role="button"
+                tabIndex={0}
+                title=".srt 자막 바로 내려받기"
+                onClick={(e) => onExport(e, j)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") onExport(e as unknown as ReactMouseEvent, j);
+                }}
+              >
+                ⬇ .srt
+              </span>
+            )}
+            <span
+              className="qa"
+              role="button"
+              tabIndex={0}
+              title="유튜브 링크 복사"
+              onClick={(e) => onCopyLink(e, j)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") onCopyLink(e as unknown as ReactMouseEvent, j);
+              }}
+            >
+              🔗 링크
+            </span>
+          </span>
+        )}
+      </span>
+      <div className="job-info">
+        <div className="job-head">
+          <span className={"stage " + stage.tone}>
+            {j.running && <span className="spinner" />}
+            {stage.icon && <span className="stage-ic">{stage.icon}</span>}
+            {stage.label}
+          </span>
+          {langOpts.length > 1 && (
+            <select
+              className="card-lang"
+              value={lang}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => setLang(e.target.value)}
+              title="언어별 진행 상태 보기"
+            >
+              {langOpts.map((o) => (
+                <option key={o.code} value={o.code}>
+                  {o.label}
+                  {o.done ? " ✓" : ""}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        <strong>{highlight(j.title || j.video_id, query)}</strong>
+        {openable && (
+          <>
+            <span
+              className={"job-progress" + (stage.tone === "done" ? " done" : "")}
+              aria-label={`진행률 ${selPct}%`}
+            >
+              <span style={{ width: `${selPct}%` }} />
+            </span>
+            <div className="job-foot">
+              <span className="meta">
+                자막 {j.segments}개
+                {j.upload_date
+                  ? ` · 업로드 ${j.upload_date.slice(0, 4)}.${j.upload_date.slice(4, 6)}.${j.upload_date.slice(6, 8)}`
+                  : j.created_at
+                    ? ` · ${relTime(j.created_at)} 추가`
+                    : ""}
+              </span>
+              {!j.ko_complete && !j.running && (
+                <span
+                  className="reroll"
+                  role="button"
+                  tabIndex={0}
+                  title="현재 용어사전으로 음성인식 다시 시도 (리세마라). 용어가 많을수록 인식이 좋아집니다."
+                  onClick={(e) => onReroll(e, j)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") onReroll(e as unknown as ReactMouseEvent, j);
+                  }}
+                >
+                  🎲 다시 인식
+                </span>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function App() {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
@@ -289,8 +455,15 @@ export function App() {
     let list = jobs.slice();
     const q = query.trim().toLowerCase();
     if (q) list = list.filter((j) => (j.title || j.video_id).toLowerCase().includes(q));
-    if (status === "wip") list = list.filter((j) => j.segments > 0 && !j.ko_complete && !j.running);
-    else if (status === "done") list = list.filter((j) => j.ko_complete);
+    if (status === "text")
+      list = list.filter((j) => j.segments > 0 && !j.ko_complete && !j.running);
+    else if (status === "timing")
+      list = list.filter((j) => j.ko_complete && !j.timing_done && !j.running);
+    else if (status === "translate")
+      list = list.filter(
+        (j) => j.ko_complete && j.languages.length > 0 && j.languages.some((l) => !l.complete),
+      );
+    else if (status === "done") list = list.filter((j) => j.ko_complete && j.timing_done);
     else if (status === "running") list = list.filter((j) => j.running);
     if (filter === "ko") list = list.filter((j) => j.ko_complete);
     else if (filter !== "all")
@@ -303,6 +476,8 @@ export function App() {
         const pa = a.segments ? a.reviewed / a.segments : 0;
         const pb = b.segments ? b.reviewed / b.segments : 0;
         cmp = pa - pb;
+      } else if (sort === "timing") {
+        cmp = (a.timing_done ? 1 : 0) - (b.timing_done ? 1 : 0);
       } else if (sort === "duration") {
         cmp = (a.duration_seconds || 0) - (b.duration_seconds || 0);
       } else if (sort === "uploaded") {
@@ -346,10 +521,22 @@ export function App() {
     document.title = rem > 0 ? `작업대 · 남은 ${rem}` : "자막 검수 작업대";
   }, [jobs]);
 
-  if (selected) return <Editor videoId={selected} onBack={() => setSelected(null)} />;
+  if (selected)
+    return (
+      <Editor
+        videoId={selected}
+        onBack={() => setSelected(null)}
+        timingDone={jobs.find((j) => j.video_id === selected)?.timing_done ?? false}
+      />
+    );
 
   const runningCount = jobs.filter((j) => j.running).length;
   const koDoneCount = jobs.filter((j) => j.ko_complete).length;
+  const timingDoneCount = jobs.filter((j) => j.timing_done).length;
+  const transTracksDone = jobs.reduce(
+    (a, j) => a + j.languages.filter((l) => l.complete).length,
+    0,
+  );
   const totalSegments = jobs.reduce((a, j) => a + j.segments, 0);
   const totalReviewed = jobs.reduce((a, j) => a + j.reviewed, 0);
   const totalRemaining = Math.max(0, totalSegments - totalReviewed);
@@ -458,7 +645,15 @@ export function App() {
           </div>
           <div className="wstat ok">
             <strong>{koDoneCount}</strong>
-            <span>완료</span>
+            <span>텍스트 완료</span>
+          </div>
+          <div className="wstat ok">
+            <strong>{timingDoneCount}</strong>
+            <span>타이밍 완료</span>
+          </div>
+          <div className="wstat ok">
+            <strong>{transTracksDone}</strong>
+            <span>번역 완료</span>
           </div>
           <div className="wstat">
             <strong>{totalReviewed.toLocaleString()}</strong>
@@ -483,11 +678,20 @@ export function App() {
           const count =
             s.key === "all"
               ? jobs.length
-              : s.key === "wip"
+              : s.key === "text"
                 ? jobs.filter((j) => j.segments > 0 && !j.ko_complete && !j.running).length
-                : s.key === "done"
-                  ? koDoneCount
-                  : runningCount;
+                : s.key === "timing"
+                  ? jobs.filter((j) => j.ko_complete && !j.timing_done && !j.running).length
+                  : s.key === "translate"
+                    ? jobs.filter(
+                        (j) =>
+                          j.ko_complete &&
+                          j.languages.length > 0 &&
+                          j.languages.some((l) => !l.complete),
+                      ).length
+                    : s.key === "done"
+                      ? jobs.filter((j) => j.ko_complete && j.timing_done).length
+                      : runningCount;
           return (
             <button
               key={s.key}
@@ -576,158 +780,19 @@ export function App() {
         {!loaded &&
           Array.from({ length: 4 }).map((_, i) => <div className="job-card skeleton" key={i} />)}
         {loaded &&
-          visible.map((j, idx) => {
-            const openable = j.segments > 0;
-            const reviewedPct = j.segments ? Math.round((j.reviewed / j.segments) * 100) : 0;
-            const remaining = Math.max(0, j.segments - j.reviewed);
-            return (
-              <div
-                key={j.video_id}
-                data-idx={idx}
-                className={
-                  "job-card" +
-                  (j.running ? " running" : "") +
-                  (openable ? "" : " disabled") +
-                  (idx === cursor ? " cursor" : "")
-                }
-                role="button"
-                tabIndex={openable ? 0 : -1}
-                onClick={() => openable && setSelected(j.video_id)}
-                onKeyDown={(e) => {
-                  if (openable && (e.key === "Enter" || e.key === " ")) {
-                    e.preventDefault();
-                    setSelected(j.video_id);
-                  }
-                }}
-                title={openable ? "검수 열기" : "파이프라인 처리 중"}
-              >
-                <span className="thumb">
-                  <img
-                    src={`https://img.youtube.com/vi/${j.video_id}/mqdefault.jpg`}
-                    alt=""
-                    loading="lazy"
-                    onError={(e) => e.currentTarget.classList.add("broken")}
-                  />
-                  {j.running && <span className="thumb-scan" />}
-                  {j.duration_seconds > 0 && (
-                    <span className="thumb-dur">{Math.round(j.duration_seconds / 60)}분</span>
-                  )}
-                  {j.ko_complete && <span className="thumb-done">✓ 완료</span>}
-                  {openable && !j.ko_complete && (
-                    <span className="thumb-prog">
-                      <span style={{ width: `${reviewedPct}%` }} />
-                    </span>
-                  )}
-                  {openable && (
-                    <span className="quick-actions">
-                      {j.ko_complete && (
-                        <span
-                          className="qa"
-                          role="button"
-                          tabIndex={0}
-                          title=".srt 자막 바로 내려받기"
-                          onClick={(e) => exportSrt(e, j)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") exportSrt(e as unknown as ReactMouseEvent, j);
-                          }}
-                        >
-                          ⬇ .srt
-                        </span>
-                      )}
-                      <span
-                        className="qa"
-                        role="button"
-                        tabIndex={0}
-                        title="유튜브 링크 복사"
-                        onClick={(e) => copyLink(e, j)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") copyLink(e as unknown as ReactMouseEvent, j);
-                        }}
-                      >
-                        🔗 링크
-                      </span>
-                    </span>
-                  )}
-                </span>
-                <div className="job-info">
-                  <div className="job-head">
-                    <span className={"status" + (j.running ? " live" : "")}>
-                      {j.running && <span className="spinner" />} {statusLabel(j)}
-                    </span>
-                    {j.segments > 0 &&
-                      (() => {
-                        // cap visible language badges so a video with many
-                        // translations never blows up the card — overflow folds
-                        // into a "+N" chip whose tooltip lists them all.
-                        const MAX = 3;
-                        const shown = j.languages.slice(0, MAX);
-                        const extra = j.languages.length - shown.length;
-                        const allLabels = j.languages
-                          .map((l) => `${l.label} ${l.complete ? "완료" : `${l.reviewed}/${j.segments}`}`)
-                          .join(", ");
-                        return (
-                          <span className="lang-badges">
-                            <span
-                              className={"lbadge ko" + (j.ko_complete ? " done" : "")}
-                              title={`한국어 검수 ${j.reviewed}/${j.segments}`}
-                            >
-                              {j.ko_complete ? "한국어 ✓" : `한국어 ${j.reviewed}/${j.segments}`}
-                            </span>
-                            {shown.map((l: JobLang) => (
-                              <span
-                                key={l.code}
-                                className={"lbadge" + (l.complete ? " done" : "")}
-                                title={`${l.label} 번역 검수 ${l.reviewed}/${j.segments}`}
-                              >
-                                {l.complete ? `${l.label} ✓` : `${l.label} ${l.reviewed}/${j.segments}`}
-                              </span>
-                            ))}
-                            {extra > 0 && (
-                              <span className="lbadge more" title={allLabels}>
-                                +{extra}
-                              </span>
-                            )}
-                          </span>
-                        );
-                      })()}
-                  </div>
-                  <strong>{highlight(j.title || j.video_id, query)}</strong>
-                  {j.segments > 0 && (
-                    <>
-                      <span className="job-progress" aria-label={`검수 진행률 ${reviewedPct}%`}>
-                        <span style={{ width: `${reviewedPct}%` }} />
-                      </span>
-                      <div className="job-foot">
-                        <span className="meta">
-                          {j.ko_complete ? `자막 ${j.segments}개` : `${reviewedPct}% · 남은 ${remaining}개`}
-                          {j.upload_date
-                            ? ` · 업로드 ${j.upload_date.slice(0, 4)}.${j.upload_date.slice(4, 6)}.${j.upload_date.slice(6, 8)}`
-                            : j.created_at
-                              ? ` · ${relTime(j.created_at)} 추가`
-                              : ""}
-                        </span>
-                        {!j.ko_complete && !j.running && (
-                          <span
-                            className="reroll"
-                            role="button"
-                            tabIndex={0}
-                            title="현재 용어사전으로 음성인식 다시 시도 (리세마라). 용어가 많을수록 인식이 좋아집니다."
-                            onClick={(e) => reroll(e, j)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ")
-                                reroll(e as unknown as ReactMouseEvent, j);
-                            }}
-                          >
-                            🎲 다시 인식
-                          </span>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+          visible.map((j, idx) => (
+            <JobCard
+              key={j.video_id}
+              job={j}
+              query={query}
+              isCursor={idx === cursor}
+              dataIdx={idx}
+              onOpen={setSelected}
+              onReroll={reroll}
+              onExport={exportSrt}
+              onCopyLink={copyLink}
+            />
+          ))}
         {loaded && visible.length === 0 && !error && (
           <div className="empty">
             {jobs.length === 0 ? (

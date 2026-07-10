@@ -41,7 +41,7 @@ function Row({
   }
 
   return (
-    <div className={"trow" + (row.reviewed ? " reviewed" : "")}>
+    <div className={"trow" + (row.reviewed ? " reviewed" : "") + (row.stale ? " stale" : "")}>
       <button className="time" onClick={() => onSeek(row.start)} title="이 구간 재생">
         ▶ {fmt(row.start)}
       </button>
@@ -49,6 +49,11 @@ function Row({
         <div className="tko" title="한국어 원문 (확정)">
           <span className="tlabel ko">한국어</span> {row.ko}
         </div>
+        {row.stale && (
+          <div className="tstale" title="번역을 만든 뒤 한국어 원문이 바뀌었습니다. 다시 번역하거나 확인하세요.">
+            ⚠️ 원문이 바뀜 — 재번역/재확인 필요
+          </div>
+        )}
         <textarea
           className="ttext"
           value={text}

@@ -70,6 +70,19 @@ export async function replaceText(
   return r.json();
 }
 
+export async function setTimingDone(
+  videoId: string,
+  done: boolean,
+): Promise<{ video_id: string; timing_done: boolean }> {
+  const r = await fetch(`/api/jobs/${videoId}/timing-done`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ done }),
+  });
+  if (!r.ok) throw new Error((await r.json()).detail ?? `timing-done: ${r.status}`);
+  return r.json();
+}
+
 export async function confirmSafe(videoId: string): Promise<{ confirmed: number }> {
   const r = await fetch(`/api/jobs/${videoId}/confirm-safe`, { method: "POST" });
   if (!r.ok) throw new Error((await r.json()).detail ?? `confirm-safe: ${r.status}`);
@@ -163,6 +176,7 @@ export interface TranslationRow {
   text: string;
   reviewed: boolean;
   has_translation: boolean;
+  stale?: boolean; // Korean changed after this translation was made
 }
 
 export async function makeTranslations(

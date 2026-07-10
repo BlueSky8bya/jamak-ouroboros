@@ -819,17 +819,53 @@ img.broken { opacity: 0; }
   padding: 15px 16px 16px;
 }
 
-/* top row: status pill on the left, language badges pushed to the right */
+/* top row: one clear stage chip on the left, language dropdown on the right */
 .job-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-height: 26px;
 }
 .job-head .lang-badges {
   justify-content: flex-end;
   flex: 1 1 auto;
 }
+
+/* the single status chip — colour = pipeline stage */
+.stage {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 800;
+  white-space: nowrap;
+  background: var(--surface-soft);
+  color: var(--faint);
+}
+.stage .stage-ic { font-size: 11px; line-height: 1; }
+.stage.progress { background: var(--blue-soft); color: var(--blue-ink); }
+.stage.warn { background: var(--amber-soft); color: var(--amber); }
+.stage.done { background: var(--green-soft); color: var(--green); }
+.stage.live { background: var(--teal-soft); color: var(--teal); }
+
+/* per-card language selector (keeps many-language cards from overflowing) */
+.card-lang {
+  flex: 0 0 auto;
+  max-width: 48%;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.card-lang:hover { border-color: var(--blue); color: var(--blue); }
+.job-progress.done span { background: linear-gradient(90deg, var(--green), #34d399); }
 
 /* bottom row: meta text on the left, action button on the right */
 .job-foot {
@@ -1062,6 +1098,15 @@ img.broken { opacity: 0; }
 .trow.reviewed {
   border-left: 4px solid var(--green);
   opacity: 0.85;
+}
+.trow.stale {
+  border-left: 4px solid var(--amber);
+  opacity: 1;
+}
+.tstale {
+  color: var(--amber);
+  font-size: 12px;
+  font-weight: 700;
 }
 .trow .time {
   flex: 0 0 auto;
@@ -2112,6 +2157,34 @@ kbd {
   border-style: dashed;
 }
 .tool.toggle input { accent-color: var(--blue); }
+
+/* timing-review toggle (separate axis from text review) */
+.timing-done {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.timing-done.on {
+  border-color: color-mix(in srgb, var(--green) 45%, transparent);
+  background: var(--green-soft);
+  color: var(--green);
+}
+.timing-done input { accent-color: var(--green); }
+
+/* landing card timing badge: amber when text is done but timing is owed */
+.lbadge.tbadge.owed {
+  background: var(--amber-soft);
+  color: var(--amber);
+  border-color: color-mix(in srgb, var(--amber) 40%, transparent);
+}
 
 /* export footer — quiet, at the bottom of the flow */
 .export-footer { display: grid; gap: 6px; margin-top: 2px; }

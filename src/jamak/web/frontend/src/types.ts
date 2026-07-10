@@ -14,6 +14,7 @@ export interface JobSummary {
   segments: number;
   reviewed: number;
   ko_complete: boolean;
+  timing_done: boolean; // human-confirmed timing pass (separate from text review)
   languages: JobLang[];
   created_at: string;
   upload_date: string; // YouTube upload date YYYYMMDD ('' if unknown)

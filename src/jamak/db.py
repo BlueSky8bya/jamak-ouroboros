@@ -30,6 +30,10 @@ class Job(SQLModel, table=True):
     upload_date: str = ""  # YouTube upload date YYYYMMDD ('' if unknown)
     # pending -> ingested -> transcribed -> corrected -> reviewing -> done
     status: str = Field(default="pending", index=True)
+    # text review (per-segment `reviewed`) and timing review are separate passes:
+    # finishing the words doesn't mean the cue times are done. This flags the
+    # human-confirmed timing pass for the whole video.
+    timing_done: bool = False
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
@@ -131,6 +135,7 @@ def _ensure_columns(engine) -> None:
         },
         "job": {
             "upload_date": "VARCHAR DEFAULT ''",
+            "timing_done": "BOOLEAN DEFAULT 0",
         },
         "segment": {
             "low_conf": "VARCHAR DEFAULT ''",

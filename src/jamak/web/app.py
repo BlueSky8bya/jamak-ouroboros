@@ -181,6 +181,7 @@ def list_jobs() -> list[dict]:
                     "segments": n_total,
                     "reviewed": n_reviewed,
                     "ko_complete": ko_complete,
+                    "timing_done": j.timing_done,
                     "languages": langs,
                     "created_at": j.created_at.isoformat(),
                     "upload_date": j.upload_date,
@@ -199,6 +200,7 @@ def list_jobs() -> list[dict]:
                     "segments": 0,
                     "reviewed": 0,
                     "ko_complete": False,
+                    "timing_done": False,
                     "languages": [],
                     "created_at": "",
                     "upload_date": "",
@@ -839,6 +841,8 @@ def make_translations(video_id: str, lang: str) -> dict:
 @app.get("/api/jobs/{video_id}/translations")
 def get_translations(video_id: str, lang: str) -> list[dict]:
     """KO + translation per segment, for the translation review view."""
+    from ..pipeline.translate import _hash
+
     with get_session() as session:
         job = session.exec(select(Job).where(Job.video_id == video_id)).first()
         if job is None:
@@ -853,16 +857,21 @@ def get_translations(video_id: str, lang: str) -> list[dict]:
         out = []
         for s in segs:
             t = by_seg.get(s.id)
+            ko = _best_ko(s)
+            # stale = the Korean changed after this translation was made, so the
+            # translation is now for the OLD text and needs a re-translate/re-check
+            stale = bool(t and t.source_hash and t.source_hash != _hash(ko.strip()))
             out.append(
                 {
                     "segment_id": s.id,
                     "idx": s.idx,
                     "start": s.start,
                     "end": s.end,
-                    "ko": _best_ko(s),
+                    "ko": ko,
                     "text": t.text if t else "",
                     "reviewed": t.reviewed if t else False,
                     "has_translation": t is not None,
+                    "stale": stale,
                 }
             )
         return out
@@ -1075,6 +1084,28 @@ def tighten_timing(video_id: str) -> dict:
                 tightened += 1
         session.commit()
     return {"tightened": tightened, "total": len(segs)}
+
+
+class TimingDoneBody(BaseModel):
+    done: bool
+
+
+@app.post("/api/jobs/{video_id}/timing-done")
+def set_timing_done(video_id: str, body: TimingDoneBody) -> dict:
+    """Mark (or unmark) the video's timing pass as human-confirmed.
+
+    Separate from text review: a reviewer can finish all the words and still owe
+    a timing pass. The landing dashboard surfaces both so nothing ships half-done.
+    """
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+        job.timing_done = body.done
+        job.updated_at = utcnow()
+        session.add(job)
+        session.commit()
+    return {"video_id": video_id, "timing_done": body.done}
 
 
 @app.post("/api/jobs/{video_id}/absorb")

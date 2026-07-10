@@ -8,11 +8,13 @@ import {
   exportUrl,
   fetchLanguages,
   fetchSegments,
+  fetchTranslations,
   fetchWords,
   mergeNext,
   repairStt,
   replaceText,
   restoreSegments,
+  setTimingDone,
   splitSegment,
   tightenTiming,
   updateSegment,
@@ -808,8 +810,8 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     title: "재생·이동  (화살표는 언제나 이동만 — 안전)",
     items: [
       { keys: ["Tab"], label: "재생 / 일시정지", detail: "스페이스바는 글자 입력용" },
-      { keys: ["Alt+←", "Alt+→"], label: "3초 뒤로 / 앞으로", detail: "Shift+Tab도 3초 뒤로" },
-      { keys: ["Alt+Shift+←", "Alt+Shift+→"], label: "10초 뒤로 / 앞으로" },
+      { keys: ["Ctrl+←", "Ctrl+→"], label: "3초 뒤로 / 앞으로", detail: "Shift+Tab도 3초 뒤로" },
+      { keys: ["Ctrl+Shift+←", "Ctrl+Shift+→"], label: "10초 뒤로 / 앞으로" },
       { keys: ["Ctrl+\\"], label: "이 자막 처음부터 다시 재생", detail: "편집 중에도 됩니다" },
       { keys: ["Alt+↑", "Alt+↓"], label: "이전 / 다음 자막" },
       {
@@ -866,8 +868,17 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
   },
 ];
 
-export function Editor({ videoId, onBack }: { videoId: string; onBack: () => void }) {
+export function Editor({
+  videoId,
+  onBack,
+  timingDone: initialTimingDone,
+}: {
+  videoId: string;
+  onBack: () => void;
+  timingDone: boolean;
+}) {
   const [segments, setSegments] = useState<Segment[]>([]);
+  const [timingDone, setTimingDoneState] = useState(initialTimingDone);
   const [error, setError] = useState("");
   const [absorbMsg, setAbsorbMsg] = useState("");
   const [langs, setLangs] = useState<{ code: string; label: string }[]>([]);
@@ -889,6 +900,8 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
   const [eta, setEta] = useState("");
   const [celebrate, setCelebrate] = useState(false);
   const [words, setWords] = useState<WordTime[]>([]);
+  // for the on-video preview overlay when reviewing a translation: segment_id → text
+  const [transMap, setTransMap] = useState<Record<number, string>>({});
   const { currentTime, playing, seekTo, seekBy, play, pause, playPause } = usePlayer(videoId);
 
   const rowsRef = useRef(new Map<number, RowHandle>());
@@ -911,6 +924,22 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
     fetchLanguages().then(setLangs).catch(() => {});
     fetchWords(videoId).then(setWords).catch(() => setWords([]));
   }, [videoId]);
+
+  // on-video preview overlay for a translation: keep a fresh segment→text map
+  // (refetched when preview is toggled, so edits in the list show up)
+  useEffect(() => {
+    if (lang === "ko") {
+      setTransMap({});
+      return;
+    }
+    fetchTranslations(videoId, lang)
+      .then((rows) => {
+        const m: Record<number, string> = {};
+        for (const r of rows) if (r.text) m[r.segment_id] = r.text;
+        setTransMap(m);
+      })
+      .catch(() => setTransMap({}));
+  }, [videoId, lang, showPreview]);
 
   // live match-count preview for find & replace (debounced)
   useEffect(() => {
@@ -1142,11 +1171,23 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
         playPause();
         return;
       }
-      // Alt+←/→ = seek ∓3s, Alt+Shift+←/→ = seek ∓10s (arrows only ever move)
-      if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      // seek: Ctrl+←/→ = ∓3s, Ctrl+Shift+←/→ = ∓10s. On Ctrl (not Alt) so it can
+      // never trigger Chrome's Alt+←/→ back/forward navigation. Skipped inside a
+      // text field so Ctrl+←/→ keeps its native word-jump while editing.
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        !e.altKey &&
+        (e.key === "ArrowLeft" || e.key === "ArrowRight") &&
+        !isTypingTarget(e.target)
+      ) {
         e.preventDefault();
         const step = e.shiftKey ? 10 : 3;
         seekBy(e.key === "ArrowLeft" ? -step : step);
+        return;
+      }
+      // swallow Alt+←/→ entirely so a stray press can't send Chrome back/forward
+      if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        e.preventDefault();
         return;
       }
       // Alt+↑/↓ = prev/next cue, Alt+Shift+↑/↓ = prev/next UNREVIEWED cue
@@ -1326,6 +1367,20 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
     }
   }
 
+  async function toggleTimingDone() {
+    try {
+      const r = await setTimingDone(videoId, !timingDone);
+      setTimingDoneState(r.timing_done);
+      setStatusMsg(
+        r.timing_done
+          ? "타이밍 검수 완료로 표시했습니다"
+          : "타이밍 검수 미완으로 되돌렸습니다",
+      );
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   async function runRepair() {
     await flushAll();
     try {
@@ -1429,11 +1484,17 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
         </div>
         <div className="player-wrap">
           <div id="yt-player" />
-          {showPreview && activeSeg && (
-            <div className="cc-overlay">
-              <span>{displayText(activeSeg)}</span>
-            </div>
-          )}
+          {showPreview &&
+            activeSeg &&
+            (() => {
+              // show the language being reviewed on the video, not Korean
+              const cc = lang === "ko" ? displayText(activeSeg) : transMap[activeSeg.id] ?? "";
+              return cc ? (
+                <div className="cc-overlay">
+                  <span>{cc}</span>
+                </div>
+              ) : null;
+            })()}
         </div>
         <div className="play-controls">
           <button
@@ -1443,7 +1504,7 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
           >
             ⏮ 구간처음
           </button>
-          <button className="pc-btn" title="3초 뒤로 (Alt+← 또는 Shift+Tab)" onClick={() => seekBy(-3)}>
+          <button className="pc-btn" title="3초 뒤로 (Ctrl+← 또는 Shift+Tab)" onClick={() => seekBy(-3)}>
             ⟲ 3초
           </button>
           <button
@@ -1453,7 +1514,7 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
           >
             {playing ? "⏸ 멈춤" : "▶ 재생"}
           </button>
-          <button className="pc-btn" title="3초 앞으로 (Alt+→)" onClick={() => seekBy(3)}>
+          <button className="pc-btn" title="3초 앞으로 (Ctrl+→)" onClick={() => seekBy(3)}>
             3초 ⟳
           </button>
           <div className="pc-settings">
@@ -1598,6 +1659,17 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
 
         {/* export footer */}
         <div className="export-footer">
+          <label
+            className={"timing-done" + (timingDone ? " on" : "")}
+            title="자막 시간(타이밍)까지 조정을 끝냈으면 체크 — 텍스트 검수와 별개로 목록에 표시됩니다"
+          >
+            <input
+              type="checkbox"
+              checked={timingDone}
+              onChange={() => void toggleTimingDone()}
+            />
+            ⏱ 타이밍 검수 완료
+          </label>
           <div className="export-row">
             <select
               value={lang}
