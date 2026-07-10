@@ -26,8 +26,12 @@ JOBS_DIR = DATA_DIR / "jobs"
 SEEDS_DIR = DATA_DIR / "seeds"
 DB_PATH = DATA_DIR / "jamak.db"
 
-# STT settings tuned for RTX 4060 Ti 8GB
-WHISPER_MODEL = os.environ.get("JAMAK_WHISPER_MODEL", "large-v3")
+# STT settings tuned for RTX 4060 Ti 8GB.
+# large-v3-turbo beats large-v3 on these lectures: it transcribes the opening
+# (large-v3 dropped 0-21s), covers more audio, mishears fewer words (부부싸움
+# vs large-v3's "보고삼"), and is faster — with no prompt-echo either. Measured
+# on LI3phxRnkMM: first speech 21.1s -> 2.2s, YouTube gap-fill 28 -> 9.
+WHISPER_MODEL = os.environ.get("JAMAK_WHISPER_MODEL", "large-v3-turbo")
 WHISPER_DEVICE = os.environ.get("JAMAK_WHISPER_DEVICE", "cuda")
 WHISPER_COMPUTE = os.environ.get("JAMAK_WHISPER_COMPUTE", "int8_float16")
 

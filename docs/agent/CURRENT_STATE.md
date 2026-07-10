@@ -69,6 +69,11 @@ cp949 콘솔에서 유니코드 특수문자 크래시 → CLI 문자열에서 e
 - `data/jamak.db`, `data/seeds/` — 파괴적 조작 금지
 - `pipeline/stt.py`의 `_register_cuda_dlls` — Windows CUDA 동작의 전제. 제거 금지
 
+## Parked (데이터 게이트 — 나중에 재실험)
+
+- **STT 파인튜닝 (ADR-0004 stage3)**: 지금은 `large-v3-turbo` 유지(범용 최선, v3보다 나음 실측). 범용 모델 교체로 얻을 것 거의 없음 — 진짜 개선은 검수 오디오로 turbo LoRA 파인튜닝. **트리거: 검수 오디오 ≥10시간** (`jamak export-training-data`의 minutes, 현재 ~0.13h). 8GB로 QLoRA 가능. 그때까지 검수로 오디오만 축적. gap-fill(YouTube)이 whisper 미스 커버하는 안전망 이미 있음.
+- **로컬 교정 모델 (ADR-0005 Phase 2)**: 교정을 로컬 파인튜닝 소형 LLM으로 이전. **트리거: 교정쌍 ≥ ~2,000~5,000** (`jamak export-correction-data`의 pairs로 확인, 현재 113). 도달하면 EXAONE/Qwen/Gemma 2~7B LoRA 파인튜닝 → `jamak eval` CER 게이트로 Claude 이하일 때만 채택. 그때까지 검수·absorb로 데이터만 축적. Phase 0(스킵 40%)·Phase 1(export) 이미 됨.
+
 ## Open Decisions
 
 - 테스트 스위트 도입 여부/범위 (현재 없음. wrap_korean, crosscheck, seed 파서가 단위테스트 후보)
@@ -94,8 +99,44 @@ cp949 콘솔에서 유니코드 특수문자 크래시 → CLI 문자열에서 e
 - 다운로드 파일명 대소문자 파싱 버그 수정 (`제목_자막_<lang>.srt` 정상)
 - 피드백 흡수 버튼: 저장 레이스 제거, 현재 영상 뒤쪽 미검수 자막 즉시 갱신, export 자동 흡수 결과가 다운로드 파일에 포함되도록 순서 조정
 - **웹에서 새 URL 최초 제출 → 파이프라인 완주: NOT VERIFIED** (기존 영상 409 경로만 검증. 첫 실사용 시 확인 필요)
+- **시드 코퍼스 용어 마이닝** (`jamak glossary-mine`, `src/jamak/glossary_mine.py`): 1년치 검수 코퍼스(`data/seeds/기존 검수 완료본.txt`, 260만자)에서 빈도 후보 1500개 결정적 추출 → Claude 1회 정제(sonnet, thinking off)로 도메인 어휘만 선별 + 카테고리 + 오인식 변형 부여 → `approved=True`로 upsert. 실행 결과: +47 신규 / 18 승격 = 승인 65개(고유어휘 22, 기독교 13, 지명 10, 인명 6, 한자어 6, 불교 5, 유교 1). 비용 $0.06 일회성. 이제 hotwords/initial_prompt가 축지법/공중부양/하늘궁/신인/석가모니/십자가/석고대죄/용맹정진 등으로 채워짐. 교정쌍은 기계 초안이 없어 불가 — 요청대로 hotwords+용어사전만 채움. 잔여 노이즈(조사 붙은 형태: 신인이, 십자가가, 미국은)는 hotwords에 무해, `/glossary-review`로 정리 가능.
 
-## Last Verified
+- **STT 리세마라** (`POST /api/jobs/{vid}/retranscribe` + 랜딩 카드 `🎲 음성인식 다시 시도` 버튼): 현재 용어사전/hotwords로 기존 영상 STT 재실행(`jamak run <url>` 백그라운드, 세그먼트 교체). 용어사전 성장 → 인식 개선 기대 시 리롤. **한국어 검수 완료(ko_complete) 시 프론트 버튼 숨김 + 백엔드 409 이중 차단**. 부분 검수는 프론트 confirm(편집 N개 초기화 경고). 검증: 완료 영상 직접 POST → 409, 미완료 영상만 버튼 노출(스크린샷).
+
+- **STT hallucination 근본 수정** (사용자 보고: "생판 다른 단어 수십개 연속"): 원인 3가지 — (1) `initial_prompt`(용어 나열 문장)을 whisper가 무음/박수에서 그대로 토해냄, (2) `condition_on_previous_text=True`로 그 echo가 다음 창으로 전파돼 수십개 연속 반복(cascade), (3) `transcribe`가 `stt.json` 캐시 반환 → "다시 시도" 눌러도 STT 재실행 안 됨(재분할만).
+  - 예방(stt.py): **initial_prompt 미주입**(용어는 hotwords 음향편향으로만 — echo 불가), **`condition_on_previous_text=False`**(cascade 차단), `no_repeat_ngram_size=3`, `compression_ratio_threshold=2.4`, `force` 캐시 무효화.
+  - reroll: `jamak run --fresh` → 캐시 무시 재전사. `retranscribe` 엔드포인트가 `--fresh` 전달.
+  - 복구(prompt-agnostic): `noise.cascade_indices`(연속 동일 자막 = 신뢰 가능한 hallucination 시그니처) + `is_known_prompt_leak`(옛 기본 프롬프트 템플릿). crosscheck + repair-stt 양쪽 적용 → 프롬프트가 마이닝으로 바뀌어도 옛 누수 감지. **검증: LI3phxRnkMM 12/12 YouTube 자막으로 복구, 잔여 누수 0, 완료본 lFuxxOlgl5Y 오탐 0 (E2E API PASS).**
+  - **NOT VERIFIED: 예방 로직의 실제 whisper 재전사** (GPU 8분 소요 — 미실행). 감지/복구는 검증됨.
+
+- **STT 시작 부분 손실 복구** (사용자: "1번 셀이 신인 첫 발화가 아닌 엉뚱한 뒤에서 시작, 앞에 셀 추가도 안돼 꼬임"): whisper가 인트로/음악 위 발화를 VAD로 버려 첫 세그먼트가 24.6초부터 시작(0~24.6초 통째 손실). YouTube 자막은 3.8초부터 실제 발화 있음.
+  - 예방(stt.py): VAD 완화 `threshold=0.35`, `speech_pad_ms=400` → 조용한/음악 위 인트로 발화 안 버림.
+  - 복구(crosscheck.py): `deroll_captions`(롤링 YouTube 자막 → 중복 제거 + 다음 시작으로 end 클램프 = 겹침 없는 실제 라인들) + `youtube_gap_rows`(whisper가 아무것도 없는 구간, 특히 맨앞을 YouTube 자막으로 채움). 파이프라인/재전사 시 자동 적용.
+  - 즉시 복구(repair-stt 확장): 기존 echo 복구 + **빈 구간 gap-fill(맨앞 포함) 삽입 + start 기준 재인덱스**. 버튼 `🛠 음성인식 복구 · 빈 구간 채우기`. **완료본(전 세그먼트 reviewed)은 409로 차단**(검수 훼손 방지).
+  - **검증**: LI3phxRnkMM 69→107 세그먼트, idx0가 24.6초→**3.8초 "내가 여기 있어 여러분이 나를"**, 재인덱스 단조, 2차 호출 멱등(0). 완료본 lFuxxOlgl5Y 409 차단 + 124개 무손상. (실수로 완료본에 삽입됐던 25개는 삭제 복구함.)
+  - **NOT VERIFIED**: 에디터 UI에서 토스트/버튼 라벨 시각 확인(빌드 PASS, API E2E만 검증). VAD 완화의 실제 whisper 효과(재전사 미실행).
+
+- **gap-fill 정직성 수정** (사용자: "음성인식이랑 유튜브 자막이 왜 똑같지? 모델이 인식한 거 맞아?"): gap 세그먼트에 `text_whisper=YouTube텍스트`를 넣어 참고칸 "음성인식"이 유튜브와 동일하게 보여 오해 유발. 수정: gap 행은 `text_whisper=""`(whisper 실제로 못 들음) + 작업텍스트는 `text_llm/text_final`에 유튜브 시드. 에디터 참고칸이 빈 whisper면 "이 구간은 음성인식이 놓쳐서 유튜브 자막으로 채웠습니다" 안내 표시. 기존 38개 행 데이터도 `text_whisper` 비움. `reviewed` 상태 라벨 매핑 추가. **검증: 에디터 첫 세그먼트 0:03.8 "내가 여기 있어..." + 참고칸 정직 표시 (스크린샷), 콘솔 에러 0.**
+
+- **`>>` 화자표시 자동 제거 (API 0)**: `crosscheck.strip_speaker_markers` — YouTube 자막의 `>>`/`>` 마커를 파싱 단계에서 제거(모든 다운스트림 clean). 기존 DB 163개 세그먼트/번역도 일괄 정리(0 잔여). 결정적, API 미사용.
+- **참고칸 표시 조건 개선**: `showSources = flagged || uncertain || (youtube/whisper가 작업텍스트와 다름)`. crosscheck 플래그가 token 유사도 관대(예: whisper "보고삼" vs YouTube "부부삼"이 플래그 안 됨)해서 참고칸이 숨던 문제 해결. 검증: 21.1초 세그먼트 참고칸 이제 표시(오인식 비교 가능), `>>` 0개, 콘솔 에러 0.
+- **STT --fresh 실증**: LI3phxRnkMM 재전사(수정 STT, 교정 없이) → echo 0(이전 12), 첫 whisper 실제발화 160초→21초, avg_logprob 균일.
+- **모델 교체 large-v3 → large-v3-turbo (기본값 변경, config.py)**: 같은 영상 v3 vs turbo 실측 비교 — 첫 실제발화 21.1초→**2.2초**(인트로 직접 인식), raw 20→32세그, 커버 347→402초, YouTube gap-fill 28→**9**(의존 급감), 오인식 "보고삼"→**"부부싸움"** 교정, echo 0 유지, 속도↑. turbo 결정적 우세 → `JAMAK_WHISPER_MODEL` 기본 turbo. 모델은 HF 캐시됨(`mobiuslabsgmbh/faster-whisper-large-v3-turbo`).
+
+- **교정 API 절감 tier 1.5** (`correct._needs_llm` + `glossary.glossary_surface_forms`): LLM 보내기 전 "고칠 것 없는" 세그먼트 제외 — 빈 whisper(gap), 또는 (플래그 없음 AND 도메인어 없음). 교정은 "바뀐 것만 반환"이라 이들은 어차피 no-op → 손실 0. **실측 40% 세그먼트 제외**(LI3phxRnkMM 33/81, lFuxxOlgl5Y 52/124). E2E 실행 검증: 81세그→48 LLM, text_llm 81/81 채움, $0.038.
+- **ADR-0005 + Phase 1 착수**: 교정을 로컬 파인튜닝 소형 LLM으로 점진 이전(번역은 API 유지) 결정 기록. `jamak export-correction-data`(`training.export_correction_pairs`): 검수 세그먼트에서 (whisper, youtube, final) 쌍 → `data/training/corrections/manifest.jsonl`. changed+unchanged 둘 다(유지 쌍이 "안 고치는 법" 학습), gap 제외. **현재 113쌍**(완료본 1개, 55교정/58유지). 트리거 2~5천쌍 도달 시 Phase 2(LoRA+CER 게이트).
+
+- **검수 피로↓ 기능 2종 (API 0)**:
+  - **① 안심 구간 일괄 확인**: `_is_safe`(플래그無 + uncertain無 + low_conf無 + 도메인어無)로 저위험 세그먼트 판별 → 에디터 "안심" 배지 + `POST /confirm-safe` 일괄 확인(text_final 승격, reviewed=True, 되돌리기 가능). `_needs_llm`과 동일 신호 재사용. 검증: LI3phxRnkMM 12개 원클릭 확인, 멱등, 빈 final 0.
+  - **② 의심 단어 하이라이트**: 초기엔 whisper 단어확률(<0.55, `low_conf` 컬럼) 사용했으나 2025 CHI 논문이 단일신뢰도 하이라이트 "효과 없음+거슬림"으로 반박 → **2엔진 불일치 기반으로 교체**(`app._suspect_words`: whisper와 YouTube가 다른 단어; YouTube 없으면 `low_conf` 폴백). 검증: 41개, 예 "수있는"(vs YouTube "수 있는").
+- **연구 기반 추가** (자막 후편집·인지부하 논문): **CPS 읽기속도 플래그** — 글자수/시간>17자/초 "⏩ 빠름 N" 배지(라이브), `_is_safe`에서도 제외. 이 영상 max 15.3이라 트리거 0(정상), 라이브 편집 시 배지 렌더 검증. 근거: [ASR후편집](https://aclanthology.org/2021.triton-1.23/) · [CHI2025](https://arxiv.org/html/2503.15124v1) · [자막속도](https://subtitlesedit.com/blog/netflix-subtitle-style-guide-explained) · [분할인지부하](https://pmc.ncbi.nlm.nih.gov/articles/PMC7901653/).
+  - 3순위(Batch API −50%)는 미착수(대기).
+- **디자인 피로도 패스** (사용자: 워크바 촌스러움 + 작업대 피로↓, 버튼 늘리지 말고): 
+  - **다크모드** (장시간 눈피로 최대 절감) — `theme.tsx`: 시스템 선호 감지 + `localStorage` 지속 + ☀/🌙 토글(랜딩 헤더·에디터 상단). CSS 토큰 전면화(`:root` 라이트 + `:root[data-theme=dark]` 딥슬레이트) + 하드코딩 hex ~40개 토큰으로 치환(`--field-bg/--focus-bg/--reviewed-bg/--left-bg/--deep/--blue-ink` 등). 검증: 시스템 dark 자동 적용(body rgb(14,19,26)), 토글 라이트↔다크 전환·저장, 랜딩·에디터 전 요소 대비 양호(카드/배지/textarea/continue/좌측 다 확인), 콘솔 에러 0.
+  - **몰입**: 편집 중(`focus-within`) 포커스 행은 부각(테두리+그림자), 나머지 행은 은은히 후퇴(opacity 0.66, hover 복귀).
+  - **워크바 정돈**: 박스 남발 제거(border 0/투명), 버튼 radius 통일, `continue-btn` 다크 정합(--text→--deep). 버튼 수 증가 없음(토글 1개만).
+  - 스크린샷 툴은 에디터 YouTube iframe으로 계속 타임아웃 → 색상은 `preview_inspect` 계산값으로 검증.
+- **에디터 점진적 노출(progressive disclosure)로 정리** (사용자: 버튼 너무 많아 어지러움): 편집 중인 행(`focused`)만 참고칸·의심단어·타이밍(여기서시작/넘김)·구조(나누기/합치기/지우기) 노출, 나머지 행은 [시간·배지·텍스트·확인완료]만. 자막 에디터 표준(한 번에 한 행). per-row 버튼 486→87(~82%↓). `복구` 버튼은 희귀 도구라 보조 스타일로 축소(안심 버튼은 유지). 검증: 신규 로드 시 81행 전부 간결(timing/sources/suspect 0 노출), 실제 클릭 시 해당 행만 전체 컨트롤(eval 확인), 콘솔 에러 0. (스크린샷 툴은 YouTube iframe으로 타임아웃 — eval로 검증)
 
 - Spacebar-safe playback shortcuts: frontend `npm.cmd run build` PASS, `git diff --check` PASS (line-ending warnings only). Browser visual/interaction check NOT VERIFIED.
 - Pronoun-safe feedback propagation: learned-pair guard smoke PASS, feedback extraction/propagation smoke PASS (`그 여자` -> proper name skipped, `수로보관` -> `수로보가네` preserved), pre-pass/prompt smoke PASS, reviewed bad-LLM pair extraction blocked PASS, current DB over-propagation residue query found 0 visible unreviewed matches after repair, `.venv\Scripts\python.exe -m compileall src/jamak` PASS, `git diff --check` PASS (line-ending warnings only).

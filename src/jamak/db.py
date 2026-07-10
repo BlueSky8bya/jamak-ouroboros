@@ -54,6 +54,7 @@ class Segment(SQLModel, table=True):
     flagged: bool = False
     llm_uncertain: bool = False  # Claude marked this segment as uncertain
     reviewed: bool = False
+    low_conf: str = ""  # whisper's least-confident words here (comma-sep) — review hint
 
 
 class Correction(SQLModel, table=True):
@@ -130,6 +131,9 @@ def _ensure_columns(engine) -> None:
         },
         "job": {
             "upload_date": "VARCHAR DEFAULT ''",
+        },
+        "segment": {
+            "low_conf": "VARCHAR DEFAULT ''",
         },
     }
     insp = inspect(engine)

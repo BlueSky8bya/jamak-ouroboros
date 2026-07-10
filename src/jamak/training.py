@@ -21,6 +21,7 @@ from .config import DATA_DIR, JOBS_DIR
 from .db import Job, Segment, get_session
 
 TRAINING_DIR = DATA_DIR / "training"
+CORRECTIONS_DIR = TRAINING_DIR / "corrections"
 MIN_DURATION = 0.4
 MAX_DURATION = 30.0  # whisper training clips must stay under 30s
 
@@ -98,5 +99,68 @@ def export_training_data(out_dir: Path = TRAINING_DIR, make_clips: bool = True) 
         "pairs": len(rows),
         "minutes": round(total_sec / 60, 1),
         "skipped_no_audio": skipped_no_audio,
+        "manifest": str(manifest),
+    }
+
+
+def export_correction_pairs(out_dir: Path = CORRECTIONS_DIR) -> dict:
+    """Build (whisper draft -> human final) text pairs for a correction model.
+
+    The long-term plan (ADR-0005) is to fine-tune a small local Korean LLM on
+    exactly this project's correction behavior — fixing misheard words while
+    KEEPING dialect/구어체 and never rewriting pronouns — so the per-video
+    Claude correction call can eventually be replaced with a free local model.
+    The training targets are the human-reviewed finals, so a model trained on
+    them inherits those constraints instead of standardizing the text.
+
+    API-free. Emits JSONL with the raw fields (whisper, youtube reference,
+    final); prompt formatting is a training-time concern. Both changed and
+    unchanged pairs are kept — unchanged ones teach the model when NOT to edit.
+    Gap/echo-filled segments (no real whisper text) are excluded: they are not
+    whisper-correction examples.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    manifest = out_dir / "manifest.jsonl"
+    rows: list[dict] = []
+    changed = 0
+
+    with get_session() as session:
+        jobs = session.exec(select(Job)).all()
+        for job in jobs:
+            segs = session.exec(
+                select(Segment)
+                .where(
+                    Segment.job_id == job.id,
+                    Segment.reviewed == True,  # noqa: E712
+                )
+                .order_by(Segment.idx)
+            ).all()
+            for seg in segs:
+                whisper = seg.text_whisper.strip()
+                final = seg.text_final.strip()
+                if not whisper or not final:
+                    continue  # gap/echo-filled or empty — not a correction pair
+                is_changed = whisper != final
+                if is_changed:
+                    changed += 1
+                rows.append(
+                    {
+                        "whisper": whisper,
+                        "youtube": seg.text_youtube.strip(),
+                        "final": final,
+                        "changed": is_changed,
+                        "video_id": job.video_id,
+                        "idx": seg.idx,
+                    }
+                )
+
+    manifest.write_text(
+        "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "pairs": len(rows),
+        "changed": changed,
+        "unchanged": len(rows) - changed,
         "manifest": str(manifest),
     }

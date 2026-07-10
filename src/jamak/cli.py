@@ -84,9 +84,11 @@ def doctor() -> None:
 def run(
     url: str,
     correct: bool = typer.Option(True, help="Run Claude correction stage (needs API key)"),
+    fresh: bool = typer.Option(
+        False, help="Ignore cached STT and re-transcribe (re-roll with current glossary)"
+    ),
 ) -> None:
     """Full pipeline: URL in, draft .srt out."""
-    from .glossary import whisper_prompt
     from .pipeline.assemble import to_srt
     from .pipeline.crosscheck import crosscheck
     from .pipeline.ingest import ingest
@@ -121,11 +123,15 @@ def run(
     console.rule("[2/5] STT (faster-whisper)")
     from .glossary import whisper_hotwords
 
-    prompt = whisper_prompt()
+    # domain vocabulary goes in via hotwords (acoustic bias, not echoable);
+    # we intentionally pass NO initial_prompt to avoid prompt-echo hallucination
     hotwords = whisper_hotwords()
-    console.print(f"initial_prompt: {prompt[:80]}...")
     if hotwords:
-        console.print(f"hotwords: {hotwords[:80]}...")
+        console.print(f"hotwords ({len(hotwords.split())} terms): {hotwords[:80]}...")
+    else:
+        console.print("hotwords: none yet (glossary empty) — run seed-import / glossary-mine")
+    if fresh:
+        console.print("[yellow]fresh[/] — ignoring cached STT, re-transcribing")
 
     from rich.progress import Progress
 
@@ -135,7 +141,9 @@ def run(
         def cb(pos: float, total: float) -> None:
             progress.update(task, completed=min(pos, res.duration_seconds))
 
-        stt_segments = transcribe(res.audio_path, res.job_dir, prompt, cb, hotwords)
+        stt_segments = transcribe(
+            res.audio_path, res.job_dir, "", cb, hotwords, force=fresh
+        )
 
     from .pipeline.split import (
         DEFAULT_MAX_CHARS,
@@ -167,10 +175,10 @@ def run(
         console.print(f"removed {n_noise} standalone audience-response segments")
 
     console.rule("[3/5] Crosscheck")
-    rows, n_echo = crosscheck(stt_segments, res.captions_path, prompt)
+    rows, n_echo = crosscheck(stt_segments, res.captions_path)
     n_flagged = sum(1 for r in rows if r["flagged"])
     if n_echo:
-        console.print(f"recovered {n_echo} prompt-hallucination segments from YouTube captions")
+        console.print(f"recovered {n_echo} hallucination/echo segments from YouTube captions")
     console.print(f"flagged {n_flagged}/{len(rows)} segments for review priority")
 
     # persist segments (replace any previous run of this job)
@@ -238,6 +246,36 @@ def seed_import(
         f"imported [bold]{stats['files']}[/] files, "
         f"{stats['terms']} glossary candidates, {stats['pairs']} correction pairs"
     )
+
+
+@app.command("glossary-mine")
+def glossary_mine_cmd(
+    directory: Path = typer.Argument(
+        config.SEEDS_DIR, help="Corpus folder (.txt/.srt)"
+    ),
+) -> None:
+    """Mine an approved glossary from the reviewed corpus (fills hotwords + prompt).
+
+    One-time cheap Claude pass over frequency candidates — curates domain
+    vocabulary, categories, and misrecognition variants into the glossary.
+    """
+    import os
+
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        console.print("[red]ANTHROPIC_API_KEY not set[/]")
+        raise typer.Exit(1)
+    if not directory.exists():
+        console.print(f"[red]no such folder: {directory}[/]")
+        raise typer.Exit(1)
+
+    from .glossary_mine import mine_glossary
+
+    stats = mine_glossary(directory, console=console)
+    console.print(
+        f"[bold green]glossary:[/] +{stats['kept']} new, {stats['updated']} promoted "
+        f"(approved) from {stats['candidates']} candidates"
+    )
+    console.print("이제 whisper hotwords가 이 용어들로 채워집니다 (음향 편향).")
 
 
 @app.command()
@@ -334,6 +372,27 @@ def export_training_data_cmd(
     console.print(
         "다음 단계: 데이터가 충분히 쌓이면 Whisper LoRA 파인튜닝 (ADR-0004)"
     )
+
+
+@app.command("export-correction-data")
+def export_correction_data_cmd() -> None:
+    """Export (whisper draft -> human final) text pairs for a local correction model.
+
+    Phase 1 of ADR-0005: accumulate the supervision needed to later fine-tune a
+    free local model that replaces the per-video Claude correction call. API-free.
+    """
+    from .training import export_correction_pairs
+
+    stats = export_correction_pairs()
+    console.print(
+        f"correction pairs: [bold]{stats['pairs']}[/] "
+        f"({stats['changed']} changed / {stats['unchanged']} kept-as-is)"
+    )
+    console.print(f"manifest: {stats['manifest']}")
+    if stats["pairs"] < 2000:
+        console.print(
+            "[yellow]아직 파인튜닝엔 부족[/] — 검수·흡수(absorb) 쌓을수록 증가 (ADR-0005)"
+        )
 
 
 @app.command("backfill-dates")

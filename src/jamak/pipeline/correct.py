@@ -25,7 +25,7 @@ from sqlmodel import select
 
 from ..config import CORRECT_MODEL, PREPASS_MIN_COUNT
 from ..db import Correction, LlmCache, Segment, get_session
-from ..glossary import fewshot_corrections, glossary_block
+from ..glossary import fewshot_corrections, glossary_block, glossary_surface_forms
 from ..learned_pairs import is_safe_correction_pair
 
 CHUNK_SIZE = 50  # segments per request
@@ -158,6 +158,29 @@ def correct_chunk(
     return json.loads(text)["corrections"]
 
 
+def _needs_llm(d: dict, surface_forms: set[str]) -> bool:
+    """Does this segment plausibly need Claude, or would the LLM no-op it?
+
+    The correction prompt only ever *changes* misrecognized words and returns
+    changed segments only (rule 6). So a segment with no misrecognition risk is
+    pure wasted spend. Skip when:
+      - the whisper text is empty (gap/noise) — nothing to correct; the
+        YouTube-seeded working text stays as-is;
+      - whisper and YouTube agree (not flagged) AND the segment carries no
+        domain vocabulary — two independent engines concurring on ordinary
+        words is high-confidence, and there's no glossary term to mis-hear.
+    Everything else (disagreement, or any domain term/variant present) still
+    goes to the LLM, so correction quality is unchanged where it matters.
+    """
+    base = d["base_text"].strip()
+    if not base:
+        return False
+    if d["flagged"]:
+        return True
+    hay = base + " " + (d["text_youtube"] or "")
+    return any(form in hay for form in surface_forms)
+
+
 def correct_job(job_id: int, console=None) -> int:
     """Run correction over every segment of a job. Returns #changed."""
     import anthropic
@@ -175,13 +198,24 @@ def correct_job(job_id: int, console=None) -> int:
         d["base_text"] = apply_prepass(d["text_whisper"], prepass_pairs)
         d["hash"] = _hash(PROMPT_VERSION, d["base_text"], d["text_youtube"])
 
+    # ---- tier 1.5: skip segments the LLM would leave unchanged (free)
+    surface_forms = glossary_surface_forms()
+
     # ---- tier 2: cache lookup
     # results are keyed by segment id (idx can shift if the user edits
     # structure in the web app while the LLM is running)
     results: dict[int, tuple[str, bool]] = {}  # segment id -> (text, uncertain)
     todo: list[dict] = []
+    skipped = 0
     with get_session() as session:
         for d in seg_dicts:
+            if not _needs_llm(d, surface_forms):
+                # low-risk: trust whisper (post pre-pass), or the YouTube-seeded
+                # text for gap segments — no API call
+                text = d["base_text"] if d["base_text"].strip() else d["text_youtube"]
+                results[d["id"]] = (text, False)
+                skipped += 1
+                continue
             cached = session.exec(
                 select(LlmCache).where(
                     LlmCache.kind == "correct", LlmCache.source_hash == d["hash"]
@@ -194,10 +228,10 @@ def correct_job(job_id: int, console=None) -> int:
                 todo.append(d)
 
     if console:
+        cache_hits = len(seg_dicts) - skipped - len(todo)
         console.print(
-            f"  pre-pass pairs: {len(prepass_pairs)} | "
-            f"cache hits: {len(seg_dicts) - len(todo)}/{len(seg_dicts)} | "
-            f"to LLM: {len(todo)}"
+            f"  pre-pass pairs: {len(prepass_pairs)} | skipped (low-risk): {skipped} | "
+            f"cache hits: {cache_hits} | to LLM: {len(todo)}/{len(seg_dicts)}"
         )
 
     # ---- tier 3: LLM for the remainder (returns changed segments only)

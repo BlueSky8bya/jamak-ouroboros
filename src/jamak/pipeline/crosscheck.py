@@ -13,11 +13,22 @@ from pathlib import Path
 
 from rapidfuzz import fuzz
 
-from .noise import is_prompt_echo
+from .noise import cascade_indices, is_known_prompt_leak, is_prompt_echo
 from .stt import SttSegment
 
 # below this token-set similarity (0-100) the segment gets flagged
 FLAG_THRESHOLD = 65
+
+
+def strip_speaker_markers(text: str) -> str:
+    """Remove YouTube '>>' / '>' speaker-change markers from caption text.
+
+    Our subtitles never use them, so they must never enter the DB — even when a
+    segment is seeded verbatim from a YouTube caption. Purely deterministic
+    (no API): applied at caption-parse time so every downstream use is clean.
+    """
+    text = re.sub(r"(^|\s)>>?(\s|$)", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def parse_json3_captions(path: Path) -> list[tuple[float, float, str]]:
@@ -28,8 +39,8 @@ def parse_json3_captions(path: Path) -> list[tuple[float, float, str]]:
         if "segs" not in event:
             continue
         text = "".join(seg.get("utf8", "") for seg in event["segs"]).strip()
-        text = re.sub(r"\s+", " ", text)
-        if not text or text == "\n":
+        text = strip_speaker_markers(text)
+        if not text:
             continue
         start = event.get("tStartMs", 0) / 1000.0
         dur = event.get("dDurationMs", 0) / 1000.0
@@ -50,6 +61,85 @@ def _normalize(text: str) -> str:
     return re.sub(r"[^\w가-힣]", "", text)
 
 
+LOW_CONF_PROB = 0.55  # whisper word-probability below this = flag as suspect
+
+
+def low_conf_words(seg: SttSegment, threshold: float = LOW_CONF_PROB, cap: int = 6) -> str:
+    """Comma-separated list of the words whisper was least sure about here.
+
+    faster-whisper returns a per-word probability. Surfacing the low-probability
+    words lets the reviewer's eye jump straight to what whisper likely misheard,
+    instead of re-reading the whole line. Deterministic, no API.
+    """
+    out: list[str] = []
+    for w in seg.words or []:
+        token = w.word.strip()
+        if not re.search(r"[가-힣A-Za-z0-9]", token):
+            continue  # skip pure punctuation/space
+        if w.probability < threshold and token not in out:
+            out.append(token)
+    return ", ".join(out[:cap])
+
+
+def deroll_captions(
+    captions: list[tuple[float, float, str]],
+) -> list[tuple[float, float, str]]:
+    """Collapse YouTube rolling auto-captions into distinct, non-overlapping lines.
+
+    Auto-captions slide: the same line reappears across several overlapping
+    events. We keep the first occurrence of each distinct line and clamp each
+    line's end to the next line's start so the timeline doesn't overlap. The
+    result is a clean sequence of real subtitle lines with sane timings —
+    usable to fill spans whisper missed entirely.
+    """
+    uniq: list[list] = []
+    seen: set[str] = set()
+    for s, e, t in sorted(captions, key=lambda c: c[0]):
+        key = _normalize(t)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        uniq.append([s, e, t])
+    for i in range(len(uniq) - 1):
+        uniq[i][1] = max(uniq[i][0], min(uniq[i][1], uniq[i + 1][0]))
+    return [(s, e, t) for s, e, t in uniq]
+
+
+def youtube_gap_rows(
+    covered: list[tuple[float, float]],
+    captions: list[tuple[float, float, str]],
+    pad: float = 0.3,
+) -> list[dict]:
+    """Rows from YouTube captions for time spans no whisper segment covers.
+
+    Fixes the case where whisper drops the opening (speech over intro music /
+    VAD trimming) so the first subtitle starts well after the speaker began.
+    Each gap line becomes a flagged, YouTube-seeded row.
+    """
+    derolled = deroll_captions(captions)
+    rows: list[dict] = []
+    for s, e, t in derolled:
+        mid = (s + e) / 2 if e > s else s
+        if any(cs - pad <= mid <= ce + pad for cs, ce in covered):
+            continue
+        rows.append(
+            {
+                "start": s,
+                "end": e if e > s else s + 1.5,
+                # whisper heard NOTHING here — leave its column empty so the
+                # reference panel is honest ("음성인식" blank), not a fake
+                # duplicate of the YouTube text. The working text is seeded from
+                # YouTube (text_llm/text_final) so it still shows and exports.
+                "text_whisper": "",
+                "text_youtube": t,
+                "text_llm": t,
+                "text_final": t,
+                "flagged": True,
+            }
+        )
+    return rows
+
+
 def crosscheck(
     stt_segments: list[SttSegment],
     captions_path: Path | None,
@@ -68,13 +158,22 @@ def crosscheck(
     """
     captions = parse_json3_captions(captions_path) if captions_path else []
 
+    # prompt-agnostic hallucination signature: a run of consecutive identical
+    # subtitles. Catches the echo cascade even when we passed no initial_prompt.
+    cascade = cascade_indices([s.text for s in stt_segments])
+
     out: list[dict] = []
     n_echo = 0
-    for seg in stt_segments:
+    for i, seg in enumerate(stt_segments):
         yt_text = youtube_text_for_span(captions, seg.start, seg.end)
         whisper_text = seg.text
 
-        if prompt_text and is_prompt_echo(whisper_text, prompt_text):
+        is_echo = (
+            i in cascade
+            or is_known_prompt_leak(whisper_text)
+            or (prompt_text and is_prompt_echo(whisper_text, prompt_text))
+        )
+        if is_echo:
             n_echo += 1
             if not yt_text:
                 continue  # pure prompt leak over silence — drop
@@ -105,6 +204,15 @@ def crosscheck(
                 "text_whisper": whisper_text,
                 "text_youtube": yt_text,
                 "flagged": flagged,
+                "low_conf": low_conf_words(seg),
             }
         )
+
+    # fill spans whisper missed entirely (the dropped opening + internal gaps)
+    # from YouTube captions so the first subtitle starts where speech starts
+    if captions:
+        covered = [(r["start"], r["end"]) for r in out]
+        out.extend(youtube_gap_rows(covered, captions))
+        out.sort(key=lambda r: r["start"])
+
     return out, n_echo

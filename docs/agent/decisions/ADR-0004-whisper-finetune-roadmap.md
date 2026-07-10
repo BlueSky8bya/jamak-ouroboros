@@ -15,6 +15,7 @@ Related: ADR-0001 (파이프라인), ADR-0002 (DB 원본)
 
 1. **Zero-cost 즉효 (지금 적용됨)**
    - `initial_prompt` + `hotwords`에 승인된 용어사전 주입 → Whisper 음향 디코더가 도메인 어휘 쪽으로 편향. 학습·API 0.
+   - **용어사전 공급원 확장** (`jamak glossary-mine`): 1년치 검수 코퍼스에서 빈도 후보를 결정적으로 뽑고 Claude 1회(일회성 ~$0.06)로 정제해 도메인 어휘를 `approved=True`로 채움. 교정쌍은 기계 초안이 없어 불가하지만 hotwords/prompt는 코퍼스에서 대량 확보. 주의: 이 경로는 사람 `/glossary-review` 승인을 Claude 자동 승인으로 대체 — 소스가 사람이 이미 검수한 코퍼스라 방어 가능하나, 잔여 노이즈는 `/glossary-review`로 사후 정리.
 2. **데이터셋 축적 (지금 구축됨)**
    - `jamak export-training-data`: 사람이 검수한 세그먼트를 (오디오 클립, 정답 텍스트) 쌍으로 슬라이스 → `data/training/manifest.jsonl`. 검수할수록 자동 증가.
 3. **파인튜닝 (미래, 트리거 도달 시)**

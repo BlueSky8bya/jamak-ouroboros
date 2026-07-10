@@ -57,10 +57,15 @@ def transcribe(
     initial_prompt: str = "",
     progress_callback=None,
     hotwords: str = "",
+    force: bool = False,
 ) -> list[SttSegment]:
-    """Run whisper; cache the result as stt.json inside the job dir."""
+    """Run whisper; cache the result as stt.json inside the job dir.
+
+    force=True ignores (and overwrites) the cache so a "re-transcribe" with a
+    richer glossary actually re-runs STT instead of replaying old segments.
+    """
     cache = job_dir / "stt.json"
-    if cache.exists():
+    if cache.exists() and not force:
         raw = json.loads(cache.read_text(encoding="utf-8"))
         return [
             SttSegment(
@@ -85,16 +90,32 @@ def transcribe(
         language="ko",
         word_timestamps=True,
         vad_filter=True,
-        # lectures have long applause gaps; don't glue speech across them
-        vad_parameters={"min_silence_duration_ms": 700},
+        vad_parameters={
+            # lectures have long applause gaps; don't glue speech across them
+            "min_silence_duration_ms": 700,
+            # more sensitive so quiet / over-music opening speech isn't dropped
+            # (was defaulting to 0.5, which trimmed the speaker's intro)
+            "threshold": 0.35,
+            # keep a little audio around detected speech so word edges and the
+            # very first words aren't clipped
+            "speech_pad_ms": 400,
+        },
+        # NOTE: we deliberately do NOT pass a keyword-list initial_prompt.
+        # faster-whisper emits the initial_prompt verbatim over silent/applause
+        # stretches (prompt-echo hallucination), which is exactly the "신인,
+        # 축지법... 나옵니다" garbage repeated for dozens of segments. Domain
+        # vocabulary is biased via `hotwords` (acoustic decoder) instead, which
+        # is not emitted as text. Caller may still force a prompt if needed.
         initial_prompt=initial_prompt or None,
-        # hotwords bias the acoustic decoder toward domain vocabulary
-        # (신인, 축지법, 하늘궁...) — a zero-cost, zero-training way to make
-        # whisper *hear* the terms, complementing the LLM correction stage
         hotwords=hotwords or None,
-        condition_on_previous_text=True,
-        # skip silent windows where whisper tends to regurgitate the
-        # initial_prompt / loop; the crosscheck stage also filters echoes
+        # False so a single hallucination is NOT carried into the next window
+        # and repeated across dozens of consecutive segments (the cascade the
+        # user saw). Each window decodes independently.
+        condition_on_previous_text=False,
+        # drop windows whose decode is a repetitive loop, and skip silent
+        # windows where whisper tends to regurgitate/loop
+        compression_ratio_threshold=2.4,
+        no_repeat_ngram_size=3,
         hallucination_silence_threshold=2.0,
     )
 

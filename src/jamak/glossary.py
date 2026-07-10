@@ -59,6 +59,27 @@ def glossary_block(max_terms: int = 200) -> str:
     return "\n".join(lines)
 
 
+def glossary_surface_forms() -> set[str]:
+    """Every approved term + its known misrecognition variants, as a flat set.
+
+    Cheap membership test for "does this segment touch domain vocabulary?" —
+    lets the correction stage skip the LLM on ordinary segments that carry no
+    domain-vocab risk (and that the LLM would return unchanged anyway).
+    """
+    forms: set[str] = set()
+    with get_session() as session:
+        rows = session.exec(
+            select(GlossaryTerm).where(GlossaryTerm.approved == True)  # noqa: E712
+        ).all()
+    for t in rows:
+        if t.term.strip():
+            forms.add(t.term.strip())
+        for v in t.variants.split(","):
+            if v.strip():
+                forms.add(v.strip())
+    return forms
+
+
 def fewshot_corrections(max_pairs: int = 40) -> list[tuple[str, str, str]]:
     """Most frequent learned corrections: (wrong, right, context)."""
     with get_session() as session:
