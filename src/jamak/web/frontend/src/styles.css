@@ -33,6 +33,11 @@
   --shadow: 0 8px 22px rgba(23, 32, 51, 0.10);
   --shadow-lift: 0 14px 34px rgba(23, 32, 51, 0.16);
   --radius: 14px;
+  /* motion tokens (consistent, calm micro-interactions) */
+  --dur-fast: 110ms;
+  --dur: 200ms;
+  --dur-slow: 340ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 /* Dark theme — calm deep slate (not pure black) for long, low-fatigue review
@@ -44,11 +49,11 @@
   --surface: #191f28;
   --surface-soft: #1f2731;
   --surface-strong: #29313d;
-  --line: #2c3541;
-  --line-strong: #3c4757;
-  --text: #e7ecf3;
-  --muted: #9aa7b8;
-  --faint: #6d7a8b;
+  --line: #333d4a;
+  --line-strong: #475362;
+  --text: #f2f5fa;
+  --muted: #bcc7d6;
+  --faint: #93a1b3;
   --blue: #60a5fa;
   --blue-soft: #1d3350;
   --blue-ink: #bcd4f7;
@@ -90,7 +95,7 @@ body {
     radial-gradient(900px 480px at 100% 0%, var(--glow-b), transparent 55%),
     var(--bg);
   background-attachment: fixed;
-  transition: background-color 200ms ease, color 200ms ease;
+  transition: background-color 200ms ease;
   color: var(--text);
   font-size: 14px;
   letter-spacing: 0;
@@ -112,7 +117,10 @@ textarea:focus-visible {
 }
 
 button {
-  transition: border-color 120ms ease, background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+  /* NOTE: never transition `color` — with themeable var() colors the value
+     sticks to the old theme on toggle (declared value is unchanged). Recolor
+     is instant, which is what we want on theme switch anyway. */
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
 }
 
 /* landing */
@@ -1527,3 +1535,180 @@ kbd {
 .reviewed-check {
   color: var(--muted);
 }
+
+/* ===================================================================
+   Left panel v2 — grouped, calm, momentum-driven (fatigue/flow pass)
+   status (subtle) → progress+continue hero → compact tools → export
+   =================================================================== */
+
+/* subtle autosave-style status: a persistent dot + text, never a popup */
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.save-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent);
+  transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.save-dot.busy {
+  background: var(--amber);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 22%, transparent);
+  animation: dot-pulse 1.1s ease-in-out infinite;
+}
+@keyframes dot-pulse { 50% { opacity: 0.45; } }
+.statusbar .work-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.undo-mini {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+}
+.undo-mini:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+.undo-mini:disabled { opacity: 0.4; cursor: default; }
+
+/* momentum hero — the single focal block: how far you've come + one CTA */
+.flow-hero {
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.flow-nums {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.flow-nums strong { font-size: 24px; font-weight: 900; color: var(--text); }
+.flow-nums span { font-size: 13px; color: var(--faint); font-weight: 700; }
+.flow-nums em { margin-left: auto; font-style: normal; font-weight: 800; color: var(--teal); font-size: 13px; }
+.flow-bar {
+  height: 8px;
+  margin: 7px 0 5px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-strong);
+}
+.flow-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--teal), #2dd4bf);
+  transition: width var(--dur-slow) var(--ease);
+}
+.flow-remain { color: var(--muted); font-size: 12px; font-weight: 700; }
+.flow-hero .continue-btn {
+  width: 100%;
+  min-height: 46px;
+  border-radius: 11px;
+  background: linear-gradient(135deg, var(--blue), var(--indigo));
+  transition: filter var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+}
+.flow-hero .continue-btn:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px); }
+.flow-hero .continue-btn:active:not(:disabled) { transform: translateY(0); }
+.flow-hero .continue-btn strong { color: #fff; }
+
+/* compact secondary tools — one calm row, muted, no full-width shouting */
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+.tool {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.tool:hover { border-color: var(--blue); color: var(--blue); }
+.tool.accent {
+  border-color: color-mix(in srgb, var(--teal) 45%, transparent);
+  background: var(--teal-soft);
+  color: var(--teal);
+}
+.tool.accent:hover { filter: brightness(1.04); }
+.tool.toggle {
+  margin-left: auto;
+  cursor: pointer;
+  border-style: dashed;
+}
+.tool.toggle input { accent-color: var(--blue); }
+
+/* export footer — quiet, at the bottom of the flow */
+.export-footer { display: grid; gap: 6px; margin-top: 2px; }
+.export-footer .hint { margin: 0; }
+
+/* satisfying confirm micro-interaction (research: checkmark anim ↑satisfaction) */
+.reviewed-check input { transition: transform var(--dur-fast) var(--ease); }
+.reviewed-check input:checked { animation: check-pop var(--dur) var(--ease); }
+@keyframes check-pop { 0% { transform: scale(0.7); } 55% { transform: scale(1.18); } 100% { transform: scale(1); } }
+.row.reviewed { transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
+
+/* ===== density + fit tweaks (tighter, no lonely wraps) ===== */
+.left { gap: 8px; }
+
+/* playback pause-toggle sits on its own full-width line under the controls */
+.play-controls { flex-wrap: wrap; }
+.pc-toggle {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 1px;
+  padding: 4px 6px;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.pc-toggle input { accent-color: var(--blue); }
+
+/* action tools fill the row evenly — no empty gap on the right, no wrap */
+.tools { gap: 6px; }
+.tools .tool {
+  flex: 1 1 0;
+  min-width: 0;
+  justify-content: center;
+  padding: 8px 6px;
+  white-space: nowrap;
+}
+.tools .tool.toggle { display: none; }
+
+/* a touch denser hero */
+.flow-hero { padding: 12px; gap: 9px; }

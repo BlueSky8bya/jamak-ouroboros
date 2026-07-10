@@ -647,6 +647,7 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
   const nReviewed = segments.filter((s) => s.reviewed).length;
   const nRemaining = Math.max(0, segments.length - nReviewed);
   const nSafe = segments.filter((s) => s.safe && !s.reviewed).length;
+  const reviewedPct = segments.length ? Math.round((nReviewed / segments.length) * 100) : 0;
   const koComplete = segments.length > 0 && nReviewed === segments.length;
   const langLabel = langs.find((l) => l.code === lang)?.label ?? lang;
 
@@ -891,6 +892,83 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
     }
   }
 
+  async function refreshSegments() {
+    const next = await fetchSegments(videoId);
+    segmentsRef.current = next;
+    setSegments(next);
+  }
+
+  async function runRepair() {
+    await flushAll();
+    try {
+      const r = await repairStt(videoId);
+      await refreshSegments();
+      const parts: string[] = [];
+      if (r.repaired) parts.push(`오류 ${r.repaired}곳 복구`);
+      if (r.filled) parts.push(`빈 구간 ${r.filled}곳 유튜브 자막으로 채움`);
+      setStatusMsg(
+        parts.length
+          ? `${parts.join(", ")} (유튜브 자막 기반, 검수 필요)` +
+              (r.no_caption ? ` · 자막 없는 ${r.no_caption}곳은 직접 수정` : "")
+          : "복구·보충할 구간을 찾지 못했습니다",
+      );
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function runConfirmSafe() {
+    await flushAll();
+    try {
+      const r = await confirmSafe(videoId);
+      await refreshSegments();
+      setStatusMsg(
+        `안심 구간 ${r.confirmed}개를 한번에 확인했습니다 — 이제 표시된 구간만 검수하세요`,
+      );
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function runAbsorb() {
+    await flushAll();
+    try {
+      const r = await absorbFeedback(videoId);
+      await refreshSegments();
+      setAbsorbMsg(
+        `학습 완료 — 확인한 자막 ${r.reviewed_segments}개에서 고침 ${r.new_pairs}가지를 새로 배웠습니다` +
+          (r.bumped ? ` (${r.bumped}가지는 더 확실해짐)` : "") +
+          (r.propagated_segments
+            ? `, 뒤쪽 자막 ${r.propagated_segments}개에 ${r.propagated_replacements}곳 반영`
+            : ""),
+      );
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function runExport() {
+    await flushAll();
+    setExporting(true);
+    try {
+      const r = await fetch(exportUrl(videoId, "best", lang));
+      if (!r.ok) throw new Error(`export: ${r.status}`);
+      const blob = await r.blob();
+      const cd = r.headers.get("content-disposition") ?? "";
+      const m = /filename\*=utf-8''([^;]+)/i.exec(cd);
+      const name = m ? decodeURIComponent(m[1]) : `${lang}_${videoId}_자막.srt`;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="editor">
       <div className="left">
@@ -928,6 +1006,14 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
           <button className="pc-btn" title="3초 앞으로" onClick={() => seekBy(3)}>
             3초 ⟳
           </button>
+          <label className="pc-toggle" title="유튜브 스튜디오처럼 타이핑 중 영상 자동 정지">
+            <input
+              type="checkbox"
+              checked={pauseOnType}
+              onChange={(e) => setPauseOnType(e.target.checked)}
+            />
+            입력 중 멈춤
+          </label>
         </div>
         <div className="orientation">
           <div className="orientation-line">
@@ -954,150 +1040,102 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
             if (seg) void timing("next-here", { ...seg }, time);
           }}
         />
-        <div className="workbar">
-          <button className="undo-btn" disabled={!undoStack.length} onClick={() => void undoLast()}>
-            ↶ 되돌리기
-          </button>
+        {/* subtle, non-interruptive status (autosave-style) */}
+        <div className="statusbar" aria-live="polite">
+          <span className={"save-dot" + (statusMsg ? " busy" : "")} />
           <span className="work-status">
-            {statusMsg || (undoStack.length ? `${undoStack[undoStack.length - 1].label} 되돌릴 수 있음` : "변경 대기")}
+            {statusMsg ||
+              (undoStack.length
+                ? `${undoStack[undoStack.length - 1].label} — 되돌릴 수 있음`
+                : "자동 저장됨")}
           </span>
-        </div>
-        <button
-          className="repair-btn"
-          title="음성인식이 프롬프트를 반복 출력한 구간을 유튜브 자막으로 한 번에 되돌립니다 (API 사용 안 함)"
-          onClick={async () => {
-            await flushAll();
-            try {
-              const r = await repairStt(videoId);
-              const next = await fetchSegments(videoId);
-              segmentsRef.current = next;
-              setSegments(next);
-              {
-                const parts: string[] = [];
-                if (r.repaired) parts.push(`오류 ${r.repaired}곳 복구`);
-                if (r.filled) parts.push(`빈 구간 ${r.filled}곳 유튜브 자막으로 채움`);
-                setStatusMsg(
-                  parts.length
-                    ? `${parts.join(", ")} (유튜브 자막 기반, 검수 필요)` +
-                        (r.no_caption ? ` · 자막 없는 ${r.no_caption}곳은 직접 수정` : "")
-                    : "복구·보충할 구간을 찾지 못했습니다",
-                );
-              }
-            } catch (e) {
-              setError(String(e));
-            }
-          }}
-        >
-          🛠 음성인식 복구 · 빈 구간 채우기
-        </button>
-        {nSafe > 0 && (
           <button
-            className="safe-btn"
-            title="두 음성인식이 일치하고 어려운 용어도 없는 '안심' 구간을 한번에 확인 처리합니다. 나머지(서로 다름·확인 필요)에만 집중하세요. 언제든 다시 편집 가능."
-            onClick={async () => {
-              await flushAll();
-              try {
-                const r = await confirmSafe(videoId);
-                const next = await fetchSegments(videoId);
-                segmentsRef.current = next;
-                setSegments(next);
-                setStatusMsg(
-                  `안심 구간 ${r.confirmed}개를 한번에 확인했습니다 — 이제 표시된 구간만 검수하세요`,
-                );
-              } catch (e) {
-                setError(String(e));
-              }
-            }}
+            className="undo-mini"
+            disabled={!undoStack.length}
+            title="되돌리기 (Ctrl+Z)"
+            onClick={() => void undoLast()}
           >
-            ✅ 안심 구간 {nSafe}개 한번에 확인
-          </button>
-        )}
-        <label className="pause-on-type" title="유튜브 스튜디오와 같은 기능">
-          <input
-            type="checkbox"
-            checked={pauseOnType}
-            onChange={(e) => setPauseOnType(e.target.checked)}
-          />
-          입력하는 동안 영상 자동 멈춤
-        </label>
-        <div className="progress">
-          확인 {nReviewed}/{segments.length}
-          <progress value={nReviewed} max={segments.length} />
-        </div>
-        <button className="continue-btn" disabled={!segments.length} onClick={() => void continueWork()}>
-          <span>이어서 작업하기</span>
-          <strong>{nRemaining ? `${nRemaining}개 남음` : "완료"}</strong>
-        </button>
-        <div className="export-row">
-          <select
-            value={lang}
-            onChange={(e) => setLang(e.target.value)}
-            title={koComplete ? "" : "한국어 검수를 마치면 번역 언어를 선택할 수 있어요"}
-          >
-            {langs.map((l) => (
-              <option key={l.code} value={l.code} disabled={l.code !== "ko" && !koComplete}>
-                {l.label}
-                {l.code !== "ko" && !koComplete ? " (한국어 검수 후)" : ""}
-              </option>
-            ))}
-          </select>
-          <button
-            className="export"
-            disabled={exporting}
-            onClick={async () => {
-              await flushAll();
-              setExporting(true);
-              try {
-                const r = await fetch(exportUrl(videoId, "best", lang));
-                if (!r.ok) throw new Error(`export: ${r.status}`);
-                const blob = await r.blob();
-                const cd = r.headers.get("content-disposition") ?? "";
-                const m = /filename\*=utf-8''([^;]+)/i.exec(cd);
-                const name = m ? decodeURIComponent(m[1]) : `${lang}_${videoId}_자막.srt`;
-                const a = document.createElement("a");
-                a.href = URL.createObjectURL(blob);
-                a.download = name;
-                a.click();
-                URL.revokeObjectURL(a.href);
-              } catch (e) {
-                setError(String(e));
-              } finally {
-                setExporting(false);
-              }
-            }}
-          >
-            {exporting
-              ? lang === "ko"
-                ? "저장하는 중..."
-                : "번역하는 중... (처음엔 1~2분)"
-              : "자막 파일 받기 (.srt)"}
+            ↶
           </button>
         </div>
-        <div className="hint">파일을 받으면 고친 내용이 현재 영상 뒤쪽 자막과 다음 실행에 자동 반영됩니다</div>
-        <button
-          className="absorb"
-          title="이번에 고친 내용을 현재 영상의 뒤쪽 미검수 자막에 먼저 반영하고 다음 실행에도 기억합니다"
-          onClick={async () => {
-            await flushAll();
-            try {
-              const r = await absorbFeedback(videoId);
-              const nextSegments = await fetchSegments(videoId);
-              segmentsRef.current = nextSegments;
-              setSegments(nextSegments);
-              setAbsorbMsg(
-                `학습 완료 — 확인한 자막 ${r.reviewed_segments}개에서 고침 ${r.new_pairs}가지를 새로 배웠습니다` +
-                  (r.bumped ? ` (${r.bumped}가지는 더 확실해짐)` : "") +
-                  (r.propagated_segments
-                    ? `, 뒤쪽 자막 ${r.propagated_segments}개에 ${r.propagated_replacements}곳 반영`
-                    : ""),
-              );
-            } catch (e) {
-              setError(String(e));
-            }
-          }}
-        >
-          📚 고친 내용 학습시키기
-        </button>
+
+        {/* momentum hero: progress + the one primary action */}
+        <div className="flow-hero">
+          <div className="flow-progress">
+            <div className="flow-nums">
+              <strong>{nReviewed}</strong>
+              <span>/ {segments.length}</span>
+              <em>{reviewedPct}%</em>
+            </div>
+            <div className="flow-bar">
+              <span style={{ width: `${reviewedPct}%` }} />
+            </div>
+            <div className="flow-remain">
+              {nRemaining ? `${nRemaining}개 남음` : "모두 확인 🎉"}
+            </div>
+          </div>
+          <button
+            className="continue-btn"
+            disabled={!nRemaining}
+            onClick={() => void continueWork()}
+          >
+            <span>이어서 작업하기</span>
+            <strong>{nRemaining ? "다음 →" : "완료"}</strong>
+          </button>
+        </div>
+
+        {/* secondary tools — compact, muted, no visual competition */}
+        <div className="tools">
+          {nSafe > 0 && (
+            <button
+              className="tool accent"
+              title="두 음성인식이 일치하고 어려운 용어도 없는 '안심' 구간을 한번에 확인. 나머지에만 집중하세요."
+              onClick={() => void runConfirmSafe()}
+            >
+              ✅ 안심 {nSafe}개 확인
+            </button>
+          )}
+          <button
+            className="tool"
+            title="음성인식이 놓치거나 잘못 뱉은 구간을 유튜브 자막으로 복구·보충 (API 사용 안 함)"
+            onClick={() => void runRepair()}
+          >
+            🛠 복구·채우기
+          </button>
+          <button
+            className="tool"
+            title="이번에 고친 내용을 뒤쪽 미검수 자막에 반영하고 다음 실행에도 기억"
+            onClick={() => void runAbsorb()}
+          >
+            📚 학습
+          </button>
+        </div>
+
+        {/* export footer */}
+        <div className="export-footer">
+          <div className="export-row">
+            <select
+              value={lang}
+              onChange={(e) => setLang(e.target.value)}
+              title={koComplete ? "" : "한국어 검수를 마치면 번역 언어를 선택할 수 있어요"}
+            >
+              {langs.map((l) => (
+                <option key={l.code} value={l.code} disabled={l.code !== "ko" && !koComplete}>
+                  {l.label}
+                  {l.code !== "ko" && !koComplete ? " (한국어 검수 후)" : ""}
+                </option>
+              ))}
+            </select>
+            <button className="export" disabled={exporting} onClick={() => void runExport()}>
+              {exporting
+                ? lang === "ko"
+                  ? "저장하는 중..."
+                  : "번역하는 중... (처음엔 1~2분)"
+                : "자막 받기 (.srt)"}
+            </button>
+          </div>
+          <div className="hint">받으면 고친 내용이 뒤쪽 자막과 다음 실행에 자동 반영됩니다</div>
+        </div>
         {absorbMsg && <div className="absorb-msg">{absorbMsg}</div>}
         {error && <div className="error">{error}</div>}
 
