@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { createJob, fetchJobs } from "./api";
+import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { createJob, fetchJobs, retranscribe } from "./api";
 import { Editor } from "./Editor";
+import { ThemeToggle } from "./theme";
 import type { JobLang, JobSummary } from "./types";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -11,6 +12,7 @@ const STATUS_LABEL: Record<string, string> = {
   correcting: "AI 교정 중",
   corrected: "검수 대기",
   reviewing: "검수 중",
+  reviewed: "검수 완료",
   done: "완료",
 };
 
@@ -79,6 +81,22 @@ export function App() {
     }
   }
 
+  async function reroll(e: ReactMouseEvent, j: JobSummary) {
+    e.stopPropagation();
+    const msg =
+      j.reviewed > 0
+        ? `검수 중인 편집 ${j.reviewed}개가 초기화됩니다. 현재 용어사전으로 음성인식을 다시 할까요?`
+        : "현재 용어사전으로 음성인식을 다시 시도할까요?";
+    if (!window.confirm(msg)) return;
+    setError("");
+    try {
+      await retranscribe(j.video_id);
+      await refresh();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
   // every translation language that appears across all jobs (for the filter)
   const allLangs = useMemo(() => {
     const map = new Map<string, string>();
@@ -121,10 +139,11 @@ export function App() {
   return (
     <div className="landing">
       <header className="landing-header">
-        <div>
+        <div className="header-top">
           <span className="product-label">Jamak Ouroboros</span>
-          <h1>자막 검수 작업대</h1>
+          <ThemeToggle />
         </div>
+        <h1>자막 검수 작업대</h1>
         <p>유튜브 강연 자막을 만들고, 검수하고, 고친 내용을 다음 작업에 되먹임합니다.</p>
       </header>
 
@@ -193,18 +212,22 @@ export function App() {
               onClick={() => openable && setSelected(j.video_id)}
               title={openable ? "검수 열기" : "파이프라인 처리 중"}
             >
-              <img
-                src={`https://img.youtube.com/vi/${j.video_id}/mqdefault.jpg`}
-                alt=""
-                loading="lazy"
-              />
+              <span className="thumb">
+                <img
+                  src={`https://img.youtube.com/vi/${j.video_id}/mqdefault.jpg`}
+                  alt=""
+                  loading="lazy"
+                />
+                {j.duration_seconds > 0 && (
+                  <span className="thumb-dur">{Math.round(j.duration_seconds / 60)}분</span>
+                )}
+              </span>
               <div className="job-info">
-                <strong>{j.title || j.video_id}</strong>
-                <span className={"status" + (j.running ? " live" : "")}>
-                  {j.running && <span className="spinner" />} {statusLabel(j)}
-                </span>
-                {j.segments > 0 && (
-                  <>
+                <div className="job-head">
+                  <span className={"status" + (j.running ? " live" : "")}>
+                    {j.running && <span className="spinner" />} {statusLabel(j)}
+                  </span>
+                  {j.segments > 0 && (
                     <span className="lang-badges">
                       <span
                         className={"lbadge ko" + (j.ko_complete ? " done" : "")}
@@ -222,14 +245,35 @@ export function App() {
                         </span>
                       ))}
                     </span>
-                    <span className="meta">
-                      {Math.round(j.duration_seconds / 60)}분 · 자막 {j.segments}개
-                      {j.upload_date &&
-                        ` · 업로드 ${j.upload_date.slice(0, 4)}.${j.upload_date.slice(4, 6)}.${j.upload_date.slice(6, 8)}`}
-                    </span>
+                  )}
+                </div>
+                <strong>{j.title || j.video_id}</strong>
+                {j.segments > 0 && (
+                  <>
                     <span className="job-progress" aria-label={`검수 진행률 ${reviewedPct}%`}>
                       <span style={{ width: `${reviewedPct}%` }} />
                     </span>
+                    <div className="job-foot">
+                      <span className="meta">
+                        자막 {j.segments}개
+                        {j.upload_date &&
+                          ` · 업로드 ${j.upload_date.slice(0, 4)}.${j.upload_date.slice(4, 6)}.${j.upload_date.slice(6, 8)}`}
+                      </span>
+                      {!j.ko_complete && !j.running && (
+                        <span
+                          className="reroll"
+                          role="button"
+                          tabIndex={0}
+                          title="현재 용어사전으로 음성인식 다시 시도 (리세마라). 용어가 많을수록 인식이 좋아집니다."
+                          onClick={(e) => reroll(e, j)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") reroll(e as unknown as ReactMouseEvent, j);
+                          }}
+                        >
+                          🎲 다시 인식
+                        </span>
+                      )}
+                    </div>
                   </>
                 )}
               </div>

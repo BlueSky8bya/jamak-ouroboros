@@ -3,6 +3,7 @@ import {
   absorbFeedback,
   boundaryNext,
   boundaryPrev,
+  confirmSafe,
   deleteSegment,
   exportUrl,
   fetchLanguages,
@@ -13,6 +14,7 @@ import {
   splitSegment,
   updateSegment,
 } from "./api";
+import { ThemeToggle } from "./theme";
 import { TranslateReview } from "./TranslateReview";
 import type { Segment } from "./types";
 import { usePlayer } from "./usePlayer";
@@ -321,7 +323,20 @@ function Row({
     if (active) ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [active]);
 
-  const showSources = seg.flagged || seg.llm_uncertain;
+  // show the reference panel whenever a machine source actually differs from
+  // the working text — not only when the crosscheck flag fired. The flag uses a
+  // lenient token-similarity threshold, so segments that disagree on key words
+  // (e.g. whisper "보고삼" vs YouTube "부부삼") can slip through unflagged; the
+  // reviewer still wants the reference there.
+  const _norm = (s: string) => s.replace(/[^\w가-힣]/g, "");
+  const _work = seg.text_final || seg.text_llm || seg.text_whisper;
+  const _refDiffers =
+    (seg.text_youtube.trim() !== "" && _norm(seg.text_youtube) !== _norm(_work)) ||
+    (seg.text_whisper.trim() !== "" && _norm(seg.text_whisper) !== _norm(_work));
+  const showSources = seg.flagged || seg.llm_uncertain || _refDiffers;
+  // reading speed of the *current* (live-edited) text — flag if too fast to read
+  const cps = text.replace(/\s+/g, "").length / Math.max(0.1, seg.end - seg.start);
+  const tooFast = cps > 17;
   const playPct =
     currentTime >= seg.start && currentTime <= seg.end
       ? clamp(((currentTime - seg.start) / Math.max(0.001, seg.end - seg.start)) * 100, 0, 100)
@@ -335,7 +350,8 @@ function Row({
         (active ? " active" : "") +
         (focused ? " focused" : "") +
         (seg.reviewed ? " reviewed" : "") +
-        (seg.flagged || seg.llm_uncertain ? " needs-attention" : "")
+        (seg.flagged || seg.llm_uncertain ? " needs-attention" : "") +
+        (seg.safe && !seg.reviewed ? " safe" : "")
       }
     >
       <div className="row-head">
@@ -354,6 +370,19 @@ function Row({
           {seg.llm_uncertain && (
             <span className="badge unc" title="AI가 확신하지 못한 구간">
               확인 필요
+            </span>
+          )}
+          {tooFast && !seg.reviewed && (
+            <span
+              className="badge fast"
+              title={`읽기 속도 ${cps.toFixed(0)}자/초 — 너무 빠릅니다. '나누기'로 쪼개거나 끝시간을 늘려 17자/초 이하로 (시청자가 못 읽음)`}
+            >
+              ⏩ 빠름 {cps.toFixed(0)}
+            </span>
+          )}
+          {seg.safe && !seg.reviewed && (
+            <span className="badge safe" title="두 음성인식이 일치하고 어려운 용어도 없고 읽기 속도도 편안한 안심 구간">
+              안심
             </span>
           )}
           {seg.reviewed && <span className="badge ok">확인 완료</span>}
@@ -397,20 +426,35 @@ function Row({
         }}
         onBlur={() => void flush()}
       />
-      {showSources && (
+      {seg.suspect && !seg.reviewed && focused && (
+        <div
+          className="lowconf"
+          title="음성인식과 유튜브 자막이 다르게 들은 단어 — 여기부터 확인하세요"
+        >
+          ⚠️ 의심 단어: {seg.suspect}
+        </div>
+      )}
+      {focused && showSources && (
         <div className="sources">
           <div className="sources-title">
             참고용 — 기계가 각자 들은 내용. 맞는 걸 <b>가져오기</b>로 바로 채울 수 있어요
           </div>
-          <div className="src-line">
-            <span className="src-label w">음성인식</span>
-            <span className="src-text">{seg.text_whisper}</span>
-            {seg.text_whisper.trim() && (
+          {seg.text_whisper.trim() ? (
+            <div className="src-line">
+              <span className="src-label w">음성인식</span>
+              <span className="src-text">{seg.text_whisper}</span>
               <button className="src-fill" title="이 내용을 편집칸에 채우기" onClick={() => fillFrom(seg.text_whisper.trim())}>
                 가져오기
               </button>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="src-line">
+              <span className="src-label w">음성인식</span>
+              <span className="src-text src-empty">
+                이 구간은 음성인식이 놓쳐서 유튜브 자막으로 채웠습니다
+              </span>
+            </div>
+          )}
           {seg.text_youtube && (
             <div className="src-line">
               <span className="src-label y">유튜브 자막</span>
@@ -431,6 +475,8 @@ function Row({
           />
           확인 완료
         </label>
+        {focused && (
+        <>
         <span className="timing-tools">
           <button
             title="현재 영상 시간을 이 자막의 시작으로 맞추고, 이전 자막 끝도 같이 맞춤"
@@ -472,6 +518,8 @@ function Row({
             ✕ 지우기
           </button>
         </span>
+        </>
+        )}
       </div>
     </div>
   );
@@ -598,6 +646,7 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
 
   const nReviewed = segments.filter((s) => s.reviewed).length;
   const nRemaining = Math.max(0, segments.length - nReviewed);
+  const nSafe = segments.filter((s) => s.safe && !s.reviewed).length;
   const koComplete = segments.length > 0 && nReviewed === segments.length;
   const langLabel = langs.find((l) => l.code === lang)?.label ?? lang;
 
@@ -845,15 +894,18 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
   return (
     <div className="editor">
       <div className="left">
-        <button
-          className="back"
-          onClick={async () => {
-            await flushAll();
-            onBack();
-          }}
-        >
-          ← 목록
-        </button>
+        <div className="left-top">
+          <button
+            className="back"
+            onClick={async () => {
+              await flushAll();
+              onBack();
+            }}
+          >
+            ← 목록
+          </button>
+          <ThemeToggle />
+        </div>
         <div id="yt-player" />
         <div className="play-controls">
           <button
@@ -920,19 +972,46 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
               const next = await fetchSegments(videoId);
               segmentsRef.current = next;
               setSegments(next);
-              setStatusMsg(
-                r.repaired
-                  ? `음성인식 오류 ${r.repaired}곳을 유튜브 자막으로 복구했습니다` +
-                      (r.no_caption ? ` (유튜브 자막 없는 ${r.no_caption}곳은 직접 수정 필요)` : "")
-                  : "복구할 음성인식 오류를 찾지 못했습니다",
-              );
+              {
+                const parts: string[] = [];
+                if (r.repaired) parts.push(`오류 ${r.repaired}곳 복구`);
+                if (r.filled) parts.push(`빈 구간 ${r.filled}곳 유튜브 자막으로 채움`);
+                setStatusMsg(
+                  parts.length
+                    ? `${parts.join(", ")} (유튜브 자막 기반, 검수 필요)` +
+                        (r.no_caption ? ` · 자막 없는 ${r.no_caption}곳은 직접 수정` : "")
+                    : "복구·보충할 구간을 찾지 못했습니다",
+                );
+              }
             } catch (e) {
               setError(String(e));
             }
           }}
         >
-          🛠 음성인식 오류 복구
+          🛠 음성인식 복구 · 빈 구간 채우기
         </button>
+        {nSafe > 0 && (
+          <button
+            className="safe-btn"
+            title="두 음성인식이 일치하고 어려운 용어도 없는 '안심' 구간을 한번에 확인 처리합니다. 나머지(서로 다름·확인 필요)에만 집중하세요. 언제든 다시 편집 가능."
+            onClick={async () => {
+              await flushAll();
+              try {
+                const r = await confirmSafe(videoId);
+                const next = await fetchSegments(videoId);
+                segmentsRef.current = next;
+                setSegments(next);
+                setStatusMsg(
+                  `안심 구간 ${r.confirmed}개를 한번에 확인했습니다 — 이제 표시된 구간만 검수하세요`,
+                );
+              } catch (e) {
+                setError(String(e));
+              }
+            }}
+          >
+            ✅ 안심 구간 {nSafe}개 한번에 확인
+          </button>
+        )}
         <label className="pause-on-type" title="유튜브 스튜디오와 같은 기능">
           <input
             type="checkbox"

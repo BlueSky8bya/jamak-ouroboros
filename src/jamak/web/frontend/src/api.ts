@@ -55,6 +55,20 @@ export async function createJob(url: string): Promise<{ video_id: string; status
   return r.json();
 }
 
+export async function confirmSafe(videoId: string): Promise<{ confirmed: number }> {
+  const r = await fetch(`/api/jobs/${videoId}/confirm-safe`, { method: "POST" });
+  if (!r.ok) throw new Error((await r.json()).detail ?? `confirm-safe: ${r.status}`);
+  return r.json();
+}
+
+export async function retranscribe(
+  videoId: string,
+): Promise<{ video_id: string; status: string }> {
+  const r = await fetch(`/api/jobs/${videoId}/retranscribe`, { method: "POST" });
+  if (!r.ok) throw new Error((await r.json()).detail ?? `retranscribe: ${r.status}`);
+  return r.json();
+}
+
 export async function splitSegment(id: number, position: number): Promise<void> {
   const r = await fetch(`/api/segments/${id}/split`, {
     method: "POST",
@@ -99,7 +113,7 @@ export async function deleteSegment(id: number): Promise<void> {
 
 export async function repairStt(
   videoId: string,
-): Promise<{ repaired: number; no_caption: number }> {
+): Promise<{ repaired: number; no_caption: number; filled: number }> {
   const r = await fetch(`/api/jobs/${videoId}/repair-stt`, { method: "POST" });
   if (!r.ok) throw new Error((await r.json()).detail ?? `repair: ${r.status}`);
   return r.json();

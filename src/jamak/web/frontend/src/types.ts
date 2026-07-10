@@ -33,4 +33,8 @@ export interface Segment {
   flagged: boolean;
   llm_uncertain: boolean;
   reviewed: boolean;
+  safe?: boolean; // low-risk: both engines agree, no domain term, comfortable speed
+  low_conf?: string; // whisper's least-confident words (fallback when no YouTube)
+  suspect?: string; // words to double-check: whisper↔YouTube disagreement (2-engine)
+  too_fast?: boolean; // reading speed above the comfortable CPS limit
 }

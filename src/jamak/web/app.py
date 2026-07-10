@@ -73,6 +73,56 @@ def create_job(body: JobCreate) -> dict:
     return {"video_id": video_id, "status": "starting"}
 
 
+@app.post("/api/jobs/{video_id}/retranscribe")
+def retranscribe(video_id: str) -> dict:
+    """Re-roll STT for an existing video with the *current* glossary/hotwords.
+
+    The glossary grows as the corpus is mined and reviews accrue; a richer
+    hotword set can make whisper hear domain vocabulary it missed before. This
+    re-runs `jamak run <url>` (STT -> crosscheck -> correction), replacing all
+    segments. Blocked once Korean review is complete so finished work is never
+    destroyed; partial review is guarded by a frontend confirm.
+    """
+    if video_id in _running_ids():
+        return {"video_id": video_id, "status": "running"}
+
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+        seg_ids = list(
+            session.exec(select(Segment.id).where(Segment.job_id == job.id)).all()
+        )
+        n_total = len(seg_ids)
+        n_reviewed = len(
+            session.exec(
+                select(Segment.id).where(
+                    Segment.job_id == job.id, Segment.reviewed == True  # noqa: E712
+                )
+            ).all()
+        )
+        if n_total > 0 and n_reviewed == n_total:
+            raise HTTPException(
+                409, "한국어 검수가 완료된 영상은 재인식할 수 없습니다."
+            )
+        url = job.url
+
+    if not url:
+        raise HTTPException(400, "URL 정보가 없어 재인식할 수 없습니다.")
+
+    proc = subprocess.Popen(
+        # --fresh: ignore the cached stt.json so the re-roll actually
+        # re-transcribes with the current glossary/hotwords
+        ["uv", "run", "jamak", "run", url, "--fresh"],
+        cwd=PROJECT_ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+    )
+    _running[video_id] = proc
+    return {"video_id": video_id, "status": "starting"}
+
+
 @app.get("/api/jobs")
 def list_jobs() -> list[dict]:
     from collections import defaultdict
@@ -183,8 +233,73 @@ class RestoreSegmentsBody(BaseModel):
     segments: list[SegmentSnapshot]
 
 
+def _work_text(seg: Segment) -> str:
+    return (seg.text_final or seg.text_llm or seg.text_whisper).strip()
+
+
+# reading-speed limit. Comfortable subtitle reading is ~12-17 chars/sec across
+# languages (Netflix 17, BBC ~15; Korean similar). Above this the viewer starts
+# missing dialogue or the picture — flag so the reviewer splits or lengthens it.
+TOO_FAST_CPS = 17.0
+
+
+def _cps(seg: Segment) -> float:
+    """Characters-per-second of the working text (reading speed)."""
+    text = re.sub(r"\s+", "", _work_text(seg))
+    dur = max(0.1, seg.end - seg.start)
+    return len(text) / dur
+
+
+def _suspect_words(seg: Segment) -> str:
+    """Words worth double-checking, preferring the 2-engine disagreement signal.
+
+    A 2025 CHI study found single-model word-confidence highlighting gives no
+    measurable benefit (confidence↔correctness only weakly correlated) and
+    annoys reviewers. Our edge is a *second* independent engine (YouTube): the
+    words where whisper and YouTube disagree are a far stronger error signal.
+    Use that when a YouTube caption exists; fall back to whisper's own low-
+    probability words only when there is no second opinion.
+    """
+    work = _work_text(seg)
+    if not work:
+        return ""
+    yt = (seg.text_youtube or "").strip()
+    if yt:
+        yt_tokens = {re.sub(r"[^\w가-힣]", "", t) for t in yt.split()}
+        yt_tokens.discard("")
+        out: list[str] = []
+        for tok in work.split():
+            norm = re.sub(r"[^\w가-힣]", "", tok)
+            if len(norm) >= 2 and norm not in yt_tokens and tok not in out:
+                out.append(tok)
+        return ", ".join(out[:6])
+    return seg.low_conf  # no second opinion — fall back to whisper confidence
+
+
+def _is_safe(seg: Segment, surface_forms: set[str]) -> bool:
+    """Low-risk segment the reviewer can trust at a glance (skim/bulk-confirm).
+
+    Not flagged (both engines agreed), AI not unsure, real text present, no
+    domain vocabulary (the words most prone to mis-hearing), and a comfortable
+    reading speed (a too-fast subtitle needs a timing fix even if the text is
+    right). Surfacing these lets the human fly past them and focus on the rest.
+    """
+    if seg.flagged or seg.llm_uncertain:
+        return False
+    text = _work_text(seg)
+    if not text:
+        return False
+    if _cps(seg) > TOO_FAST_CPS:
+        return False
+    hay = text + " " + (seg.text_youtube or "")
+    return not any(f in hay for f in surface_forms)
+
+
 @app.get("/api/jobs/{video_id}/segments")
 def get_segments(video_id: str) -> list[dict]:
+    from ..glossary import glossary_surface_forms
+
+    forms = glossary_surface_forms()
     with get_session() as session:
         job = session.exec(select(Job).where(Job.video_id == video_id)).first()
         if job is None:
@@ -192,7 +307,47 @@ def get_segments(video_id: str) -> list[dict]:
         segs = session.exec(
             select(Segment).where(Segment.job_id == job.id).order_by(Segment.idx)
         ).all()
-        return [s.model_dump() for s in segs]
+        out = []
+        for s in segs:
+            d = s.model_dump()
+            d["safe"] = _is_safe(s, forms)
+            d["suspect"] = _suspect_words(s)
+            d["too_fast"] = _cps(s) > TOO_FAST_CPS
+            out.append(d)
+        return out
+
+
+@app.post("/api/jobs/{video_id}/confirm-safe")
+def confirm_safe(video_id: str) -> dict:
+    """Bulk-confirm every low-risk unreviewed segment (one-click skim).
+
+    Marks the confident segments reviewed and promotes their working text to
+    text_final, so the reviewer only has to look at the flagged/uncertain rest.
+    Nothing destructive: each stays fully editable and un-reviewable afterward.
+    """
+    from ..glossary import glossary_surface_forms
+
+    forms = glossary_surface_forms()
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+        segs = session.exec(
+            select(Segment).where(Segment.job_id == job.id)
+        ).all()
+        confirmed = 0
+        for seg in segs:
+            if seg.reviewed or not _is_safe(seg, forms):
+                continue
+            seg.text_final = (seg.text_final or seg.text_llm or seg.text_whisper).strip()
+            seg.reviewed = True
+            session.add(seg)
+            confirmed += 1
+        if confirmed:
+            job.status, job.updated_at = "reviewing", utcnow()
+            session.add(job)
+        session.commit()
+    return {"confirmed": confirmed}
 
 
 @app.post("/api/jobs/{video_id}/segments/restore")
@@ -714,7 +869,11 @@ def repair_stt(video_id: str) -> dict:
     review. Segments with no caption are left for the human.
     """
     from ..glossary import whisper_prompt
-    from ..pipeline.noise import is_prompt_echo
+    from ..pipeline.noise import (
+        cascade_indices,
+        is_known_prompt_leak,
+        is_prompt_echo,
+    )
 
     prompt = whisper_prompt()
     with get_session() as session:
@@ -724,11 +883,27 @@ def repair_stt(video_id: str) -> dict:
         segs = session.exec(
             select(Segment).where(Segment.job_id == job.id).order_by(Segment.idx)
         ).all()
+        # never alter a finished video: the human already finalized it (and may
+        # have deliberately omitted spans). Inserting YouTube gap segments would
+        # un-complete their review.
+        if segs and all(s.reviewed for s in segs):
+            raise HTTPException(
+                409, "한국어 검수가 완료된 영상은 복구/보충하지 않습니다."
+            )
+        bases = [(s.text_final or s.text_llm or s.text_whisper) for s in segs]
+        # prompt-agnostic: consecutive-duplicate cascade is the reliable
+        # hallucination signature even after the live prompt changed
+        cascade = cascade_indices(bases)
         repaired = 0
         no_caption = 0
-        for seg in segs:
-            base = seg.text_final or seg.text_llm or seg.text_whisper
-            if not is_prompt_echo(base, prompt):
+        for i, seg in enumerate(segs):
+            base = bases[i]
+            leaked = (
+                i in cascade
+                or is_known_prompt_leak(base)
+                or is_prompt_echo(base, prompt)
+            )
+            if not leaked:
                 continue
             yt = seg.text_youtube.strip()
             if yt:
@@ -739,11 +914,43 @@ def repair_stt(video_id: str) -> dict:
                 repaired += 1
             else:
                 no_caption += 1
-        if repaired:
+
+        # gap-fill: cover time spans NO segment occupies — above all the dropped
+        # opening (whisper often starts well after the speaker did). Pull those
+        # spans from the YouTube captions so subtitle #1 begins where speech
+        # begins, and the reviewer isn't stuck unable to prepend a cell.
+        filled = 0
+        cap_files = sorted((JOBS_DIR / video_id).glob("*.json3"))
+        if cap_files:
+            from ..pipeline.crosscheck import parse_json3_captions, youtube_gap_rows
+
+            caps = parse_json3_captions(cap_files[0])
+            live = session.exec(
+                select(Segment).where(Segment.job_id == job.id)
+            ).all()
+            covered = [(s.start, s.end) for s in live]
+            for row in youtube_gap_rows(covered, caps):
+                # row already carries text_whisper="" + YouTube-seeded working
+                # text (honest: whisper heard nothing in this span)
+                session.add(Segment(job_id=job.id, idx=0, reviewed=False, **row))
+                filled += 1
+
+        # renumber idx by chronological start so the first cell is the earliest
+        if repaired or filled:
+            session.flush()
+            ordered = session.exec(
+                select(Segment)
+                .where(Segment.job_id == job.id)
+                .order_by(Segment.start)
+            ).all()
+            for i, s in enumerate(ordered):
+                if s.idx != i:
+                    s.idx = i
+                    session.add(s)
             job.status, job.updated_at = "reviewing", utcnow()
             session.add(job)
         session.commit()
-    return {"repaired": repaired, "no_caption": no_caption}
+    return {"repaired": repaired, "no_caption": no_caption, "filled": filled}
 
 
 @app.post("/api/jobs/{video_id}/absorb")
