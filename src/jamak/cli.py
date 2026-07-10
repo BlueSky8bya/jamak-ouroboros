@@ -119,8 +119,13 @@ def run(
         job_id = job.id
 
     console.rule("[2/5] STT (faster-whisper)")
+    from .glossary import whisper_hotwords
+
     prompt = whisper_prompt()
+    hotwords = whisper_hotwords()
     console.print(f"initial_prompt: {prompt[:80]}...")
+    if hotwords:
+        console.print(f"hotwords: {hotwords[:80]}...")
 
     from rich.progress import Progress
 
@@ -130,7 +135,7 @@ def run(
         def cb(pos: float, total: float) -> None:
             progress.update(task, completed=min(pos, res.duration_seconds))
 
-        stt_segments = transcribe(res.audio_path, res.job_dir, prompt, cb)
+        stt_segments = transcribe(res.audio_path, res.job_dir, prompt, cb, hotwords)
 
     from .pipeline.split import (
         DEFAULT_MAX_CHARS,
@@ -310,6 +315,25 @@ def eval() -> None:  # noqa: A001
             f"{gain:+.2%}",
         )
     console.print(table)
+
+
+@app.command("export-training-data")
+def export_training_data_cmd(
+    no_clips: bool = typer.Option(False, help="Manifest only, skip audio slicing"),
+) -> None:
+    """Export reviewed subtitles as a Whisper fine-tuning corpus (M5 prep)."""
+    from .training import export_training_data
+
+    stats = export_training_data(make_clips=not no_clips)
+    console.print(
+        f"training pairs: [bold]{stats['pairs']}[/] ({stats['minutes']} min of audio)"
+    )
+    if stats["skipped_no_audio"]:
+        console.print(f"[yellow]{stats['skipped_no_audio']} skipped[/] (audio.wav missing)")
+    console.print(f"manifest: {stats['manifest']}")
+    console.print(
+        "다음 단계: 데이터가 충분히 쌓이면 Whisper LoRA 파인튜닝 (ADR-0004)"
+    )
 
 
 @app.command("backfill-dates")

@@ -56,6 +56,7 @@ def transcribe(
     job_dir: Path,
     initial_prompt: str = "",
     progress_callback=None,
+    hotwords: str = "",
 ) -> list[SttSegment]:
     """Run whisper; cache the result as stt.json inside the job dir."""
     cache = job_dir / "stt.json"
@@ -87,6 +88,10 @@ def transcribe(
         # lectures have long applause gaps; don't glue speech across them
         vad_parameters={"min_silence_duration_ms": 700},
         initial_prompt=initial_prompt or None,
+        # hotwords bias the acoustic decoder toward domain vocabulary
+        # (신인, 축지법, 하늘궁...) — a zero-cost, zero-training way to make
+        # whisper *hear* the terms, complementing the LLM correction stage
+        hotwords=hotwords or None,
         condition_on_previous_text=True,
         # skip silent windows where whisper tends to regurgitate the
         # initial_prompt / loop; the crosscheck stage also filters echoes
