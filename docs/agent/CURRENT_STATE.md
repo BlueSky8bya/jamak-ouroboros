@@ -196,6 +196,15 @@ cp949 콘솔에서 유니코드 특수문자 크래시 → CLI 문자열에서 e
   - **상태 필터 파이프라인화**: 전체/텍스트 검수 중/타이밍 필요/번역 중/완료/처리 중.
   - **정렬 추가**: 타이밍 완료순. 검증: 스테이지·드롭다운·통계·필터·정렬 전부 렌더, 빌드 PASS, 콘솔 0.
 
+- **[진행 중] 언어별 독립 자막 트랙 (ADR-0006, L3 대공사)** (2026-07-11): 사용자 결정 "전면 도입". 각 언어=1급 트랙(자기 분할/병합/타이밍), 에디터 전 언어 재사용. `docs/agent/plans/ACTIVE_PLAN.md`.
+  - 커밋 965c9d9까지 푸시 완료(그 앞 배치들).
+  - **Phase 1 (스키마) 완료**: `Segment.lang`("ko" 기본) + 마이그레이션. 검증: 기존 89 세그먼트 전부 lang="ko"로 보존.
+  - **Phase 2 백엔드 (lazy-fork) 완료·검증**: DB 최적화 반영 — 번역은 기본 ko 상속(Translation, 복제 없음), 필요 시만 fork. `Track` 테이블, 이웃/idx-shift 쿼리 lang-aware(split·merge·delete·redistribute, 트랙 간 오염 방지), `get_segments?lang=`, `POST /fork-track?lang=`, list_jobs ko 전용. 검증: lFux en fork→124 세그먼트, en split→**ko 124·idx 온전**, 테스트 정리 완료. 앱 정상(ko 기본). 서버 f29c81f2.
+  - ⚠️ fork 엔드포인트 UI 미노출(Phase 2b에서 ko 집계 엔드포인트 `lang=="ko"` 가드 후 노출).
+  - **UI 수정**(이번 배치): 썸네일 완료 배지 제거(썸네일 가림 해결), ko 카드 스테이지 = **[자막][타이밍] 2축**(단일 완료 배지 대신), 번역 필터 "영어 있는 영상"(미완 포함).
+  - **사용자 제기**(ACTIVE_PLAN 반영): 배포(SQLite→PG·GPU 워커·인증·잠금 → 별도 ADR), 언어별 파인튜닝(STT/교정=ko, 번역=lang별), DB 최적화(lazy-fork·source_hash·파생가능 데이터 미저장).
+  - 다음: Phase 2b(ko 가드) → Phase 3(에디터 임의 트랙) → Phase 4(랜딩 언어 축) → Phase 5(export/우로보로스).
+
 - **비용 구조 개편** (commit cee717a): thinking off(출력 3.6k tok, $0.074/영상), 교정 캐시(재실행 $0), pre-pass(count≥2 교정쌍 무료 치환 — 피드백 쌓일수록 API 의존 감소), id 기반 매핑(동시 편집 안전), 삭제 확인창, 단계별 모델 env, 토큰/비용 리포트 출력
 - 남은 비용 레버 (미적용): Batch API(-50%, 비동기 1h), JAMAK_CORRECT_MODEL=claude-haiku-4-5(-66%, 품질 검증 필요), M5 whisper 파인튜닝(교정 API 자체 제거)
 

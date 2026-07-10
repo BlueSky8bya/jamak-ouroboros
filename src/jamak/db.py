@@ -47,7 +47,11 @@ class Segment(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     job_id: int = Field(index=True, foreign_key="job.id")
-    idx: int = Field(index=True)  # order within the job
+    # subtitle track this segment belongs to: "ko" = source, or a target
+    # language ("en", "ja", ...) that has its own independent structure/timing
+    # (ADR-0006). Existing rows migrate to "ko".
+    lang: str = Field(default="ko", index=True)
+    idx: int = Field(index=True)  # order within the job (per lang track)
     start: float
     end: float
     text_whisper: str = ""  # raw faster-whisper output
@@ -59,6 +63,23 @@ class Segment(SQLModel, table=True):
     llm_uncertain: bool = False  # Claude marked this segment as uncertain
     reviewed: bool = False
     low_conf: str = ""  # whisper's least-confident words here (comma-sep) — review hint
+
+
+class Track(SQLModel, table=True):
+    """One subtitle track = (job, lang). ADR-0006.
+
+    Korean is the source track. A translation lang inherits the Korean
+    structure/timing by default (stored only as Translation rows — no
+    duplication); `forked=True` means the reviewer split it into its own
+    independent Segment rows (lang != "ko") for language-specific splits/timing.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    job_id: int = Field(index=True, foreign_key="job.id")
+    lang: str = Field(index=True)
+    forked: bool = False
+    timing_done: bool = False
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class Correction(SQLModel, table=True):
@@ -139,6 +160,7 @@ def _ensure_columns(engine) -> None:
         },
         "segment": {
             "low_conf": "VARCHAR DEFAULT ''",
+            "lang": "VARCHAR DEFAULT 'ko'",
         },
     }
     insp = inspect(engine)

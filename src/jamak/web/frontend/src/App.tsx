@@ -90,21 +90,30 @@ const SHORTCUTS: { k: string; d: string }[] = [
 ];
 
 type Tone = "muted" | "progress" | "warn" | "done" | "live";
+type Chip = { label: string; tone: Tone; icon?: string };
 
-/** the one clear status chip for a card, for the selected language track */
-function stageFor(j: JobSummary, lang: string): { label: string; tone: Tone; icon?: string } {
-  if (j.running) return { label: "처리 중", tone: "live" };
+/** status chips for a card's selected language track.
+ *  ko  → two axes: 자막(text review) + 타이밍
+ *  lang → one chip: translation progress */
+function chipsFor(j: JobSummary, lang: string): Chip[] {
+  if (j.running) return [{ label: "처리 중", tone: "live" }];
   if (lang === "ko") {
-    if (j.segments === 0) return { label: "대기 중", tone: "muted" };
-    if (!j.ko_complete) return { label: `텍스트 ${j.reviewed}/${j.segments}`, tone: "progress" };
-    if (!j.timing_done) return { label: "타이밍 조정 필요", tone: "warn", icon: "⏱" };
-    return { label: "완료", tone: "done", icon: "✓" };
+    if (j.segments === 0) return [{ label: "대기 중", tone: "muted" }];
+    const text: Chip = j.ko_complete
+      ? { label: "자막 ✓", tone: "done" }
+      : { label: `자막 ${j.reviewed}/${j.segments}`, tone: "progress" };
+    const timing: Chip = !j.ko_complete
+      ? { label: "타이밍", tone: "muted", icon: "⏱" }
+      : j.timing_done
+        ? { label: "타이밍 ✓", tone: "done" }
+        : { label: "타이밍 필요", tone: "warn", icon: "⏱" };
+    return [text, timing];
   }
   const l = j.languages.find((x) => x.code === lang);
-  if (!l || l.translated === 0) return { label: "번역 전", tone: "muted" };
-  if (l.complete) return { label: "완료", tone: "done", icon: "✓" };
-  if (l.reviewed > 0) return { label: `번역 검수 ${l.reviewed}/${j.segments}`, tone: "progress" };
-  return { label: `번역됨 · 검수 전`, tone: "muted" };
+  if (!l || l.translated === 0) return [{ label: "번역 전", tone: "muted" }];
+  if (l.complete) return [{ label: "번역 ✓", tone: "done" }];
+  if (l.reviewed > 0) return [{ label: `번역 ${l.reviewed}/${j.segments}`, tone: "progress" }];
+  return [{ label: "번역됨 · 검수 전", tone: "muted" }];
 }
 
 function JobCard({
@@ -128,7 +137,8 @@ function JobCard({
 }) {
   const [lang, setLang] = useState("ko");
   const openable = j.segments > 0;
-  const stage = stageFor(j, lang);
+  const chips = chipsFor(j, lang);
+  const allDone = chips.length > 0 && chips.every((c) => c.tone === "done");
   const koPct = j.segments ? Math.round((j.reviewed / j.segments) * 100) : 0;
   const selPct =
     lang === "ko"
@@ -173,7 +183,6 @@ function JobCard({
         {j.duration_seconds > 0 && (
           <span className="thumb-dur">{Math.round(j.duration_seconds / 60)}분</span>
         )}
-        {j.ko_complete && j.timing_done && <span className="thumb-done">✓ 완료</span>}
         {openable && !j.ko_complete && (
           <span className="thumb-prog">
             <span style={{ width: `${koPct}%` }} />
@@ -212,10 +221,14 @@ function JobCard({
       </span>
       <div className="job-info">
         <div className="job-head">
-          <span className={"stage " + stage.tone}>
-            {j.running && <span className="spinner" />}
-            {stage.icon && <span className="stage-ic">{stage.icon}</span>}
-            {stage.label}
+          <span className="stages">
+            {chips.map((c, i) => (
+              <span key={i} className={"stage " + c.tone}>
+                {j.running && i === 0 && <span className="spinner" />}
+                {c.icon && <span className="stage-ic">{c.icon}</span>}
+                {c.label}
+              </span>
+            ))}
           </span>
           {langOpts.length > 1 && (
             <select
@@ -238,7 +251,7 @@ function JobCard({
         {openable && (
           <>
             <span
-              className={"job-progress" + (stage.tone === "done" ? " done" : "")}
+              className={"job-progress" + (allDone ? " done" : "")}
               aria-label={`진행률 ${selPct}%`}
             >
               <span style={{ width: `${selPct}%` }} />
@@ -465,9 +478,8 @@ export function App() {
       );
     else if (status === "done") list = list.filter((j) => j.ko_complete && j.timing_done);
     else if (status === "running") list = list.filter((j) => j.running);
-    if (filter === "ko") list = list.filter((j) => j.ko_complete);
-    else if (filter !== "all")
-      list = list.filter((j) => j.languages.some((l) => l.code === filter && l.complete));
+    if (filter !== "all")
+      list = list.filter((j) => j.languages.some((l) => l.code === filter));
     list.sort((a, b) => {
       let cmp = 0;
       if (sort === "title") {
@@ -722,13 +734,12 @@ export function App() {
         />
         {allLangs.length > 0 && (
           <label>
-            번역
+            번역 언어
             <select value={filter} onChange={(e) => setFilter(e.target.value)}>
               <option value="all">전체</option>
-              <option value="ko">한국어 완료</option>
               {allLangs.map((l) => (
                 <option key={l.code} value={l.code}>
-                  {l.label} 완료
+                  {l.label} 있는 영상
                 </option>
               ))}
             </select>

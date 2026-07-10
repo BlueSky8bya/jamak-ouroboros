@@ -832,7 +832,9 @@ img.broken { opacity: 0; }
   flex: 1 1 auto;
 }
 
-/* the single status chip — colour = pipeline stage */
+.stages { display: inline-flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+
+/* status chip(s) — colour = pipeline stage */
 .stage {
   display: inline-flex;
   align-items: center;

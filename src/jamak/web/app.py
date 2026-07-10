@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from sqlmodel import delete as sql_delete, select
 
 from ..config import JOBS_DIR, PROJECT_ROOT
-from ..db import Job, Segment, Translation, get_session, utcnow
+from ..db import Job, Segment, Track, Translation, get_session, utcnow
 from ..pipeline.assemble import to_srt
 
 app = FastAPI(title="jamak-ouroboros review")
@@ -136,14 +136,21 @@ def list_jobs() -> list[dict]:
         seen = set()
         for j in jobs:
             seen.add(j.video_id)
+            # dashboard counts reflect the Korean source track
             seg_ids = list(
-                session.exec(select(Segment.id).where(Segment.job_id == j.id)).all()
+                session.exec(
+                    select(Segment.id).where(
+                        Segment.job_id == j.id, Segment.lang == "ko"
+                    )
+                ).all()
             )
             n_total = len(seg_ids)
             n_reviewed = len(
                 session.exec(
                     select(Segment.id).where(
-                        Segment.job_id == j.id, Segment.reviewed == True  # noqa: E712
+                        Segment.job_id == j.id,
+                        Segment.lang == "ko",
+                        Segment.reviewed == True,  # noqa: E712
                     )
                 ).all()
             )
@@ -303,8 +310,71 @@ def _is_safe(seg: Segment, surface_forms: set[str]) -> bool:
     return not any(f in hay for f in surface_forms)
 
 
+@app.post("/api/jobs/{video_id}/fork-track")
+def fork_track(video_id: str, lang: str) -> dict:
+    """Split a translation language off into its own independent track (ADR-0006).
+
+    Copies the Korean segments' structure/timing into new lang segments, filled
+    with the current translation text, so the reviewer can then split/merge/retime
+    that language differently from Korean. No-op if the track already exists.
+    Costs no API — pure copy.
+    """
+    if lang == "ko":
+        raise HTTPException(400, "ko is the source track")
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+        ko_segs = session.exec(
+            select(Segment)
+            .where(Segment.job_id == job.id, Segment.lang == "ko")
+            .order_by(Segment.idx)
+        ).all()
+        if not ko_segs:
+            raise HTTPException(400, "no Korean segments to fork from")
+        existing = session.exec(
+            select(Segment.id).where(Segment.job_id == job.id, Segment.lang == lang)
+        ).first()
+        if existing is not None:
+            return {"video_id": video_id, "lang": lang, "forked": True, "created": 0}
+
+        # current translation text per ko segment (inherited default)
+        trs = session.exec(
+            select(Translation).where(
+                Translation.segment_id.in_([s.id for s in ko_segs]),
+                Translation.lang == lang,
+            )
+        ).all()
+        text_by_seg = {t.segment_id: t.text for t in trs}
+
+        created = 0
+        for s in ko_segs:
+            session.add(
+                Segment(
+                    job_id=job.id,
+                    lang=lang,
+                    idx=s.idx,
+                    start=s.start,
+                    end=s.end,
+                    text_final=text_by_seg.get(s.id, ""),
+                    reviewed=False,
+                )
+            )
+            created += 1
+        track = session.exec(
+            select(Track).where(Track.job_id == job.id, Track.lang == lang)
+        ).first()
+        if track is None:
+            track = Track(job_id=job.id, lang=lang)
+        track.forked = True
+        session.add(track)
+        session.commit()
+    return {"video_id": video_id, "lang": lang, "forked": True, "created": created}
+
+
 @app.get("/api/jobs/{video_id}/segments")
-def get_segments(video_id: str) -> list[dict]:
+def get_segments(video_id: str, lang: str = "ko") -> list[dict]:
+    """Segments for one subtitle track (default the Korean source, ADR-0006)."""
     from ..glossary import glossary_surface_forms
 
     forms = glossary_surface_forms()
@@ -313,7 +383,9 @@ def get_segments(video_id: str) -> list[dict]:
         if job is None:
             raise HTTPException(404, f"no job for {video_id}")
         segs = session.exec(
-            select(Segment).where(Segment.job_id == job.id).order_by(Segment.idx)
+            select(Segment)
+            .where(Segment.job_id == job.id, Segment.lang == lang)
+            .order_by(Segment.idx)
         ).all()
         out = []
         for s in segs:
@@ -521,6 +593,7 @@ def _next_segment(session, seg: Segment) -> Segment | None:
     return session.exec(
         select(Segment).where(
             Segment.job_id == seg.job_id,
+            Segment.lang == seg.lang,
             Segment.idx == seg.idx + 1,
         )
     ).first()
@@ -530,6 +603,7 @@ def _previous_segment(session, seg: Segment) -> Segment | None:
     return session.exec(
         select(Segment).where(
             Segment.job_id == seg.job_id,
+            Segment.lang == seg.lang,
             Segment.idx == seg.idx - 1,
         )
     ).first()
@@ -555,10 +629,12 @@ def split_segment(segment_id: int, body: SplitBody) -> dict:
         ratio = body.position / max(1, len(text))
         mid = round(seg.start + (seg.end - seg.start) * ratio, 3)
 
-        # shift the tail to make room at idx+1
+        # shift the tail to make room at idx+1 (same lang track only)
         tail = session.exec(
             select(Segment).where(
-                Segment.job_id == seg.job_id, Segment.idx > seg.idx
+                Segment.job_id == seg.job_id,
+                Segment.lang == seg.lang,
+                Segment.idx > seg.idx,
             )
         ).all()
         for t in tail:
@@ -572,6 +648,7 @@ def split_segment(segment_id: int, body: SplitBody) -> dict:
         session.add(
             Segment(
                 job_id=seg.job_id,
+                lang=seg.lang,
                 idx=seg.idx + 1,
                 start=mid,
                 end=old_end,
@@ -611,7 +688,9 @@ def merge_next(segment_id: int) -> dict:
         session.delete(nxt)
         tail = session.exec(
             select(Segment).where(
-                Segment.job_id == seg.job_id, Segment.idx > seg.idx + 1
+                Segment.job_id == seg.job_id,
+                Segment.lang == seg.lang,
+                Segment.idx > seg.idx + 1,
             )
         ).all()
         for t in tail:
@@ -715,11 +794,13 @@ def delete_segment(segment_id: int) -> dict:
         seg = session.get(Segment, segment_id)
         if seg is None:
             raise HTTPException(404, "segment not found")
-        job_id, idx = seg.job_id, seg.idx
+        job_id, idx, lang = seg.job_id, seg.idx, seg.lang
         session.exec(sql_delete(Translation).where(Translation.segment_id == seg.id))
         session.delete(seg)
         tail = session.exec(
-            select(Segment).where(Segment.job_id == job_id, Segment.idx > idx)
+            select(Segment).where(
+                Segment.job_id == job_id, Segment.lang == lang, Segment.idx > idx
+            )
         ).all()
         for t in tail:
             t.idx -= 1
