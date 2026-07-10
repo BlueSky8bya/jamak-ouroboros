@@ -9,6 +9,12 @@ import srt
 
 from ..config import MAX_CHARS_PER_LINE, MAX_LINES
 
+# A blank shorter than this between two cues reads as a flicker/blink, not a
+# pause. Below it, we run the cues continuously (no gap); at or above it, we keep
+# the gap as a real silence. (~2-3 frames; between our word-tightening noise and
+# the 0.7s pause the pipeline splits on.)
+GAP_JOIN_BELOW = 0.2
+
 
 def wrap_korean(text: str, max_chars: int = MAX_CHARS_PER_LINE, max_lines: int = MAX_LINES) -> str:
     """Break text into subtitle lines at word boundaries."""
@@ -47,20 +53,25 @@ def to_srt(segments: list[dict], text_key: str, out_path: Path) -> Path:
     text_key picks the pipeline stage: text_whisper (M1 draft),
     text_llm (M2 corrected), text_final (reviewed).
     """
-    subs = []
-    n = 1
-    for seg in segments:
-        text = (seg.get(text_key) or "").strip()
-        if not text:
-            continue
-        subs.append(
-            srt.Subtitle(
-                index=n,
-                start=dt.timedelta(seconds=seg["start"]),
-                end=dt.timedelta(seconds=seg["end"]),
-                content=wrap_korean(text),
-            )
+    rows = [
+        [float(seg["start"]), float(seg["end"]), text]
+        for seg in segments
+        if (text := (seg.get(text_key) or "").strip())
+    ]
+    rows.sort(key=lambda r: r[0])
+    # flicker guard: close any sub-threshold gap (or overlap) so consecutive cues
+    # run continuously; keep gaps >= GAP_JOIN_BELOW as real pauses.
+    for i in range(len(rows) - 1):
+        if rows[i + 1][0] - rows[i][1] < GAP_JOIN_BELOW:
+            rows[i][1] = rows[i + 1][0]
+    subs = [
+        srt.Subtitle(
+            index=i + 1,
+            start=dt.timedelta(seconds=s),
+            end=dt.timedelta(seconds=e),
+            content=wrap_korean(t),
         )
-        n += 1
+        for i, (s, e, t) in enumerate(rows)
+    ]
     out_path.write_text(srt.compose(subs), encoding="utf-8")
     return out_path

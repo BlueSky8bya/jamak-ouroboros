@@ -958,6 +958,44 @@ img.broken { opacity: 0; }
   box-shadow: 0 10px 22px rgba(2, 6, 23, 0.18);
 }
 
+/* the YouTube API injects an <iframe> at its default 640x360 — force it to
+   fill the aspect-ratio box so the video keeps 16:9 and uses the full width */
+#yt-player iframe {
+  width: 100% !important;
+  height: 100% !important;
+  border: 0;
+  display: block;
+}
+
+/* subtitle-as-applied preview: our cue overlaid on the video, synced to
+   playback. Shows exactly how it looks — and disappears during silence. */
+.player-wrap { position: relative; }
+.cc-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 9%;
+  display: flex;
+  justify-content: center;
+  padding: 0 6%;
+  pointer-events: none;
+  z-index: 2;
+}
+.cc-overlay span {
+  max-width: 100%;
+  padding: 2px 9px;
+  border-radius: 3px;
+  background: rgba(8, 8, 8, 0.8);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  white-space: pre-wrap;
+  word-break: keep-all;
+}
+
 .play-controls {
   display: flex;
   gap: 6px;
@@ -1148,15 +1186,15 @@ img.broken { opacity: 0; }
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 10px;
-  transform: translateX(-5px);
+  width: 16px;
+  transform: translateX(-8px);
   cursor: ew-resize;
-  z-index: 2;
+  z-index: 3;
 }
 .strip-handle::after {
   content: "";
   position: absolute;
-  left: 4px;
+  left: 7px;
   top: 4px;
   bottom: 4px;
   width: 2px;
@@ -1167,8 +1205,13 @@ img.broken { opacity: 0; }
 .strip-handle.dragging::after {
   background: var(--blue);
   width: 3px;
-  left: 3.5px;
+  left: 6.5px;
 }
+/* the focused cue's start handle — teal to match the focused accent, so the
+   two draggable edges of the highlighted cue read as a matched pair */
+.strip-handle.start::after { background: color-mix(in srgb, var(--teal) 70%, var(--line-strong)); }
+.strip-handle.start:hover::after,
+.strip-handle.start.dragging::after { background: var(--teal); }
 
 .strip-drag-time {
   position: absolute;
@@ -2270,6 +2313,30 @@ kbd {
   line-height: 1;
 }
 .nudge-btn:hover { border-color: var(--blue); color: var(--blue); }
+
+/* ===== preview (theater) mode: big video, follow-along list ===== */
+.editor.preview {
+  grid-template-columns: minmax(480px, 56%) minmax(280px, 1fr);
+}
+.editor.preview .cc-overlay span { font-size: 18px; padding: 3px 12px; }
+/* stronger, unmistakable "now playing" cue — the reviewer's eye should land on
+   it instantly (was too subtle). Extra emphasis in preview mode. */
+.row.active {
+  border-color: var(--blue);
+  border-left-color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 8%, var(--surface));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 30%, transparent), var(--shadow);
+}
+.row.active textarea {
+  border-color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 6%, var(--focus-bg));
+}
+.editor.preview .row.active {
+  border-left-width: 5px;
+  box-shadow: 0 0 0 3px var(--blue), var(--shadow-lift);
+}
+.editor.preview .row.active .cp-text,
+.editor.preview .row.active { scroll-margin: 40vh 0; }
 
 /* two compact playback toggles on one line (구간반복 · 입력 중 멈춤) */
 .pc-settings {

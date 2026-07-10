@@ -448,22 +448,19 @@ def update_segment(segment_id: int, body: SegmentUpdate) -> dict:
             raise HTTPException(404, "segment not found")
         if body.text_final is not None:
             seg.text_final = body.text_final
+        # independent resize (subtitle-editor convention): a dragged edge moves
+        # only THIS cue and is clamped at the neighbour — never pushes it.
+        # Shrinking opens a gap; growing stops at the neighbour's wall (no
+        # overlap). The linked "move the shared wall" behaviour lives only in the
+        # boundary-prev/next endpoints (여기서 시작/넘김 buttons).
         if body.start is not None:
-            start = round(max(0.0, body.start), 3)
-            if start >= seg.end:
-                start = round(max(0.0, seg.end - 0.1), 3)
-            seg.start = start
             prev = _previous_segment(session, seg)
-            if prev is not None and prev.end > start:
-                prev.end = start
-                session.add(prev)
+            lo = prev.end if prev is not None else 0.0
+            seg.start = round(min(max(body.start, lo), seg.end - 0.1), 3)
         if body.end is not None:
-            end = round(max(seg.start + 0.1, body.end), 3)
-            seg.end = end
             nxt = _next_segment(session, seg)
-            if nxt is not None and nxt.start < end:
-                nxt.start = end
-                session.add(nxt)
+            hi = nxt.start if nxt is not None else body.end
+            seg.end = round(max(min(body.end, hi), seg.start + 0.1), 3)
         if body.reviewed is not None:
             seg.reviewed = body.reviewed
         session.add(seg)

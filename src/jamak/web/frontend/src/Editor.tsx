@@ -57,6 +57,7 @@ function TimingStrip({
   currentTime,
   activeId,
   focusedId,
+  playing,
   onSeek,
   onBoundaryDrag,
 }: {
@@ -64,25 +65,44 @@ function TimingStrip({
   currentTime: number;
   activeId: number | undefined;
   focusedId: number | null;
+  playing: boolean;
   onSeek: (t: number) => void;
-  onBoundaryDrag: (segId: number, time: number) => void;
+  onBoundaryDrag: (segId: number, time: number, which: "start" | "end") => void;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   // while dragging a boundary, freeze the window + show a live preview time.
   // dragRef mirrors state so move/up handlers see the current drag even
   // between renders (fast drags would otherwise read a stale closure).
-  const [drag, setDrag] = useState<{ segId: number; time: number } | null>(null);
-  const dragRef = useRef<{ segId: number; time: number } | null>(null);
+  type Drag = { segId: number; which: "start" | "end"; time: number };
+  const [drag, setDrag] = useState<Drag | null>(null);
+  const dragRef = useRef<Drag | null>(null);
   const winRef = useRef<{ start: number; span: number } | null>(null);
-  function setDragState(v: { segId: number; time: number } | null) {
+  function setDragState(v: Drag | null) {
     dragRef.current = v;
     setDrag(v);
   }
 
   const focused = segments.find((s) => s.id === focusedId);
+  // when the playhead sits in a gap or the tail past the last cue there is no
+  // active cue — the nearest cue behind it is what stays adjustable
+  const nearestBehind =
+    activeId == null
+      ? (() => {
+          let b: Segment | null = null;
+          for (const s of segments) if (s.start <= currentTime) b = s;
+          return b;
+        })()
+      : null;
   const live = (() => {
     if (drag && winRef.current) return winRef.current;
-    const center = focused ? (focused.start + focused.end) / 2 : currentTime;
+    // follow the playhead while it moves (playing, or seeked outside the view);
+    // otherwise anchor on the cue you're editing so it stays put
+    const focusCenter = focused ? (focused.start + focused.end) / 2 : currentTime;
+    const outside = currentTime < focusCenter - 8 || currentTime > focusCenter + 8;
+    let center = playing || outside ? currentTime : focusCenter;
+    // don't scroll off into empty space past the last cue / across a long gap —
+    // keep the nearest-behind cue on screen so its edges stay grabbable
+    if (nearestBehind && (playing || outside)) center = Math.min(center, nearestBehind.end + 5);
     const start = Math.max(0, center - 8);
     const end = Math.max(start + 12, center + 8);
     return { start, span: end - start };
@@ -91,6 +111,10 @@ function TimingStrip({
   const end = start + span;
   const local = segments.filter((s) => s.end >= start && s.start <= end);
   const marker = clamp(((currentTime - start) / span) * 100, 0, 100);
+  // which cue's edges are grabbable: the playing one, or (gap / tail) the
+  // nearest cue behind the playhead, so the last cue stays adjustable even
+  // after it has finished on screen
+  const handleTargetId = activeId ?? nearestBehind?.id ?? null;
 
   function timeAtClientX(clientX: number): number {
     const rect = trackRef.current!.getBoundingClientRect();
@@ -98,7 +122,7 @@ function TimingStrip({
     return start + ratio * span;
   }
 
-  function startDrag(e: React.PointerEvent, seg: Segment) {
+  function startDrag(e: React.PointerEvent, seg: Segment, which: "start" | "end") {
     e.stopPropagation();
     e.preventDefault();
     winRef.current = { start, span }; // freeze window for the whole drag
@@ -107,18 +131,18 @@ function TimingStrip({
     } catch {
       /* capture unavailable (e.g. synthetic pointer) — drag still works */
     }
-    setDragState({ segId: seg.id, time: seg.end });
+    setDragState({ segId: seg.id, which, time: which === "start" ? seg.start : seg.end });
   }
   function moveDrag(e: React.PointerEvent) {
     const d = dragRef.current;
     if (!d) return;
-    setDragState({ segId: d.segId, time: timeAtClientX(e.clientX) });
+    setDragState({ segId: d.segId, which: d.which, time: timeAtClientX(e.clientX) });
   }
   function endDrag(e: React.PointerEvent) {
     const d = dragRef.current;
     if (!d) return;
     const t = timeAtClientX(e.clientX);
-    onBoundaryDrag(d.segId, t);
+    onBoundaryDrag(d.segId, t, d.which);
     setDragState(null);
     winRef.current = null;
   }
@@ -130,27 +154,45 @@ function TimingStrip({
           const left = clamp(((s.start - start) / span) * 100, 0, 100);
           const right = clamp(((s.end - start) / span) * 100, 0, 100);
           const hasNext = segments.some((o) => o.job_id === s.job_id && o.idx === s.idx + 1);
-          const handleLeft =
-            drag?.segId === s.id ? clamp(((drag.time - start) / span) * 100, 0, 100) : right;
+          const isFocused = s.id === focusedId;
+          const isActive = s.id === activeId;
+          // the cue being edited, playing, OR nearest-behind-the-playhead (gap /
+          // tail) gets its own draggable start AND end handles
+          const showBoth = isFocused || s.id === handleTargetId;
+          const pct = (t: number) => clamp(((t - start) / span) * 100, 0, 100);
+          const endPos = drag?.segId === s.id && drag.which === "end" ? pct(drag.time) : right;
+          const startPos = drag?.segId === s.id && drag.which === "start" ? pct(drag.time) : left;
           return (
             <div key={s.id}>
               <button
                 className={
-                  "strip-seg" +
-                  (s.id === activeId ? " active" : "") +
-                  (s.id === focusedId ? " focused" : "")
+                  "strip-seg" + (isActive ? " active" : "") + (isFocused ? " focused" : "")
                 }
                 style={{ left: `${left}%`, width: `${Math.max(1.5, right - left)}%` }}
                 title={`#${segmentNo(segments, s.id)} ${fmt(s.start)} - ${fmt(s.end)}`}
                 aria-label={`자막 ${segmentNo(segments, s.id)}로 이동`}
                 onClick={() => onSeek(s.start)}
               />
-              {hasNext && (
+              {showBoth && (
                 <span
-                  className={"strip-handle" + (drag?.segId === s.id ? " dragging" : "")}
-                  style={{ left: `${handleLeft}%` }}
-                  title="드래그해서 이 자막과 다음 자막의 경계를 조절"
-                  onPointerDown={(e) => startDrag(e, s)}
+                  className={
+                    "strip-handle start" +
+                    (drag?.segId === s.id && drag.which === "start" ? " dragging" : "")
+                  }
+                  style={{ left: `${startPos}%` }}
+                  title="드래그해서 이 자막의 시작을 조절"
+                  onPointerDown={(e) => startDrag(e, s, "start")}
+                />
+              )}
+              {(hasNext || showBoth) && (
+                <span
+                  className={
+                    "strip-handle" +
+                    (drag?.segId === s.id && drag.which === "end" ? " dragging" : "")
+                  }
+                  style={{ left: `${endPos}%` }}
+                  title="드래그해서 이 자막의 끝을 조절 (겹치면 옆 자막에서 멈춤)"
+                  onPointerDown={(e) => startDrag(e, s, "end")}
                 />
               )}
             </div>
@@ -358,10 +400,9 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 function isCellDeleteShortcut(e: KeyboardEvent): boolean {
-  return (
-    (e.altKey && e.key === "Delete" && !e.ctrlKey && !e.metaKey && !e.shiftKey) ||
-    (e.ctrlKey && e.key === "Escape" && !e.altKey && !e.metaKey && !e.shiftKey)
-  );
+  // deliberate 2-key combo only — never a bare Delete (that was a footgun that
+  // could wipe a cue on a stray keypress outside the text box)
+  return e.altKey && e.key === "Delete" && !e.ctrlKey && !e.metaKey && !e.shiftKey;
 }
 
 function isCellUndoShortcut(e: KeyboardEvent): boolean {
@@ -372,6 +413,7 @@ function Row({
   seg,
   active,
   focused,
+  preview,
   currentTime,
   hasNext,
   words,
@@ -389,6 +431,7 @@ function Row({
   seg: Segment;
   active: boolean;
   focused: boolean;
+  preview: boolean;
   currentTime: number;
   hasNext: boolean;
   words: WordTime[];
@@ -450,8 +493,15 @@ function Row({
   }, [seg.id]);
 
   useEffect(() => {
-    if (active) ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [active]);
+    // in preview (theater) mode keep the playing cue centered so you can watch
+    // the video and read ahead; while editing, only nudge it into view
+    if (active) {
+      ref.current?.scrollIntoView({
+        block: preview ? "center" : "nearest",
+        behavior: "smooth",
+      });
+    }
+  }, [active, preview]);
 
   // show the reference panel whenever a machine source actually differs from
   // the working text — not only when the crosscheck flag fired. The flag uses a
@@ -473,7 +523,9 @@ function Row({
       : null;
   // finished rows fold into a single quiet line — the list literally shrinks as
   // you work (momentum + far less scrolling). Click to reopen for a re-check.
-  const collapsed = seg.reviewed && !focused;
+  // In preview mode the currently-playing cue always expands so you can read it
+  // in full as the video rolls over it.
+  const collapsed = seg.reviewed && !focused && !(preview && active);
 
   return (
     <div
@@ -506,7 +558,7 @@ function Row({
           {focused && (
             <button
               className="nudge-btn"
-              title="시작 0.1초 앞으로 (Alt+←)"
+              title="시작 0.1초 앞으로"
               onClick={() => onTime(seg, "start", Math.max(0, seg.start - 0.1))}
             >
               ◀
@@ -516,7 +568,7 @@ function Row({
           {focused && (
             <button
               className="nudge-btn"
-              title="시작 0.1초 뒤로 (Alt+→)"
+              title="시작 0.1초 뒤로"
               onClick={() => onTime(seg, "start", Math.min(seg.end - 0.1, seg.start + 0.1))}
             >
               ▶
@@ -528,7 +580,7 @@ function Row({
           {focused && (
             <button
               className="nudge-btn"
-              title="끝 0.1초 앞으로 (Alt+Shift+←)"
+              title="끝 0.1초 앞으로"
               onClick={() => onTime(seg, "end", Math.max(seg.start + 0.1, seg.end - 0.1))}
             >
               ◀
@@ -538,7 +590,7 @@ function Row({
           {focused && (
             <button
               className="nudge-btn"
-              title="끝 0.1초 뒤로 (Alt+Shift+→)"
+              title="끝 0.1초 뒤로"
               onClick={() => onTime(seg, "end", seg.end + 0.1)}
             >
               ▶
@@ -676,20 +728,20 @@ function Row({
         <>
         <span className="timing-tools">
           <button
-            title="현재 영상 시간을 이 자막의 시작으로 맞추고, 이전 자막 끝도 같이 맞춤"
+            title="현재 영상 시간을 이 자막의 시작으로 맞추고, 이전 자막 끝도 같이 맞춤 (Alt+[)"
             onClick={() => void flush().then(() => onTiming("start-here", seg))}
           >
             여기서 시작
           </button>
           <button
-            title="현재 영상 시간에서 이 자막을 끝내고 다음 자막으로 넘김"
+            title="현재 영상 시간에서 이 자막을 끝내고 다음 자막으로 넘김 (Alt+])"
             onClick={() => void flush().then(() => onTiming("next-here", seg))}
           >
             {hasNext ? "여기서 넘김" : "여기서 끝"}
           </button>
           {words.length > 0 && (
             <button
-              title="이 자막을 실제 발화 시작~끝에 자동으로 딱 맞춤 (앞뒤 침묵 제거)"
+              title="이 자막을 실제 발화 시작~끝에 자동으로 딱 맞춤 (앞뒤 침묵 제거) (Alt+\\)"
               onClick={() => {
                 const inside = words.filter((w) => {
                   const m = (w.start + w.end) / 2;
@@ -753,44 +805,63 @@ interface ShortcutGroup {
 
 const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
-    title: "재생과 이동",
+    title: "재생·이동  (화살표는 언제나 이동만 — 안전)",
     items: [
-      { keys: ["Tab"], label: "재생 / 일시정지", detail: "스페이스바는 입력 전용" },
-      { keys: ["Ctrl+\\"], label: "이 자막 처음부터 다시 재생", detail: "편집 중에도 동작" },
-      { keys: ["Shift+Tab"], label: "3초 뒤로", detail: "놓친 부분 다시 듣기" },
-      { keys: ["Alt+↑", "Alt+↓"], label: "이전 / 다음 자막으로 이동" },
+      { keys: ["Tab"], label: "재생 / 일시정지", detail: "스페이스바는 글자 입력용" },
+      { keys: ["Alt+←", "Alt+→"], label: "3초 뒤로 / 앞으로", detail: "Shift+Tab도 3초 뒤로" },
+      { keys: ["Alt+Shift+←", "Alt+Shift+→"], label: "10초 뒤로 / 앞으로" },
+      { keys: ["Ctrl+\\"], label: "이 자막 처음부터 다시 재생", detail: "편집 중에도 됩니다" },
+      { keys: ["Alt+↑", "Alt+↓"], label: "이전 / 다음 자막" },
       {
         keys: ["Alt+Shift+↑", "Alt+Shift+↓"],
         label: "이전 / 다음 미검수 자막",
-        detail: "확인한 건 건너뛰고 볼 것만 이동",
+        detail: "확인한 건 건너뜁니다",
       },
     ],
   },
   {
-    title: "글자 편집",
+    title: "자막 확정·구조  (Enter 계열 · 모두 되돌리기 가능)",
     items: [
-      { keys: ["Delete"], label: "글자 삭제", detail: "편집칸 안에서는 기본 텍스트 삭제" },
-      { keys: ["Ctrl+Z"], label: "글자 되돌리기", detail: "편집칸 안에서는 텍스트 Undo" },
-      { keys: ["Enter"], label: "확인 완료 후 다음 자막" },
-    ],
-  },
-  {
-    title: "자막 셀 조작",
-    items: [
-      { keys: ["Alt+Delete"], label: "현재 셀 바로 삭제", detail: "편집 중에도 마우스 없이 삭제" },
-      { keys: ["Delete"], label: "현재 셀 삭제", detail: "편집칸 밖에서만" },
-      { keys: ["Alt+Z"], label: "셀 조작 되돌리기", detail: "편집 중에도 세그먼트 Undo" },
-      { keys: ["Ctrl+Z"], label: "셀 조작 되돌리기", detail: "편집칸 밖에서만" },
-      { keys: ["Ctrl+Esc"], label: "셀 삭제 보조키", detail: "브라우저가 전달할 때만" },
-      { keys: ["Ctrl+Enter"], label: "커서 위치에서 나누기" },
+      { keys: ["Enter"], label: "확인 완료하고 다음 자막으로" },
+      { keys: ["Ctrl+Enter"], label: "커서 위치에서 자막 나누기" },
       { keys: ["Ctrl+Shift+Enter"], label: "아래 자막과 합치기" },
+      { keys: ["Alt+Delete"], label: "이 자막 삭제", detail: "편집 중에도, Alt+Z로 복구" },
+      {
+        keys: ["Alt+Z"],
+        label: "방금 조작 되돌리기",
+        detail: "나누기·합치기·삭제·시간까지, 편집 중에도",
+      },
     ],
   },
   {
-    title: "시간 보정",
+    title: "시간 맞추기  (Alt + 대괄호)",
     items: [
-      { keys: ["Alt+←", "Alt+→"], label: "시작 시간 0.1초 조절" },
-      { keys: ["Alt+Shift+←", "Alt+Shift+→"], label: "끝 시간 0.1초 조절" },
+      { keys: ["Alt+["], label: "여기서 시작", detail: "재생 위치를 이 자막 시작점으로" },
+      { keys: ["Alt+]"], label: "여기서 넘김", detail: "재생 위치에서 끝내고 다음으로" },
+      { keys: ["Alt+\\"], label: "발화 맞춤", detail: "말소리 시작~끝에 자동으로" },
+      { keys: ["드래그", "◀▶"], label: "미세 조정", detail: "타임라인 손잡이 드래그 · 시간 옆 ◀▶ 버튼" },
+    ],
+  },
+  {
+    title: "입력칸 안에서 (글자)",
+    items: [
+      {
+        keys: ["Delete", "Ctrl+Z"],
+        label: "글자 삭제 / 되돌리기",
+        detail: "편집칸 안에서는 평범한 텍스트 편집으로 동작",
+      },
+    ],
+  },
+  {
+    title: "모드·도구",
+    items: [
+      { keys: ["Alt+P"], label: "미리보기 모드", detail: "영상 크게 + 자막 따라 스크롤" },
+      { keys: ["Alt+R"], label: "구간 반복 켜기 / 끄기" },
+      { keys: ["Alt+S"], label: "편집 시작 시 멈춤 켜기 / 끄기" },
+      { keys: ["Alt+B"], label: "찾기·바꾸기 열기" },
+      { keys: ["Alt+M"], label: "무음 다듬기" },
+      { keys: ["Alt+G"], label: "복구·채우기" },
+      { keys: ["Alt+K"], label: "학습(피드백 흡수)" },
     ],
   },
 ];
@@ -804,6 +875,9 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
   const [exporting, setExporting] = useState(false);
   const [pauseOnType, setPauseOnType] = useState(true);
   const [loopSeg, setLoopSeg] = useState(false);
+  // preview (theater) mode: big video + on-video caption + follow-along scroll.
+  // off by default — editing is the primary task; turn on for the final watch.
+  const [showPreview, setShowPreview] = useState(false);
   const [showKeys, setShowKeys] = useState(true);
   const [focusedId, setFocusedId] = useState<number | null>(null);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
@@ -1048,69 +1122,96 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
         deleteRow(currentRow());
         return;
       }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
-        if (!isTypingTarget(e.target)) {
-          e.preventDefault();
-          void undoLast();
-        }
-        return;
-      }
-      if (e.key === "Delete" && !isTypingTarget(e.target)) {
-        e.preventDefault();
-        deleteRow(currentRow());
-        return;
-      }
-      // Ctrl+\ = replay the current subtitle from its start (safe while typing)
+      // ---- replay current cue from its start (Ctrl+\), safe while typing ----
       if ((e.ctrlKey || e.metaKey) && (e.code === "Backslash" || e.key === "\\")) {
         e.preventDefault();
         replayCurrent();
         return;
       }
+
+      // ===== PLAYBACK & NAVIGATION — arrows and Tab NEVER edit data, so a
+      // mis-press or a slipped Shift can only move the playhead/selection =====
       if (e.key === "Tab" && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         if (e.shiftKey) seekBy(-3);
         else playPause();
         return;
       }
-      // Space toggles play only OUTSIDE text fields (inside, it types a space)
       if (e.code === "Space" && !e.ctrlKey && !e.altKey && !isTypingTarget(e.target)) {
         e.preventDefault();
         playPause();
         return;
       }
-      // Alt+Shift+↑/↓ — jump to the prev/next UNREVIEWED segment (review loop)
-      if (e.altKey && e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      // Alt+←/→ = seek ∓3s, Alt+Shift+←/→ = seek ∓10s (arrows only ever move)
+      if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 3;
+        seekBy(e.key === "ArrowLeft" ? -step : step);
+        return;
+      }
+      // Alt+↑/↓ = prev/next cue, Alt+Shift+↑/↓ = prev/next UNREVIEWED cue
+      if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
         e.preventDefault();
         const segs = segmentsRef.current;
         if (!segs.length) return;
         const dir = e.key === "ArrowDown" ? 1 : -1;
         const cur = currentRow();
-        const start = cur ? segs.findIndex((s) => s.id === cur.id) : dir === 1 ? -1 : segs.length;
-        for (let i = start + dir; i >= 0 && i < segs.length; i += dir) {
-          if (!segs[i].reviewed) {
-            focusSegment(segs[i]);
-            return;
+        if (e.shiftKey) {
+          const from = cur ? segs.findIndex((s) => s.id === cur.id) : dir === 1 ? -1 : segs.length;
+          for (let i = from + dir; i >= 0 && i < segs.length; i += dir) {
+            if (!segs[i].reviewed) {
+              focusSegment(segs[i]);
+              return;
+            }
+          }
+          return;
+        }
+        if (!cur) return;
+        const next = segs[segs.findIndex((s) => s.id === cur.id) + dir];
+        if (next) focusSegment(next);
+        return;
+      }
+      // cue timing on the focused subtitle (Alt + [ ] \) — in/out-point keys,
+      // kept OFF the , . seek keys so a missed Shift can never mangle a boundary
+      if (e.altKey && !e.ctrlKey && !e.shiftKey && (e.key === "[" || e.key === "]" || e.key === "\\")) {
+        e.preventDefault();
+        const row = currentRow();
+        if (!row) return;
+        const h = rowsRef.current.get(row.id);
+        const flushThen = (fn: () => void) =>
+          void (h ? h.flush() : Promise.resolve()).then(fn);
+        if (e.key === "[") flushThen(() => timing("start-here", row));
+        else if (e.key === "]") flushThen(() => timing("next-here", row));
+        else {
+          const inside = words.filter((w) => {
+            const m = (w.start + w.end) / 2;
+            return row.start <= m && m < row.end;
+          });
+          if (inside.length) {
+            const ns = Math.min(...inside.map((w) => w.start));
+            const ne = Math.max(...inside.map((w) => w.end));
+            setTimes(row, Math.round(ns * 1000) / 1000, Math.round(ne * 1000) / 1000);
           }
         }
         return;
       }
-      if (e.altKey && !e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
-        e.preventDefault();
-        const segs = segmentsRef.current;
-        const cur = currentRow();
-        if (!cur) return;
-        const i = segs.findIndex((s) => s.id === cur.id);
-        const next = segs[e.key === "ArrowDown" ? i + 1 : i - 1];
-        if (next) focusSegment(next);
-        return;
-      }
-      if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-        e.preventDefault();
-        const row = currentRow();
-        if (!row) return;
-        const delta = e.key === "ArrowLeft" ? -0.1 : 0.1;
-        const field = e.shiftKey ? "end" : "start";
-        timeChange(row, field as "start" | "end", (field === "start" ? row.start : row.end) + delta);
+      // mode toggles + left-panel tools (Alt + letter) — safe while typing
+      if (e.altKey && !e.ctrlKey && !e.shiftKey && /^[a-z]$/i.test(e.key)) {
+        const actions: Record<string, () => void> = {
+          r: () => setLoopSeg((v) => !v),
+          s: () => setPauseOnType((v) => !v),
+          p: () => setShowPreview((v) => !v),
+          b: () => setFindOpen((v) => !v),
+          g: () => void runRepair(),
+          m: () => void runTighten(),
+          k: () => void runAbsorb(),
+        };
+        const act = actions[e.key.toLowerCase()];
+        if (act) {
+          e.preventDefault();
+          act();
+          return;
+        }
       }
     }
     window.addEventListener("keydown", onKey);
@@ -1312,7 +1413,7 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
   }
 
   return (
-    <div className="editor">
+    <div className={"editor" + (showPreview ? " preview" : "")}>
       <div className="left">
         <div className="left-top">
           <button
@@ -1326,7 +1427,14 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
           </button>
           <ThemeToggle />
         </div>
-        <div id="yt-player" />
+        <div className="player-wrap">
+          <div id="yt-player" />
+          {showPreview && activeSeg && (
+            <div className="cc-overlay">
+              <span>{displayText(activeSeg)}</span>
+            </div>
+          )}
+        </div>
         <div className="play-controls">
           <button
             className="pc-btn"
@@ -1335,7 +1443,7 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
           >
             ⏮ 구간처음
           </button>
-          <button className="pc-btn" title="3초 뒤로 (Shift+Tab)" onClick={() => seekBy(-3)}>
+          <button className="pc-btn" title="3초 뒤로 (Alt+← 또는 Shift+Tab)" onClick={() => seekBy(-3)}>
             ⟲ 3초
           </button>
           <button
@@ -1345,11 +1453,11 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
           >
             {playing ? "⏸ 멈춤" : "▶ 재생"}
           </button>
-          <button className="pc-btn" title="3초 앞으로" onClick={() => seekBy(3)}>
+          <button className="pc-btn" title="3초 앞으로 (Alt+→)" onClick={() => seekBy(3)}>
             3초 ⟳
           </button>
           <div className="pc-settings">
-            <label className="pc-toggle" title="편집 중인 구간의 소리를 반복 재생 (되감기 없이 다시 듣기)">
+            <label className="pc-toggle" title="편집 중인 구간의 소리를 반복 재생 (되감기 없이 다시 듣기) (Alt+R)">
               <input
                 type="checkbox"
                 checked={loopSeg}
@@ -1359,7 +1467,7 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
             </label>
             <label
               className="pc-toggle"
-              title="구간을 클릭해 편집을 시작할 때 영상을 한 번 멈춤 (타이핑·백스페이스로는 안 멈춰서 재생·구간반복 들으며 편집 가능)"
+              title="구간을 클릭해 편집을 시작할 때 영상을 한 번 멈춤 (타이핑·백스페이스로는 안 멈춰서 재생·구간반복 들으며 편집 가능) (Alt+S)"
             >
               <input
                 type="checkbox"
@@ -1367,6 +1475,17 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
                 onChange={(e) => setPauseOnType(e.target.checked)}
               />
               편집 시작 시 멈춤
+            </label>
+            <label
+              className="pc-toggle"
+              title="미리보기(극장) 모드 — 영상을 크게, 자막을 영상 위에 얹고, 재생 중인 자막을 화면 가운데로 따라 스크롤. 최종 확인용 (편집은 끄고) (Alt+P)"
+            >
+              <input
+                type="checkbox"
+                checked={showPreview}
+                onChange={(e) => setShowPreview(e.target.checked)}
+              />
+              💬 미리보기 모드
             </label>
           </div>
         </div>
@@ -1389,10 +1508,13 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
           currentTime={currentTime}
           activeId={activeId}
           focusedId={focusedId}
+          playing={playing}
           onSeek={seekTo}
-          onBoundaryDrag={(segId, time) => {
+          onBoundaryDrag={(segId, time, which) => {
             const seg = segmentsRef.current.find((s) => s.id === segId);
-            if (seg) void timing("next-here", { ...seg }, time);
+            // independent resize (clamped at the neighbour); the linked
+            // "move the shared wall" stays on the 여기서 시작/넘김 buttons
+            if (seg) void timeChange(seg, which === "start" ? "start" : "end", time);
           }}
         />
         {/* subtle, non-interruptive status (autosave-style) */}
@@ -1453,21 +1575,21 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
           )}
           <button
             className="tool"
-            title="자막을 실제 발화 시작~끝 구간에 딱 맞춰 다듬어 침묵 구간엔 자막이 안 보이게 함 (텍스트·검수 상태는 그대로, API 사용 안 함)"
+            title="자막을 실제 발화 시작~끝 구간에 딱 맞춰 다듬어 침묵 구간엔 자막이 안 보이게 함 (텍스트·검수 상태는 그대로, API 사용 안 함) (Alt+M)"
             onClick={() => void runTighten()}
           >
             ✂ 무음 다듬기
           </button>
           <button
             className="tool"
-            title="음성인식이 놓치거나 잘못 뱉은 구간을 유튜브 자막으로 복구·보충 (API 사용 안 함)"
+            title="음성인식이 놓치거나 잘못 뱉은 구간을 유튜브 자막으로 복구·보충 (API 사용 안 함) (Alt+G)"
             onClick={() => void runRepair()}
           >
             🛠 복구·채우기
           </button>
           <button
             className="tool"
-            title="이번에 고친 내용을 뒤쪽 미검수 자막에 반영하고 다음 실행에도 기억"
+            title="이번에 고친 내용을 뒤쪽 미검수 자막에 반영하고 다음 실행에도 기억 (Alt+K)"
             onClick={() => void runAbsorb()}
           >
             📚 학습
@@ -1584,7 +1706,7 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
             ) : (
               <button
                 className="find-toggle"
-                title="반복되는 오인식을 전체 자막에서 한 번에 교정"
+                title="반복되는 오인식을 전체 자막에서 한 번에 교정 (Alt+B)"
                 onClick={() => setFindOpen(true)}
               >
                 🔎 찾기·바꾸기
@@ -1607,6 +1729,7 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
               seg={seg}
               active={seg.id === activeId}
               focused={seg.id === focusedId}
+              preview={showPreview}
               currentTime={currentTime}
               hasNext={segments.some((s) => s.job_id === seg.job_id && s.idx === seg.idx + 1)}
               words={words}
