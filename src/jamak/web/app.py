@@ -91,13 +91,19 @@ def retranscribe(video_id: str) -> dict:
         if job is None:
             raise HTTPException(404, f"no job for {video_id}")
         seg_ids = list(
-            session.exec(select(Segment.id).where(Segment.job_id == job.id)).all()
+            session.exec(
+                select(Segment.id).where(
+                    Segment.job_id == job.id, Segment.lang == "ko"
+                )
+            ).all()
         )
         n_total = len(seg_ids)
         n_reviewed = len(
             session.exec(
                 select(Segment.id).where(
-                    Segment.job_id == job.id, Segment.reviewed == True  # noqa: E712
+                    Segment.job_id == job.id,
+                    Segment.lang == "ko",
+                    Segment.reviewed == True,  # noqa: E712
                 )
             ).all()
         )
@@ -398,7 +404,7 @@ def get_segments(video_id: str, lang: str = "ko") -> list[dict]:
 
 
 @app.post("/api/jobs/{video_id}/confirm-safe")
-def confirm_safe(video_id: str) -> dict:
+def confirm_safe(video_id: str, lang: str = "ko") -> dict:
     """Bulk-confirm every low-risk unreviewed segment (one-click skim).
 
     Marks the confident segments reviewed and promotes their working text to
@@ -413,7 +419,7 @@ def confirm_safe(video_id: str) -> dict:
         if job is None:
             raise HTTPException(404, f"no job for {video_id}")
         segs = session.exec(
-            select(Segment).where(Segment.job_id == job.id)
+            select(Segment).where(Segment.job_id == job.id, Segment.lang == lang)
         ).all()
         confirmed = 0
         for seg in segs:
@@ -431,7 +437,7 @@ def confirm_safe(video_id: str) -> dict:
 
 
 @app.post("/api/jobs/{video_id}/replace")
-def replace_text(video_id: str, body: ReplaceBody) -> dict:
+def replace_text(video_id: str, body: ReplaceBody, lang: str = "ko") -> dict:
     """Find & replace across every subtitle in one shot.
 
     A lecture repeats the same mis-hear many times; fixing them one by one is
@@ -447,7 +453,7 @@ def replace_text(video_id: str, body: ReplaceBody) -> dict:
         if job is None:
             raise HTTPException(404, f"no job for {video_id}")
         segs = session.exec(
-            select(Segment).where(Segment.job_id == job.id)
+            select(Segment).where(Segment.job_id == job.id, Segment.lang == lang)
         ).all()
         matches = 0
         seg_hits = 0
@@ -469,8 +475,8 @@ def replace_text(video_id: str, body: ReplaceBody) -> dict:
 
 
 @app.post("/api/jobs/{video_id}/segments/restore")
-def restore_segments(video_id: str, body: RestoreSegmentsBody) -> list[dict]:
-    """Restore one editor undo snapshot for a job's segment list."""
+def restore_segments(video_id: str, body: RestoreSegmentsBody, lang: str = "ko") -> list[dict]:
+    """Restore one editor undo snapshot for ONE track's segment list."""
     if not body.segments:
         raise HTTPException(400, "empty segment snapshot")
     with get_session() as session:
@@ -479,19 +485,22 @@ def restore_segments(video_id: str, body: RestoreSegmentsBody) -> list[dict]:
             raise HTTPException(404, f"no job for {video_id}")
 
         current_ids = session.exec(
-            select(Segment.id).where(Segment.job_id == job.id)
+            select(Segment.id).where(Segment.job_id == job.id, Segment.lang == lang)
         ).all()
         if current_ids:
             session.exec(
                 sql_delete(Translation).where(Translation.segment_id.in_(current_ids))
             )
-        session.exec(sql_delete(Segment).where(Segment.job_id == job.id))
+        session.exec(
+            sql_delete(Segment).where(Segment.job_id == job.id, Segment.lang == lang)
+        )
 
         for i, snap in enumerate(sorted(body.segments, key=lambda s: s.idx)):
             session.add(
                 Segment(
                     id=snap.id,
                     job_id=job.id,
+                    lang=lang,
                     idx=i,
                     start=round(max(0.0, snap.start), 3),
                     end=round(max(snap.start + 0.1, snap.end), 3),
@@ -509,7 +518,9 @@ def restore_segments(video_id: str, body: RestoreSegmentsBody) -> list[dict]:
         session.commit()
 
         segs = session.exec(
-            select(Segment).where(Segment.job_id == job.id).order_by(Segment.idx)
+            select(Segment)
+            .where(Segment.job_id == job.id, Segment.lang == lang)
+            .order_by(Segment.idx)
         ).all()
         return [s.model_dump() for s in segs]
 
@@ -832,8 +843,19 @@ def export_srt(video_id: str, stage: str = "best", lang: str = "ko"):
         job = session.exec(select(Job).where(Job.video_id == video_id)).first()
         if job is None:
             raise HTTPException(404, f"no job for {video_id}")
+        # a forked language has its own segments (own structure/timing/text);
+        # otherwise fall back to the Korean track + cached translation
+        forked = lang != "ko" and (
+            session.exec(
+                select(Segment.id).where(Segment.job_id == job.id, Segment.lang == lang)
+            ).first()
+            is not None
+        )
+        read_lang = lang if forked else "ko"
         segs = session.exec(
-            select(Segment).where(Segment.job_id == job.id).order_by(Segment.idx)
+            select(Segment)
+            .where(Segment.job_id == job.id, Segment.lang == read_lang)
+            .order_by(Segment.idx)
         ).all()
         seg_dicts = [s.model_dump() for s in segs]
         title = job.title
@@ -849,7 +871,7 @@ def export_srt(video_id: str, stage: str = "best", lang: str = "ko"):
     else:
         raise HTTPException(400, f"unknown stage {stage}")
 
-    if lang != "ko":
+    if lang != "ko" and not forked:
         from ..pipeline.translate import LANGUAGES, translate_segments
 
         if lang not in LANGUAGES:
@@ -899,7 +921,9 @@ def make_translations(video_id: str, lang: str) -> dict:
         if job is None:
             raise HTTPException(404, f"no job for {video_id}")
         segs = session.exec(
-            select(Segment).where(Segment.job_id == job.id).order_by(Segment.idx)
+            select(Segment)
+            .where(Segment.job_id == job.id, Segment.lang == "ko")
+            .order_by(Segment.idx)
         ).all()
         total = len(segs)
         reviewed = sum(1 for s in segs if s.reviewed)
@@ -929,7 +953,9 @@ def get_translations(video_id: str, lang: str) -> list[dict]:
         if job is None:
             raise HTTPException(404, f"no job for {video_id}")
         segs = session.exec(
-            select(Segment).where(Segment.job_id == job.id).order_by(Segment.idx)
+            select(Segment)
+            .where(Segment.job_id == job.id, Segment.lang == "ko")
+            .order_by(Segment.idx)
         ).all()
         rows = session.exec(
             select(Translation).where(Translation.lang == lang)
@@ -1012,7 +1038,9 @@ def repair_stt(video_id: str) -> dict:
         if job is None:
             raise HTTPException(404, f"no job for {video_id}")
         segs = session.exec(
-            select(Segment).where(Segment.job_id == job.id).order_by(Segment.idx)
+            select(Segment)
+            .where(Segment.job_id == job.id, Segment.lang == "ko")
+            .order_by(Segment.idx)
         ).all()
         # never alter a finished video: the human already finalized it (and may
         # have deliberately omitted spans). Inserting YouTube gap segments would
@@ -1057,13 +1085,13 @@ def repair_stt(video_id: str) -> dict:
 
             caps = parse_json3_captions(cap_files[0])
             live = session.exec(
-                select(Segment).where(Segment.job_id == job.id)
+                select(Segment).where(Segment.job_id == job.id, Segment.lang == "ko")
             ).all()
             covered = [(s.start, s.end) for s in live]
             for row in youtube_gap_rows(covered, caps):
                 # row already carries text_whisper="" + YouTube-seeded working
                 # text (honest: whisper heard nothing in this span)
-                session.add(Segment(job_id=job.id, idx=0, reviewed=False, **row))
+                session.add(Segment(job_id=job.id, lang="ko", idx=0, reviewed=False, **row))
                 filled += 1
 
         # renumber idx by chronological start so the first cell is the earliest
@@ -1071,7 +1099,7 @@ def repair_stt(video_id: str) -> dict:
             session.flush()
             ordered = session.exec(
                 select(Segment)
-                .where(Segment.job_id == job.id)
+                .where(Segment.job_id == job.id, Segment.lang == "ko")
                 .order_by(Segment.start)
             ).all()
             for i, s in enumerate(ordered):
@@ -1143,7 +1171,9 @@ def tighten_timing(video_id: str) -> dict:
         words.sort()
 
         segs = session.exec(
-            select(Segment).where(Segment.job_id == job.id).order_by(Segment.start)
+            select(Segment)
+            .where(Segment.job_id == job.id, Segment.lang == "ko")
+            .order_by(Segment.start)
         ).all()
         tightened = 0
         min_dur = 0.30  # never collapse a cue below this so it stays readable

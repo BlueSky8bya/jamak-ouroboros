@@ -23,8 +23,8 @@ DB 중복 최소화: 번역은 **기본 ko 구조·타이밍 상속**(`Translati
 - [x] `get_segments?lang=`(기본 ko), `POST /fork-track?lang=` (ko 복사 + 번역 텍스트로 lang 세그먼트 생성, Track.forked=true, 멱등, API 0).
 - [x] `list_jobs` 카운트 ko 전용.
 - [x] 검증: lFux en fork→124 세그먼트(ko 타이밍+en 텍스트), en split→ko 124·idx 온전, 정리 완료(비-ko 삭제). 앱 정상.
-- [ ] **남음(Phase 2b)**: ko 집계 엔드포인트(confirm-safe·tighten·repair·absorb·translate/get_translations·export/assemble·get_words) `lang=="ko"` 가드 — fork 영속 전 필수.
-- [ ] `Job.timing_done`(ko) → `Track` 이관; timing 토글 (job,lang)별.
+- [x] **Phase 2b — ko 격리 가드 완료·검증**: confirm-safe/replace/restore = lang 파라미터(기본 ko); retranscribe·make_translations·get_translations·repair·tighten·export·feedback.absorb = `lang=="ko"` 스코프; export는 fork면 lang 세그먼트 직접·아니면 ko+번역. 검증: fork 영속 시 list_jobs=124(ko만), replace?lang=en=67곳(en만), **ko 텍스트 불변**, 정리 완료. fork를 UI 노출해도 안전.
+- [ ] `Job.timing_done`(ko) → `Track` 이관; timing 토글 (job,lang)별. (Phase 3~4)
 
 ## Phase 3 — 에디터가 임의 트랙 편집
 - Editor에 `lang`(트랙) 전달. 분할·병합·삭제·타이밍·텍스트·미리보기 = 그 트랙 세그먼트에 작동(대부분 id 기반이라 재사용).

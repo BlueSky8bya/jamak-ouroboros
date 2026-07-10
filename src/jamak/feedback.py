@@ -107,12 +107,17 @@ def absorb_job(video_id: str) -> dict:
         if job is None:
             raise ValueError(f"no job for {video_id}")
         total_segments = len(
-            session.exec(select(Segment.id).where(Segment.job_id == job.id)).all()
+            session.exec(
+                select(Segment.id).where(
+                    Segment.job_id == job.id, Segment.lang == "ko"
+                )
+            ).all()
         )
         segs = session.exec(
             select(Segment)
             .where(
                 Segment.job_id == job.id,
+                Segment.lang == "ko",
                 Segment.reviewed == True,  # noqa: E712
             )
             .order_by(Segment.idx)
@@ -208,6 +213,7 @@ def repair_unsafe_reference_rewrites(video_id: str) -> dict[str, int]:
             select(Segment)
             .where(
                 Segment.job_id == job.id,
+                Segment.lang == "ko",
                 Segment.reviewed == False,  # noqa: E712
             )
             .order_by(Segment.idx)
@@ -291,6 +297,7 @@ def apply_learned_to_unreviewed(
             select(Segment)
             .where(
                 Segment.job_id == job.id,
+                Segment.lang == "ko",
                 Segment.reviewed == False,  # noqa: E712
             )
             .order_by(Segment.idx)
