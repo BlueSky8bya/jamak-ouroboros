@@ -17,6 +17,10 @@ from .stt import SttSegment, Word
 DEFAULT_MAX_CHARS = MAX_CHARS_PER_LINE * MAX_LINES  # hard budget per subtitle (36)
 DEFAULT_SOFT_CHARS = 20  # at a sentence boundary past this length, cut proactively
 BOUNDARY_GAP = 0.6  # silence between words that counts as a natural break
+# a real pause: force a cut here even for a short line, so a subtitle never
+# spans silence (subtitle ends at the last spoken word, the next starts at the
+# next spoken word, and the quiet gap between shows no subtitle at all)
+SILENCE_SPLIT = 0.7
 MIN_LEARN_SAMPLES = 40  # need this many reviewed subtitles before learning length
 
 
@@ -75,6 +79,14 @@ def _split_words(words: list[Word], soft_chars: int, max_chars: int) -> list[lis
         dur = cur[-1].end - cur[0].start
         global_i = i  # index into full words list for boundary lookahead
 
+        # hard cut at a real silence: the speaker paused, so this subtitle ends
+        # here and the quiet stretch that follows stays subtitle-free
+        next_gap = words[i + 1].start - w.end if i + 1 < len(words) else 0.0
+        if next_gap >= SILENCE_SPLIT and cur:
+            pieces.append(cur)
+            cur = []
+            continue
+
         at_boundary = _is_boundary(words, global_i)
         over_soft = len(text) >= soft_chars
         over_hard = len(text) >= max_chars or dur >= MAX_SEGMENT_SECONDS
@@ -95,11 +107,13 @@ def _split_words(words: list[Word], soft_chars: int, max_chars: int) -> list[lis
             cur = []
     if cur:
         # a tiny tail reads badly — glue it to the previous piece when the
-        # merged text still fits the hard budget
+        # merged text still fits the hard budget, but never glue across a real
+        # silence (that pause is exactly where the subtitle should break)
         if (
             pieces
             and len(_text_of(cur)) <= 6
             and len(_text_of(pieces[-1] + cur)) <= max_chars
+            and cur[0].start - pieces[-1][-1].end < SILENCE_SPLIT
         ):
             pieces[-1] = pieces[-1] + cur
         else:
@@ -116,9 +130,13 @@ def split_segments(
     )
     out: list[SttSegment] = []
     for seg in segments:
-        if not seg.words or len(seg.text) <= max_chars:
+        if not seg.words:
+            # no word timings — can't retighten or silence-split; keep as-is
             out.append(seg)
             continue
+        # run every segment through the splitter (even short ones): it cuts at
+        # internal silences and re-emits each piece on tight word boundaries, so
+        # no subtitle keeps spanning a pause or trailing into quiet.
         for piece in _split_words(seg.words, soft_chars, max_chars):
             text = _text_of(piece)
             if not text:

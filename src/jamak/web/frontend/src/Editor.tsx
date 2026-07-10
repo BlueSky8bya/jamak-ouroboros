@@ -8,12 +8,16 @@ import {
   exportUrl,
   fetchLanguages,
   fetchSegments,
+  fetchWords,
   mergeNext,
   repairStt,
+  replaceText,
   restoreSegments,
   splitSegment,
+  tightenTiming,
   updateSegment,
 } from "./api";
+import type { WordTime } from "./api";
 import { ThemeToggle } from "./theme";
 import { TranslateReview } from "./TranslateReview";
 import type { Segment } from "./types";
@@ -168,6 +172,126 @@ function TimingStrip({
   );
 }
 
+/* Speech map: word blocks on a mini timeline for the focused segment. Stands
+   in for a waveform (the YouTube iframe gives no audio) — the reviewer SEES
+   where speech vs silence is and drags the subtitle's start/end handles, which
+   snap magnetically onto real word edges. Click empty space to seek there. */
+function WordMap({
+  seg,
+  words,
+  currentTime,
+  onSeek,
+  onCommit,
+}: {
+  seg: Segment;
+  words: WordTime[];
+  currentTime: number;
+  onSeek: (t: number) => void;
+  onCommit: (start: number, end: number) => void;
+}) {
+  const PAD = 1.0;
+  const SNAP = 0.12; // magnetic snap radius to a word edge (seconds)
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [drag, setDrag] = useState<{ which: "start" | "end"; time: number } | null>(null);
+  const dragRef = useRef<{ which: "start" | "end"; time: number } | null>(null);
+  function setD(v: { which: "start" | "end"; time: number } | null) {
+    dragRef.current = v;
+    setDrag(v);
+  }
+
+  const winStart = Math.max(0, seg.start - PAD);
+  const winEnd = seg.end + PAD;
+  const span = Math.max(0.5, winEnd - winStart);
+  const local = words.filter((w) => w.end > winStart && w.start < winEnd);
+  const pct = (t: number) => clamp(((t - winStart) / span) * 100, 0, 100);
+  const start = drag?.which === "start" ? drag.time : seg.start;
+  const end = drag?.which === "end" ? drag.time : seg.end;
+
+  function timeAt(clientX: number): number {
+    const r = trackRef.current!.getBoundingClientRect();
+    return winStart + clamp((clientX - r.left) / r.width, 0, 1) * span;
+  }
+  function snap(t: number): number {
+    let best: number | null = null;
+    let bd = SNAP;
+    for (const w of local) {
+      for (const edge of [w.start, w.end]) {
+        const dd = Math.abs(edge - t);
+        if (dd < bd) {
+          bd = dd;
+          best = edge;
+        }
+      }
+    }
+    return best ?? t;
+  }
+  function down(e: React.PointerEvent, which: "start" | "end") {
+    e.stopPropagation();
+    e.preventDefault();
+    try {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      /* no capture — drag still works */
+    }
+    setD({ which, time: which === "start" ? seg.start : seg.end });
+  }
+  function move(e: React.PointerEvent) {
+    const d = dragRef.current;
+    if (!d) return;
+    setD({ which: d.which, time: snap(timeAt(e.clientX)) });
+  }
+  function up(e: React.PointerEvent) {
+    const d = dragRef.current;
+    if (!d) return;
+    const t = snap(timeAt(e.clientX));
+    const ns = d.which === "start" ? Math.min(t, end - 0.1) : start;
+    const ne = d.which === "end" ? Math.max(t, start + 0.1) : end;
+    setD(null);
+    onCommit(Math.round(ns * 1000) / 1000, Math.round(ne * 1000) / 1000);
+  }
+
+  const marker = currentTime >= winStart && currentTime <= winEnd ? pct(currentTime) : null;
+
+  return (
+    <div className="wordmap">
+      <div
+        className="wm-track"
+        ref={trackRef}
+        onPointerMove={move}
+        onPointerUp={up}
+        onClick={(e) => {
+          if (!dragRef.current) onSeek(timeAt(e.clientX));
+        }}
+      >
+        {/* selected span (current subtitle bounds) */}
+        <span
+          className="wm-band"
+          style={{ left: `${pct(start)}%`, width: `${Math.max(0, pct(end) - pct(start))}%` }}
+        />
+        {/* recognized words = speech; empty = silence */}
+        {local.map((w, i) => (
+          <span
+            key={i}
+            className="wm-word"
+            style={{ left: `${pct(w.start)}%`, width: `${Math.max(0.6, pct(w.end) - pct(w.start))}%` }}
+            title={w.word.trim()}
+          />
+        ))}
+        {marker !== null && <span className="wm-marker" style={{ left: `${marker}%` }} />}
+        <span className="wm-handle s" style={{ left: `${pct(start)}%` }} onPointerDown={(e) => down(e, "start")} />
+        <span className="wm-handle e" style={{ left: `${pct(end)}%` }} onPointerDown={(e) => down(e, "end")} />
+      </div>
+      <div className="wm-legend">
+        <span>{fmt(start)}</span>
+        <span className="wm-hint">
+          {drag ? "놓으면 가까운 단어 끝에 딱 붙어요" : "초록=말소리 · 손잡이를 끌어 시작/끝 맞추기"}
+        </span>
+        <span>{fmt(end)}</span>
+      </div>
+    </div>
+  );
+}
+
 /* one editable time field (click, type, Enter/blur to apply) */
 function TimeField({
   value,
@@ -250,28 +374,34 @@ function Row({
   focused,
   currentTime,
   hasNext,
+  words,
   register,
   onSeek,
   onSave,
   onTime,
+  onSetTimes,
   onTiming,
   onStructure,
   onTyping,
   onFocusRow,
+  onOpenRow,
 }: {
   seg: Segment;
   active: boolean;
   focused: boolean;
   currentTime: number;
   hasNext: boolean;
+  words: WordTime[];
   register: (h: RowHandle | null) => void;
   onSeek: (t: number) => void;
   onSave: (id: number, text: string, reviewed: boolean | null, next: boolean) => Promise<void>;
   onTime: (seg: Segment, field: "start" | "end", value: number) => void;
+  onSetTimes: (seg: Segment, start: number, end: number) => void;
   onTiming: (action: "start-here" | "next-here", seg: Segment) => void;
   onStructure: (action: "split" | "merge" | "delete", seg: Segment, position?: number) => void;
   onTyping: () => void;
   onFocusRow: (id: number) => void;
+  onOpenRow: (seg: Segment) => void;
 }) {
   const [text, setText] = useState(displayText(seg));
   const dirtyRef = useRef(false);
@@ -341,6 +471,9 @@ function Row({
     currentTime >= seg.start && currentTime <= seg.end
       ? clamp(((currentTime - seg.start) / Math.max(0.001, seg.end - seg.start)) * 100, 0, 100)
       : null;
+  // finished rows fold into a single quiet line — the list literally shrinks as
+  // you work (momentum + far less scrolling). Click to reopen for a re-check.
+  const collapsed = seg.reviewed && !focused;
 
   return (
     <div
@@ -350,17 +483,68 @@ function Row({
         (active ? " active" : "") +
         (focused ? " focused" : "") +
         (seg.reviewed ? " reviewed" : "") +
+        (collapsed ? " collapsed" : "") +
         (seg.flagged || seg.llm_uncertain ? " needs-attention" : "") +
         (seg.safe && !seg.reviewed ? " safe" : "")
       }
     >
+      <button
+        type="button"
+        className="collapsed-preview"
+        title="펼쳐서 다시 보기"
+        onClick={() => onOpenRow(seg)}
+      >
+        <span className="cp-check">✓</span>
+        <span className="cp-text">{text}</span>
+        <span className="cp-time">{fmt(seg.start)}</span>
+      </button>
       <div className="row-head">
         <button className="time" onClick={() => onSeek(seg.start)} title="이 구간 재생">
           ▶
         </button>
-        <TimeField value={seg.start} title="시작 시간" onCommit={(v) => onTime(seg, "start", v)} />
+        <span className="time-edit">
+          {focused && (
+            <button
+              className="nudge-btn"
+              title="시작 0.1초 앞으로 (Alt+←)"
+              onClick={() => onTime(seg, "start", Math.max(0, seg.start - 0.1))}
+            >
+              ◀
+            </button>
+          )}
+          <TimeField value={seg.start} title="시작 시간" onCommit={(v) => onTime(seg, "start", v)} />
+          {focused && (
+            <button
+              className="nudge-btn"
+              title="시작 0.1초 뒤로 (Alt+→)"
+              onClick={() => onTime(seg, "start", Math.min(seg.end - 0.1, seg.start + 0.1))}
+            >
+              ▶
+            </button>
+          )}
+        </span>
         <span className="time-sep">→</span>
-        <TimeField value={seg.end} title="끝 시간" onCommit={(v) => onTime(seg, "end", v)} />
+        <span className="time-edit">
+          {focused && (
+            <button
+              className="nudge-btn"
+              title="끝 0.1초 앞으로 (Alt+Shift+←)"
+              onClick={() => onTime(seg, "end", Math.max(seg.start + 0.1, seg.end - 0.1))}
+            >
+              ◀
+            </button>
+          )}
+          <TimeField value={seg.end} title="끝 시간" onCommit={(v) => onTime(seg, "end", v)} />
+          {focused && (
+            <button
+              className="nudge-btn"
+              title="끝 0.1초 뒤로 (Alt+Shift+→)"
+              onClick={() => onTime(seg, "end", seg.end + 0.1)}
+            >
+              ▶
+            </button>
+          )}
+        </span>
         <span className="badges">
           {seg.flagged && (
             <span className="badge flag" title="음성인식과 유튜브 자막이 서로 다르게 들은 구간">
@@ -398,11 +582,15 @@ function Row({
         ref={taRef}
         value={text}
         rows={Math.max(2, Math.ceil(text.length / 40))}
-        onFocus={() => onFocusRow(seg.id)}
+        onFocus={() => {
+          onFocusRow(seg.id);
+          // pause once when you START editing this segment — not on every
+          // keystroke. Lets you replay/loop and keep listening while you type.
+          onTyping();
+        }}
         onChange={(e) => {
           setText(e.target.value);
           dirtyRef.current = true;
-          onTyping();
           if (saveTimer.current) window.clearTimeout(saveTimer.current);
           saveTimer.current = window.setTimeout(() => void flush(), 900);
         }}
@@ -426,6 +614,15 @@ function Row({
         }}
         onBlur={() => void flush()}
       />
+      {focused && words.length > 0 && (
+        <WordMap
+          seg={seg}
+          words={words}
+          currentTime={currentTime}
+          onSeek={onSeek}
+          onCommit={(s, e) => onSetTimes(seg, s, e)}
+        />
+      )}
       {seg.suspect && !seg.reviewed && focused && (
         <div
           className="lowconf"
@@ -490,6 +687,24 @@ function Row({
           >
             {hasNext ? "여기서 넘김" : "여기서 끝"}
           </button>
+          {words.length > 0 && (
+            <button
+              title="이 자막을 실제 발화 시작~끝에 자동으로 딱 맞춤 (앞뒤 침묵 제거)"
+              onClick={() => {
+                const inside = words.filter((w) => {
+                  const m = (w.start + w.end) / 2;
+                  return seg.start <= m && m < seg.end;
+                });
+                if (inside.length) {
+                  const ns = Math.min(...inside.map((w) => w.start));
+                  const ne = Math.max(...inside.map((w) => w.end));
+                  onSetTimes(seg, Math.round(ns * 1000) / 1000, Math.round(ne * 1000) / 1000);
+                }
+              }}
+            >
+              ⤢ 발화 맞춤
+            </button>
+          )}
         </span>
         <span className="structure">
           <button
@@ -544,6 +759,11 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ["Ctrl+\\"], label: "이 자막 처음부터 다시 재생", detail: "편집 중에도 동작" },
       { keys: ["Shift+Tab"], label: "3초 뒤로", detail: "놓친 부분 다시 듣기" },
       { keys: ["Alt+↑", "Alt+↓"], label: "이전 / 다음 자막으로 이동" },
+      {
+        keys: ["Alt+Shift+↑", "Alt+Shift+↓"],
+        label: "이전 / 다음 미검수 자막",
+        detail: "확인한 건 건너뛰고 볼 것만 이동",
+      },
     ],
   },
   {
@@ -583,16 +803,27 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
   const [lang, setLang] = useState("ko");
   const [exporting, setExporting] = useState(false);
   const [pauseOnType, setPauseOnType] = useState(true);
+  const [loopSeg, setLoopSeg] = useState(false);
   const [showKeys, setShowKeys] = useState(true);
   const [focusedId, setFocusedId] = useState<number | null>(null);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [statusMsg, setStatusMsg] = useState("");
+  const [findOpen, setFindOpen] = useState(false);
+  const [findText, setFindText] = useState("");
+  const [replText, setReplText] = useState("");
+  const [findMatches, setFindMatches] = useState<number | null>(null);
+  const [eta, setEta] = useState("");
+  const [celebrate, setCelebrate] = useState(false);
+  const [words, setWords] = useState<WordTime[]>([]);
   const { currentTime, playing, seekTo, seekBy, play, pause, playPause } = usePlayer(videoId);
 
   const rowsRef = useRef(new Map<number, RowHandle>());
   const focusedIdRef = useRef<number | null>(null);
   const segmentsRef = useRef<Segment[]>([]);
   const undoStackRef = useRef<UndoEntry[]>([]);
+  const paceRef = useRef<number[]>([]); // timestamps of recent confirms → pace
+  const prevReviewedRef = useRef(0);
+  const prevPctRef = useRef(0);
   segmentsRef.current = segments;
   undoStackRef.current = undoStack;
 
@@ -604,7 +835,22 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
       })
       .catch((e) => setError(String(e)));
     fetchLanguages().then(setLangs).catch(() => {});
+    fetchWords(videoId).then(setWords).catch(() => setWords([]));
   }, [videoId]);
+
+  // live match-count preview for find & replace (debounced)
+  useEffect(() => {
+    if (!findOpen || !findText.trim()) {
+      setFindMatches(null);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      replaceText(videoId, findText, "", false)
+        .then((r) => setFindMatches(r.matches))
+        .catch(() => setFindMatches(null));
+    }, 350);
+    return () => window.clearTimeout(t);
+  }, [findText, findOpen, videoId]);
 
   // 어떤 경로로 떠나도 수정 내용은 저장된다 (구조적 보장)
   async function flushAll() {
@@ -644,6 +890,12 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
   const activeSeg = useMemo(() => segments.find((s) => s.id === activeId), [segments, activeId]);
   const focusedSeg = useMemo(() => segments.find((s) => s.id === focusedId), [segments, focusedId]);
 
+  // loop the current segment's audio while editing (hands-free re-listen)
+  useEffect(() => {
+    if (!loopSeg || !playing || !focusedSeg) return;
+    if (currentTime >= focusedSeg.end - 0.04) seekTo(focusedSeg.start);
+  }, [currentTime, loopSeg, playing, focusedSeg, seekTo]);
+
   const nReviewed = segments.filter((s) => s.reviewed).length;
   const nRemaining = Math.max(0, segments.length - nReviewed);
   const nSafe = segments.filter((s) => s.safe && !s.reviewed).length;
@@ -655,6 +907,37 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
   useEffect(() => {
     if (lang !== "ko" && !koComplete) setLang("ko");
   }, [lang, koComplete]);
+
+  // review pace → soft ETA ("이 속도면 약 N분 남음"), and gentle milestone
+  // pulses at 25/50/75/100% — both cut the "endless list" fatigue without
+  // adding any new chrome (ETA rides the hero, milestone rides the statusbar).
+  useEffect(() => {
+    if (nReviewed > prevReviewedRef.current) {
+      const arr = paceRef.current;
+      arr.push(performance.now());
+      if (arr.length > 12) arr.shift();
+    }
+    prevReviewedRef.current = nReviewed;
+    const p = paceRef.current;
+    if (p.length >= 3 && nRemaining > 0) {
+      const per = (p[p.length - 1] - p[0]) / (p.length - 1);
+      const min = Math.round((per * nRemaining) / 60000);
+      setEta(`이 속도면 약 ${Math.max(1, min)}분 남음`);
+    } else {
+      setEta("");
+    }
+  }, [nReviewed, nRemaining]);
+
+  useEffect(() => {
+    const mark = [25, 50, 75, 100].find((m) => prevPctRef.current < m && reviewedPct >= m);
+    prevPctRef.current = reviewedPct;
+    if (mark) {
+      setStatusMsg(mark === 100 ? "모두 확인 완료 🎉 수고하셨어요" : `${mark}% 통과 — 좋아요 👏`);
+      setCelebrate(true);
+      const t = window.setTimeout(() => setCelebrate(false), 900);
+      return () => window.clearTimeout(t);
+    }
+  }, [reviewedPct]);
 
   function markFocused(id: number) {
     focusedIdRef.current = id;
@@ -688,6 +971,7 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
     seekTo(seg.start);
     window.setTimeout(() => rowsRef.current.get(seg.id)?.focus(), 0);
   }
+
 
   // replay the subtitle you're on, from its start (works while typing)
   function replayCurrent() {
@@ -740,9 +1024,6 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
 
   // ---- global keyboard workflow (Amara/YouTube Studio conventions)
   useEffect(() => {
-    function focusRow(id: number) {
-      rowsRef.current.get(id)?.focus();
-    }
     function currentRow(): Segment | undefined {
       const segs = segmentsRef.current;
       return (
@@ -797,17 +1078,30 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
         playPause();
         return;
       }
-      if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      // Alt+Shift+↑/↓ — jump to the prev/next UNREVIEWED segment (review loop)
+      if (e.altKey && e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+        e.preventDefault();
+        const segs = segmentsRef.current;
+        if (!segs.length) return;
+        const dir = e.key === "ArrowDown" ? 1 : -1;
+        const cur = currentRow();
+        const start = cur ? segs.findIndex((s) => s.id === cur.id) : dir === 1 ? -1 : segs.length;
+        for (let i = start + dir; i >= 0 && i < segs.length; i += dir) {
+          if (!segs[i].reviewed) {
+            focusSegment(segs[i]);
+            return;
+          }
+        }
+        return;
+      }
+      if (e.altKey && !e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
         e.preventDefault();
         const segs = segmentsRef.current;
         const cur = currentRow();
         if (!cur) return;
         const i = segs.findIndex((s) => s.id === cur.id);
         const next = segs[e.key === "ArrowDown" ? i + 1 : i - 1];
-        if (next) {
-          focusRow(next.id);
-          seekTo(next.start);
-        }
+        if (next) focusSegment(next);
         return;
       }
       if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
@@ -848,6 +1142,23 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
       segmentsRef.current = nextSegments;
       setSegments(nextSegments);
       setStatusMsg("시간 조정됨 - Ctrl+Z로 되돌릴 수 있습니다");
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  // set both bounds at once (speech-map drag / 발화 맞춤) — one undo step
+  async function setTimes(seg: Segment, start: number, end: number) {
+    try {
+      pushUndo("시간 맞춤");
+      await updateSegment(seg.id, {
+        start: Math.max(0, start),
+        end: Math.max(start + 0.1, end),
+      });
+      const nextSegments = await fetchSegments(videoId);
+      segmentsRef.current = nextSegments;
+      setSegments(nextSegments);
+      setStatusMsg("발화 구간에 맞췄습니다 - Ctrl+Z로 되돌릴 수 있습니다");
     } catch (e) {
       setError(String(e));
     }
@@ -898,6 +1209,22 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
     setSegments(next);
   }
 
+  async function applyReplace() {
+    if (!findText.trim()) return;
+    try {
+      const r = await replaceText(videoId, findText, replText, true);
+      await refreshSegments();
+      setFindMatches(null);
+      setStatusMsg(
+        r.matches
+          ? `"${findText}" → "${replText || "(삭제)"}" · 자막 ${r.segments}개에서 ${r.matches}곳 바꿨습니다`
+          : "바꿀 내용을 찾지 못했습니다",
+      );
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   async function runRepair() {
     await flushAll();
     try {
@@ -911,6 +1238,21 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
           ? `${parts.join(", ")} (유튜브 자막 기반, 검수 필요)` +
               (r.no_caption ? ` · 자막 없는 ${r.no_caption}곳은 직접 수정` : "")
           : "복구·보충할 구간을 찾지 못했습니다",
+      );
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function runTighten() {
+    await flushAll();
+    try {
+      const r = await tightenTiming(videoId);
+      await refreshSegments();
+      setStatusMsg(
+        r.tightened
+          ? `${r.tightened}개 자막을 실제 발화 구간에 맞춰 다듬었습니다 — 침묵 구간엔 자막이 사라집니다`
+          : "이미 발화 구간에 맞게 다듬어져 있습니다",
       );
     } catch (e) {
       setError(String(e));
@@ -1006,14 +1348,27 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
           <button className="pc-btn" title="3초 앞으로" onClick={() => seekBy(3)}>
             3초 ⟳
           </button>
-          <label className="pc-toggle" title="유튜브 스튜디오처럼 타이핑 중 영상 자동 정지">
-            <input
-              type="checkbox"
-              checked={pauseOnType}
-              onChange={(e) => setPauseOnType(e.target.checked)}
-            />
-            입력 중 멈춤
-          </label>
+          <div className="pc-settings">
+            <label className="pc-toggle" title="편집 중인 구간의 소리를 반복 재생 (되감기 없이 다시 듣기)">
+              <input
+                type="checkbox"
+                checked={loopSeg}
+                onChange={(e) => setLoopSeg(e.target.checked)}
+              />
+              🔁 구간반복
+            </label>
+            <label
+              className="pc-toggle"
+              title="구간을 클릭해 편집을 시작할 때 영상을 한 번 멈춤 (타이핑·백스페이스로는 안 멈춰서 재생·구간반복 들으며 편집 가능)"
+            >
+              <input
+                type="checkbox"
+                checked={pauseOnType}
+                onChange={(e) => setPauseOnType(e.target.checked)}
+              />
+              편집 시작 시 멈춤
+            </label>
+          </div>
         </div>
         <div className="orientation">
           <div className="orientation-line">
@@ -1060,7 +1415,7 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
         </div>
 
         {/* momentum hero: progress + the one primary action */}
-        <div className="flow-hero">
+        <div className={"flow-hero" + (celebrate ? " celebrate" : "")}>
           <div className="flow-progress">
             <div className="flow-nums">
               <strong>{nReviewed}</strong>
@@ -1071,7 +1426,8 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
               <span style={{ width: `${reviewedPct}%` }} />
             </div>
             <div className="flow-remain">
-              {nRemaining ? `${nRemaining}개 남음` : "모두 확인 🎉"}
+              <span>{nRemaining ? `${nRemaining}개 남음` : "모두 확인 🎉"}</span>
+              {eta && <em className="flow-eta">{eta}</em>}
             </div>
           </div>
           <button
@@ -1095,6 +1451,13 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
               ✅ 안심 {nSafe}개 확인
             </button>
           )}
+          <button
+            className="tool"
+            title="자막을 실제 발화 시작~끝 구간에 딱 맞춰 다듬어 침묵 구간엔 자막이 안 보이게 함 (텍스트·검수 상태는 그대로, API 사용 안 함)"
+            onClick={() => void runTighten()}
+          >
+            ✂ 무음 다듬기
+          </button>
           <button
             className="tool"
             title="음성인식이 놓치거나 잘못 뱉은 구간을 유튜브 자막으로 복구·보충 (API 사용 안 함)"
@@ -1171,6 +1534,64 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
         </div>
       </div>
       <div className="right">
+        {lang === "ko" && (
+          <div className={"findbar" + (findOpen ? " open" : "")}>
+            {findOpen ? (
+              <>
+                <input
+                  className="find-in"
+                  placeholder="찾을 내용"
+                  value={findText}
+                  autoFocus
+                  onChange={(e) => setFindText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && findMatches) void applyReplace();
+                    if (e.key === "Escape") setFindOpen(false);
+                  }}
+                />
+                <span className="find-arrow">→</span>
+                <input
+                  className="find-in"
+                  placeholder="바꿀 내용 (비우면 삭제)"
+                  value={replText}
+                  onChange={(e) => setReplText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && findMatches) void applyReplace();
+                    if (e.key === "Escape") setFindOpen(false);
+                  }}
+                />
+                <span className="find-count">
+                  {findText.trim() ? (findMatches === null ? "…" : `${findMatches}곳`) : ""}
+                </span>
+                <button
+                  className="find-apply"
+                  disabled={!findMatches}
+                  onClick={() => void applyReplace()}
+                >
+                  모두 바꾸기
+                </button>
+                <button
+                  className="find-close"
+                  title="닫기 (Esc)"
+                  onClick={() => {
+                    setFindOpen(false);
+                    setFindMatches(null);
+                  }}
+                >
+                  ✕
+                </button>
+              </>
+            ) : (
+              <button
+                className="find-toggle"
+                title="반복되는 오인식을 전체 자막에서 한 번에 교정"
+                onClick={() => setFindOpen(true)}
+              >
+                🔎 찾기·바꾸기
+              </button>
+            )}
+          </div>
+        )}
         {lang !== "ko" ? (
           <TranslateReview
             videoId={videoId}
@@ -1188,6 +1609,7 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
               focused={seg.id === focusedId}
               currentTime={currentTime}
               hasNext={segments.some((s) => s.job_id === seg.job_id && s.idx === seg.idx + 1)}
+              words={words}
               register={(h) => {
                 if (h) rowsRef.current.set(seg.id, h);
                 else rowsRef.current.delete(seg.id);
@@ -1195,12 +1617,14 @@ export function Editor({ videoId, onBack }: { videoId: string; onBack: () => voi
               onSeek={seekTo}
               onSave={save}
               onTime={timeChange}
+              onSetTimes={setTimes}
               onTiming={timing}
               onStructure={structure}
               onTyping={() => {
                 if (pauseOnType && playing) pause();
               }}
               onFocusRow={markFocused}
+              onOpenRow={focusSegment}
             />
           ))
         )}

@@ -215,6 +215,12 @@ class SegmentUpdate(BaseModel):
     reviewed: bool | None = None
 
 
+class ReplaceBody(BaseModel):
+    find: str
+    replace: str = ""
+    apply: bool = False  # False = preview count only
+
+
 class SegmentSnapshot(BaseModel):
     id: int | None = None
     idx: int
@@ -348,6 +354,44 @@ def confirm_safe(video_id: str) -> dict:
             session.add(job)
         session.commit()
     return {"confirmed": confirmed}
+
+
+@app.post("/api/jobs/{video_id}/replace")
+def replace_text(video_id: str, body: ReplaceBody) -> dict:
+    """Find & replace across every subtitle in one shot.
+
+    A lecture repeats the same mis-hear many times; fixing them one by one is
+    the biggest source of review fatigue. `apply=False` returns a match count
+    for preview; `apply=True` performs the replacement on each segment's working
+    text. Deterministic, no API. Review flags are left untouched.
+    """
+    find = body.find
+    if not find:
+        raise HTTPException(400, "찾을 내용을 입력하세요")
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+        segs = session.exec(
+            select(Segment).where(Segment.job_id == job.id)
+        ).all()
+        matches = 0
+        seg_hits = 0
+        for seg in segs:
+            work = seg.text_final or seg.text_llm or seg.text_whisper
+            n = work.count(find)
+            if not n:
+                continue
+            matches += n
+            seg_hits += 1
+            if body.apply:
+                seg.text_final = work.replace(find, body.replace)
+                session.add(seg)
+        if body.apply and seg_hits:
+            job.status, job.updated_at = "reviewing", utcnow()
+            session.add(job)
+            session.commit()
+    return {"matches": matches, "segments": seg_hits, "applied": body.apply}
 
 
 @app.post("/api/jobs/{video_id}/segments/restore")
@@ -951,6 +995,89 @@ def repair_stt(video_id: str) -> dict:
             session.add(job)
         session.commit()
     return {"repaired": repaired, "no_caption": no_caption, "filled": filled}
+
+
+@app.get("/api/jobs/{video_id}/words")
+def get_words(video_id: str) -> dict:
+    """Per-word timestamps from the cached STT run (read-only).
+
+    Powers the editor's speech map: instead of a waveform (the YouTube iframe
+    gives us no audio), we draw each recognized word as a block on a mini
+    timeline so the reviewer can *see* where speech and silence are and snap
+    subtitle boundaries onto real word edges. Empty list for seed-imported
+    videos that never ran local STT.
+    """
+    import json as _json
+
+    stt_path = JOBS_DIR / video_id / "stt.json"
+    if not stt_path.exists():
+        return {"words": []}
+    raw = _json.loads(stt_path.read_text(encoding="utf-8"))
+    words = [
+        {"start": float(w["start"]), "end": float(w["end"]), "word": w["word"]}
+        for s in raw
+        for w in s.get("words", [])
+        if float(w["end"]) > float(w["start"])
+    ]
+    words.sort(key=lambda w: w["start"])
+    return {"words": words}
+
+
+@app.post("/api/jobs/{video_id}/tighten")
+def tighten_timing(video_id: str) -> dict:
+    """Snap every subtitle's start/end to the words actually spoken in its span.
+
+    Trims the leading/trailing silence that made a subtitle linger on screen
+    through a quiet stretch: it now appears when the speaker starts and clears
+    when they stop, leaving true gaps between subtitles. Non-destructive — only
+    start/end change; text, review status and segment count are untouched. Uses
+    the cached per-word timestamps in stt.json, so it costs no GPU/API and is
+    safe to run at any time, even on a finished video.
+    """
+    import json as _json
+
+    stt_path = JOBS_DIR / video_id / "stt.json"
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+        if not stt_path.exists():
+            raise HTTPException(
+                400,
+                "이 영상은 음성인식 원본(stt.json)이 없어 타이밍을 다듬을 수 없습니다.",
+            )
+        raw = _json.loads(stt_path.read_text(encoding="utf-8"))
+        words: list[tuple[float, float]] = []
+        for s in raw:
+            for w in s.get("words", []):
+                st, en = float(w["start"]), float(w["end"])
+                if en > st:
+                    words.append((st, en))
+        words.sort()
+
+        segs = session.exec(
+            select(Segment).where(Segment.job_id == job.id).order_by(Segment.start)
+        ).all()
+        tightened = 0
+        min_dur = 0.30  # never collapse a cue below this so it stays readable
+        for seg in segs:
+            # assign each spoken word to exactly one segment by its midpoint,
+            # then clamp the segment to the first/last word it actually contains
+            inside = [
+                (st, en) for (st, en) in words if seg.start <= (st + en) / 2 < seg.end
+            ]
+            if not inside:
+                continue  # e.g. a YouTube gap-fill row (whisper heard nothing)
+            ns = min(st for st, _ in inside)
+            ne = max(en for _, en in inside)
+            if ne - ns < min_dur:
+                ne = ns + min_dur
+            if abs(ns - seg.start) > 0.05 or abs(ne - seg.end) > 0.05:
+                seg.start, seg.end = ns, ne
+                session.add(seg)
+                tightened += 1
+        session.commit()
+    return {"tightened": tightened, "total": len(segs)}
 
 
 @app.post("/api/jobs/{video_id}/absorb")

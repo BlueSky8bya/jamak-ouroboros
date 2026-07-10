@@ -55,6 +55,21 @@ export async function createJob(url: string): Promise<{ video_id: string; status
   return r.json();
 }
 
+export async function replaceText(
+  videoId: string,
+  find: string,
+  replace: string,
+  apply: boolean,
+): Promise<{ matches: number; segments: number; applied: boolean }> {
+  const r = await fetch(`/api/jobs/${videoId}/replace`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ find, replace, apply }),
+  });
+  if (!r.ok) throw new Error((await r.json()).detail ?? `replace: ${r.status}`);
+  return r.json();
+}
+
 export async function confirmSafe(videoId: string): Promise<{ confirmed: number }> {
   const r = await fetch(`/api/jobs/${videoId}/confirm-safe`, { method: "POST" });
   if (!r.ok) throw new Error((await r.json()).detail ?? `confirm-safe: ${r.status}`);
@@ -117,6 +132,26 @@ export async function repairStt(
   const r = await fetch(`/api/jobs/${videoId}/repair-stt`, { method: "POST" });
   if (!r.ok) throw new Error((await r.json()).detail ?? `repair: ${r.status}`);
   return r.json();
+}
+
+export async function tightenTiming(
+  videoId: string,
+): Promise<{ tightened: number; total: number }> {
+  const r = await fetch(`/api/jobs/${videoId}/tighten`, { method: "POST" });
+  if (!r.ok) throw new Error((await r.json()).detail ?? `tighten: ${r.status}`);
+  return r.json();
+}
+
+export interface WordTime {
+  start: number;
+  end: number;
+  word: string;
+}
+
+export async function fetchWords(videoId: string): Promise<WordTime[]> {
+  const r = await fetch(`/api/jobs/${videoId}/words`);
+  if (!r.ok) throw new Error(`words: ${r.status}`);
+  return (await r.json()).words;
 }
 
 export interface TranslationRow {
