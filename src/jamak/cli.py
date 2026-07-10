@@ -132,10 +132,25 @@ def run(
 
         stt_segments = transcribe(res.audio_path, res.job_dir, prompt, cb)
 
-    from .pipeline.split import split_segments
+    from .pipeline.split import (
+        DEFAULT_MAX_CHARS,
+        DEFAULT_SOFT_CHARS,
+        learned_line_budget,
+        split_segments,
+    )
 
+    budget = learned_line_budget()
+    if budget:
+        console.print(
+            f"subtitle length learned from reviews: soft {budget[0]} / hard {budget[1]} chars"
+        )
+    else:
+        console.print(
+            f"subtitle length: default soft {DEFAULT_SOFT_CHARS} / hard {DEFAULT_MAX_CHARS} "
+            "(learns after enough review)"
+        )
     n_raw = len(stt_segments)
-    stt_segments = split_segments(stt_segments)
+    stt_segments = split_segments(stt_segments, budget)
     n_split = len(stt_segments)
 
     from .pipeline.noise import filter_standalone_audience_responses

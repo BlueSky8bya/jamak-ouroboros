@@ -11,10 +11,10 @@ from __future__ import annotations
 import hashlib
 import json
 
-from sqlmodel import select
+from sqlmodel import or_, select
 
 from ..config import TRANSLATE_MODEL
-from ..db import Translation, get_session
+from ..db import Segment, Translation, get_session
 
 # display order = rough global usage order (user-facing list)
 # English labels here are the translation TARGET names given to the model.
@@ -74,24 +74,60 @@ def _hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+def translation_examples(lang: str, max_pairs: int = 14) -> list[tuple[str, str]]:
+    """Human-reviewed/edited (Korean, translation) pairs for this language.
+
+    Cross-video: as reviewers confirm translations, these become few-shot
+    examples that teach terminology and tone to future translations —
+    the same ouroboros loop the Korean correction stage uses.
+    """
+    with get_session() as session:
+        rows = session.exec(
+            select(Translation, Segment)
+            .join(Segment, Translation.segment_id == Segment.id)
+            .where(
+                Translation.lang == lang,
+                or_(Translation.reviewed == True, Translation.edited == True),  # noqa: E712
+            )
+        ).all()
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for t, seg in rows:
+        ko = (seg.text_final or seg.text_llm or seg.text_whisper).strip()
+        tx = t.text.strip()
+        if ko and tx and ko not in seen:
+            seen.add(ko)
+            out.append((ko, tx))
+    # shortest first tend to be the term-defining lines; keep a diverse set
+    out.sort(key=lambda p: len(p[0]))
+    return out[:max_pairs]
+
+
 def _system_prompt(lang: str) -> str:
-    return "\n".join(
-        [
-            f"당신은 한국어 강연 자막을 {LANGUAGES[lang]}(으)로 옮기는 전문 자막 번역가입니다.",
+    parts = [
+        f"당신은 한국어 강연 자막을 {LANGUAGES[lang]}(으)로 옮기는 전문 자막 번역가입니다.",
+        "",
+        "번역 대상: 허경영 강연 (구어체, 종교/철학 주제, 청중과의 문답 포함).",
+        "",
+        "규칙:",
+        "1. 문맥에 맞게 자연스럽게 번역한다. 직역보다 강연의 말맛과 의미 전달 우선.",
+        "2. 자막이다 — 한 세그먼트의 번역이 원문보다 크게 길어지지 않게 간결히.",
+        "3. 고유명사(허경영, 하늘궁 등)는 표준 로마자/현지 표기로 일관되게 옮기고,",
+        "   처음 등장 시 필요하면 짧은 의미 병기를 허용한다.",
+        "4. 성경/불교/유교 용어는 해당 언어권의 통용 표현을 쓴다 (예: 에스더 → Esther).",
+        "5. 존댓말/구어 어투는 대상 언어의 자연스러운 강연체로.",
+        "6. 모든 세그먼트를 translations에 포함한다. idx는 입력 그대로.",
+        "7. 내용을 창작하거나 요약하지 않는다.",
+    ]
+    examples = translation_examples(lang)
+    if examples:
+        parts += [
             "",
-            "번역 대상: 허경영 강연 (구어체, 종교/철학 주제, 청중과의 문답 포함).",
-            "",
-            "규칙:",
-            "1. 문맥에 맞게 자연스럽게 번역한다. 직역보다 강연의 말맛과 의미 전달 우선.",
-            "2. 자막이다 — 한 세그먼트의 번역이 원문보다 크게 길어지지 않게 간결히.",
-            "3. 고유명사(허경영, 하늘궁 등)는 표준 로마자/현지 표기로 일관되게 옮기고,",
-            "   처음 등장 시 필요하면 짧은 의미 병기를 허용한다.",
-            "4. 성경/불교/유교 용어는 해당 언어권의 통용 표현을 쓴다 (예: 에스더 → Esther).",
-            "5. 존댓말/구어 어투는 대상 언어의 자연스러운 강연체로.",
-            "6. 모든 세그먼트를 translations에 포함한다. idx는 입력 그대로.",
-            "7. 내용을 창작하거나 요약하지 않는다.",
+            "## 과거 검수에서 사람이 확정한 번역 (용어·표기·어투를 이대로 따를 것)",
         ]
-    )
+        for ko, tx in examples:
+            parts.append(f'- "{ko}" → "{tx}"')
+    return "\n".join(parts)
 
 
 def translate_texts(
