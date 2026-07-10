@@ -776,6 +776,19 @@ img.broken { opacity: 0; }
   transform: scale(1.045);
 }
 
+.thumb-form {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 1;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f43f5e, #ec4899);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
 .thumb-dur {
   position: absolute;
   right: 8px;
@@ -1278,6 +1291,9 @@ img.broken { opacity: 0; }
 .strip-handle.start::after { background: color-mix(in srgb, var(--teal) 70%, var(--line-strong)); }
 .strip-handle.start:hover::after,
 .strip-handle.start.dragging::after { background: var(--teal); }
+/* non-active cues' handles are dimmer until hovered (still fully draggable) */
+.strip-handle.faint::after { opacity: 0.38; }
+.strip-handle.faint:hover::after { opacity: 1; }
 
 .strip-drag-time {
   position: absolute;

@@ -14,6 +14,8 @@ const SORT_LABEL: Record<SortField, string> = {
   title: "제목",
 };
 
+const SHORT_MAX = 60; // <= this many seconds counts as a Short
+
 type StatusKey = "all" | "text" | "timing" | "translate" | "done" | "running";
 const STATUS_FILTERS: { key: StatusKey; label: string }[] = [
   { key: "all", label: "전체" },
@@ -180,8 +182,15 @@ function JobCard({
           onError={(e) => e.currentTarget.classList.add("broken")}
         />
         {j.running && <span className="thumb-scan" />}
+        {j.duration_seconds > 0 && j.duration_seconds <= SHORT_MAX && (
+          <span className="thumb-form">쇼츠</span>
+        )}
         {j.duration_seconds > 0 && (
-          <span className="thumb-dur">{Math.round(j.duration_seconds / 60)}분</span>
+          <span className="thumb-dur">
+            {j.duration_seconds < 60
+              ? `${Math.round(j.duration_seconds)}초`
+              : `${Math.round(j.duration_seconds / 60)}분`}
+          </span>
         )}
         {openable && !j.ko_complete && (
           <span className="thumb-prog">
@@ -309,6 +318,9 @@ export function App() {
   const [view, setView] = useState<"grid" | "list">(
     () => (localStorage.getItem("jamak.view") === "list" ? "list" : "grid"),
   );
+  const [form, setForm] = useState<"all" | "short" | "long">(
+    () => (localStorage.getItem("jamak.form") as "all" | "short" | "long") || "all",
+  );
   const [query, setQuery] = useState("");
   const [showHelp, setShowHelp] = useState(false);
   const [cursor, setCursor] = useState(-1); // keyboard-selected card index
@@ -324,6 +336,7 @@ export function App() {
   useEffect(() => localStorage.setItem("jamak.sort", sort), [sort]);
   useEffect(() => localStorage.setItem("jamak.dir", dir), [dir]);
   useEffect(() => localStorage.setItem("jamak.view", view), [view]);
+  useEffect(() => localStorage.setItem("jamak.form", form), [form]);
 
   async function refresh() {
     try {
@@ -480,6 +493,9 @@ export function App() {
     else if (status === "running") list = list.filter((j) => j.running);
     if (filter !== "all")
       list = list.filter((j) => j.languages.some((l) => l.code === filter));
+    if (form === "short")
+      list = list.filter((j) => j.duration_seconds > 0 && j.duration_seconds <= SHORT_MAX);
+    else if (form === "long") list = list.filter((j) => j.duration_seconds > SHORT_MAX);
     list.sort((a, b) => {
       let cmp = 0;
       if (sort === "title") {
@@ -502,7 +518,7 @@ export function App() {
       return dir === "desc" ? -cmp : cmp;
     });
     return list;
-  }, [jobs, filter, status, sort, dir, query]);
+  }, [jobs, filter, status, form, sort, dir, query]);
 
   const resume = useMemo(() => {
     const wip = jobs.filter((j) => j.segments > 0 && !j.ko_complete && !j.running);
@@ -556,11 +572,13 @@ export function App() {
   const overallPct = totalSegments ? Math.round((totalReviewed / totalSegments) * 100) : 0;
   const resumePct = resume ? Math.round((resume.reviewed / resume.segments) * 100) : 0;
   const previewId = parseVideoId(url);
-  const filtersActive = status !== "all" || filter !== "all" || query.trim() !== "";
+  const filtersActive =
+    status !== "all" || filter !== "all" || form !== "all" || query.trim() !== "";
 
   function resetFilters() {
     setStatus("all");
     setFilter("all");
+    setForm("all");
     setQuery("");
   }
 
@@ -733,6 +751,14 @@ export function App() {
             }
           }}
         />
+        <label>
+          형식
+          <select value={form} onChange={(e) => setForm(e.target.value as typeof form)}>
+            <option value="all">전체</option>
+            <option value="short">쇼츠</option>
+            <option value="long">롱폼</option>
+          </select>
+        </label>
         {allLangs.length > 0 && (
           <label>
             번역 언어

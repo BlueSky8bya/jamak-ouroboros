@@ -156,12 +156,13 @@ function TimingStrip({
         {local.map((s) => {
           const left = clamp(((s.start - start) / span) * 100, 0, 100);
           const right = clamp(((s.end - start) / span) * 100, 0, 100);
-          const hasNext = segments.some((o) => o.job_id === s.job_id && o.idx === s.idx + 1);
           const isFocused = s.id === focusedId;
           const isActive = s.id === activeId;
-          // the cue being edited, playing, OR nearest-behind-the-playhead (gap /
-          // tail) gets its own draggable start AND end handles
-          const showBoth = isFocused || s.id === handleTargetId;
+          // every visible cue is draggable on both edges — not just the active
+          // one — so you can retime any nearby subtitle without selecting it.
+          // The focused/active/nearest cue's handles are emphasised, the rest dim.
+          const emphasised = isFocused || isActive || s.id === handleTargetId;
+          const dim = emphasised ? "" : " faint";
           const pct = (t: number) => clamp(((t - start) / span) * 100, 0, 100);
           const endPos = drag?.segId === s.id && drag.which === "end" ? pct(drag.time) : right;
           const startPos = drag?.segId === s.id && drag.which === "start" ? pct(drag.time) : left;
@@ -176,28 +177,26 @@ function TimingStrip({
                 aria-label={`자막 ${segmentNo(segments, s.id)}로 이동`}
                 onClick={() => onSeek(s.start)}
               />
-              {showBoth && (
-                <span
-                  className={
-                    "strip-handle start" +
-                    (drag?.segId === s.id && drag.which === "start" ? " dragging" : "")
-                  }
-                  style={{ left: `${startPos}%` }}
-                  title="드래그해서 이 자막의 시작을 조절"
-                  onPointerDown={(e) => startDrag(e, s, "start")}
-                />
-              )}
-              {(hasNext || showBoth) && (
-                <span
-                  className={
-                    "strip-handle" +
-                    (drag?.segId === s.id && drag.which === "end" ? " dragging" : "")
-                  }
-                  style={{ left: `${endPos}%` }}
-                  title="드래그해서 이 자막의 끝을 조절 (겹치면 옆 자막에서 멈춤)"
-                  onPointerDown={(e) => startDrag(e, s, "end")}
-                />
-              )}
+              <span
+                className={
+                  "strip-handle start" +
+                  dim +
+                  (drag?.segId === s.id && drag.which === "start" ? " dragging" : "")
+                }
+                style={{ left: `${startPos}%` }}
+                title="드래그해서 이 자막의 시작을 조절"
+                onPointerDown={(e) => startDrag(e, s, "start")}
+              />
+              <span
+                className={
+                  "strip-handle" +
+                  dim +
+                  (drag?.segId === s.id && drag.which === "end" ? " dragging" : "")
+                }
+                style={{ left: `${endPos}%` }}
+                title="드래그해서 이 자막의 끝을 조절 (겹치면 옆 자막에서 멈춤)"
+                onPointerDown={(e) => startDrag(e, s, "end")}
+              />
             </div>
           );
         })}
