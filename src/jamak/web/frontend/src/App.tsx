@@ -900,7 +900,9 @@ export function App() {
           </div>
           {runningCount > 0 && (
             <div className="wstat live">
-              <strong>{runningCount}</strong>
+              <strong>
+                <span className="wstat-dot" aria-label="처리 중" />
+              </strong>
               <span>처리 중</span>
             </div>
           )}

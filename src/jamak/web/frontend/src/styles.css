@@ -555,6 +555,16 @@ button {
 .pill.on .pill-dot { background: #fff; }
 @keyframes pill-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 @media (prefers-reduced-motion: reduce) { .pill .pill-dot { animation: none; } }
+/* '처리 중' dashboard stat: a pulsing dot instead of the always-1 count */
+.wstat-dot {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--teal);
+  animation: pill-pulse 1.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .wstat-dot { animation: none; } }
 
 /* ===== view toggle + reset chip ===== */
 .view-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
