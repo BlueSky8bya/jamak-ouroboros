@@ -568,9 +568,23 @@ button {
 
 /* ===== .srt import: card drop target + preview modal ===== */
 .job-card.drag-over {
-  outline: 2px dashed var(--teal);
-  outline-offset: -4px;
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--teal) 20%, transparent);
+  /* inset ring so the highlight isn't clipped by the card's own overflow or a
+     neighbouring card (an outer glow got cut off top/bottom) */
+  box-shadow: inset 0 0 0 3px var(--teal);
+}
+.job-card.drag-over::after {
+  content: "📄 여기에 놓기";
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 14px;
+  color: #fff;
+  background: color-mix(in srgb, var(--teal) 30%, rgba(0, 0, 0, 0.55));
+  pointer-events: none;
+  border-radius: inherit;
 }
 .srt-modal-back {
   position: fixed;
@@ -852,6 +866,7 @@ img.broken { opacity: 0; }
 }
 
 .job-card {
+  position: relative;
   display: grid;
   grid-template-rows: auto 1fr;
   min-height: 280px;

@@ -241,9 +241,10 @@ function JobCard({
           ? (e) => {
               e.preventDefault();
               setDragOver(false);
-              const f = Array.from(e.dataTransfer.files).find((x) =>
-                x.name.toLowerCase().endsWith(".srt"),
-              );
+              const files = Array.from(e.dataTransfer.files);
+              // prefer a .srt; otherwise pass the first file so onSrtFile can
+              // reject it with a clear message (not a silent no-op)
+              const f = files.find((x) => x.name.toLowerCase().endsWith(".srt")) ?? files[0];
               if (f) onSrtFile(j.video_id, f);
             }
           : undefined
@@ -601,6 +602,10 @@ export function App() {
   // DB write yet, so a wrong-video drop is cancelled before anything changes)
   async function onSrtFile(videoId: string, file: File) {
     setError("");
+    if (!file.name.toLowerCase().endsWith(".srt")) {
+      setError(`.srt 파일만 올릴 수 있어요 (받은 파일: ${file.name})`);
+      return;
+    }
     try {
       const content = await file.text();
       const preview = await importSrt(videoId, content, file.name, true);
