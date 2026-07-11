@@ -169,6 +169,23 @@ button {
   word-break: keep-all;
 }
 
+.queue-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--text);
+}
+.queue-bar .queue-spin { animation: queue-spin 1.4s linear infinite; display: inline-block; }
+.queue-bar .queue-txt strong { color: var(--blue); }
+@keyframes queue-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .queue-bar .queue-spin { animation: none; } }
+
 .url-box {
   display: grid;
   grid-template-columns: 1fr auto;

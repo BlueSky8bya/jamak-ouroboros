@@ -1,5 +1,15 @@
 import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
-import { createJob, exportUrl, fetchJobs, fetchMe, logout, retranscribe, type Me } from "./api";
+import {
+  createJob,
+  exportUrl,
+  fetchJobs,
+  fetchMe,
+  fetchQueue,
+  logout,
+  retranscribe,
+  type Me,
+  type QueueItem,
+} from "./api";
 import { Login } from "./Login";
 import { Dropdown } from "./Dropdown";
 import { Editor } from "./Editor";
@@ -334,6 +344,7 @@ function JobCard({
 
 export function App() {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   // who am I? drives the login gate + admin-only pipeline UI. Until /api/me
   // answers we render nothing (avoids a flash of the app before the login form).
@@ -392,12 +403,13 @@ export function App() {
 
   async function refresh() {
     try {
-      const list = await fetchJobs();
+      const [list, q] = await Promise.all([fetchJobs(), fetchQueue()]);
       setJobs(list);
+      setQueue(q);
       setLoaded(true);
-      const anyRunning = list.some((j) => j.running);
+      const busy = list.some((j) => j.running) || q.length > 0;
       if (timer.current) window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(refresh, anyRunning ? 3000 : 30000);
+      timer.current = window.setTimeout(refresh, busy ? 3000 : 30000);
     } catch (e) {
       setError(String(e));
       setLoaded(true);
@@ -735,6 +747,20 @@ export function App() {
               <span>이 영상으로 자막을 만듭니다 · Enter</span>
             </div>
           )}
+        </div>
+      )}
+
+      {queue.length > 0 && (
+        <div className="queue-bar">
+          <span className="queue-spin" aria-hidden>
+            ⏳
+          </span>
+          <span className="queue-txt">
+            처리 중{" "}
+            <strong>{queue.find((q) => q.status === "processing")?.video_id ?? "—"}</strong>
+            {queue.filter((q) => q.status === "queued").length > 0 &&
+              ` · 대기 ${queue.filter((q) => q.status === "queued").length}개 (한 번에 하나씩 처리)`}
+          </span>
         </div>
       )}
       {error && <div className="error">{error}</div>}

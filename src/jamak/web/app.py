@@ -233,15 +233,90 @@ def _require_pipeline() -> None:
         )
 
 
-# video_id -> running pipeline process (started from the web UI)
-_running: dict[str, subprocess.Popen] = {}
+# Sequential pipeline queue. A single 8 GB GPU can't transcribe two videos at
+# once (VRAM), so submitted videos run ONE AT A TIME, back to back — parallel STT
+# on one GPU only OOMs / slows both. Videos are ingested on the local machine, so
+# this queue lives in that serve process.
+import threading
+import time
+
+_QLOCK = threading.Lock()
+_queue: list[dict] = []  # waiting: [{"video_id","url","fresh"}]
+_current: "dict | None" = None  # running: {"video_id","url","fresh","proc"}
+
+
+def _spawn_run(url: str, fresh: bool) -> subprocess.Popen:
+    cmd = ["uv", "run", "jamak", "run", url]
+    if fresh:
+        cmd.append("--fresh")
+    return subprocess.Popen(
+        cmd,
+        cwd=PROJECT_ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+    )
+
+
+def _pump() -> None:
+    """Start the next queued video if nothing is currently processing."""
+    global _current
+    with _QLOCK:
+        if _current is not None:
+            if _current["proc"].poll() is None:
+                return  # still running -> hold the GPU
+            _current = None  # finished
+        if _queue:
+            item = _queue.pop(0)
+            item["proc"] = _spawn_run(item["url"], item.get("fresh", False))
+            _current = item
+
+
+def _enqueue(video_id: str, url: str, fresh: bool = False) -> str:
+    """Add a video to the queue (deduped). Returns 'processing' or 'queued'."""
+    with _QLOCK:
+        if _current is not None and _current["video_id"] == video_id:
+            return "processing"
+        if any(it["video_id"] == video_id for it in _queue):
+            return "queued"
+        _queue.append({"video_id": video_id, "url": url, "fresh": fresh})
+    _pump()
+    with _QLOCK:
+        return "processing" if (_current and _current["video_id"] == video_id) else "queued"
 
 
 def _running_ids() -> set[str]:
-    dead = [vid for vid, p in _running.items() if p.poll() is not None]
-    for vid in dead:
-        _running.pop(vid, None)
-    return set(_running.keys())
+    """The one video currently being processed (a set, for existing callers)."""
+    _pump()
+    with _QLOCK:
+        return {_current["video_id"]} if _current is not None else set()
+
+
+def _queue_state() -> list[dict]:
+    _pump()
+    with _QLOCK:
+        out: list[dict] = []
+        if _current is not None:
+            out.append({"video_id": _current["video_id"], "status": "processing"})
+        for i, it in enumerate(_queue):
+            out.append(
+                {"video_id": it["video_id"], "status": "queued", "position": i + 1}
+            )
+        return out
+
+
+# background pump so the next video starts even when nobody is polling the UI
+if not _NO_PIPELINE:
+
+    def _queue_worker() -> None:
+        while True:
+            try:
+                _pump()
+            except Exception:
+                pass
+            time.sleep(2)
+
+    threading.Thread(target=_queue_worker, daemon=True).start()
 
 
 class JobCreate(BaseModel):
@@ -286,7 +361,7 @@ def create_job(request: Request, body: JobCreate) -> dict:
         raise HTTPException(400, str(e))
 
     if video_id in _running_ids():
-        return {"video_id": video_id, "status": "running"}
+        return {"video_id": video_id, "status": "processing"}
 
     # a re-run replaces all segments — never silently destroy review work
     with get_session() as session:
@@ -298,15 +373,15 @@ def create_job(request: Request, body: JobCreate) -> dict:
                 f"uv run jamak run <url> (검수 내용이 초기화됩니다)",
             )
 
-    proc = subprocess.Popen(
-        ["uv", "run", "jamak", "run", body.url],
-        cwd=PROJECT_ROOT,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-    )
-    _running[video_id] = proc
-    return {"video_id": video_id, "status": "starting"}
+    # queue it — a single GPU processes videos one at a time (see _pump)
+    status = _enqueue(video_id, body.url)
+    return {"video_id": video_id, "status": status}
+
+
+@app.get("/api/queue")
+def queue_state() -> list[dict]:
+    """Pipeline queue: the video processing now + any waiting behind it."""
+    return _queue_state()
 
 
 @app.post("/api/jobs/{video_id}/retranscribe")
@@ -354,17 +429,9 @@ def retranscribe(request: Request, video_id: str) -> dict:
     if not url:
         raise HTTPException(400, "URL 정보가 없어 재인식할 수 없습니다.")
 
-    proc = subprocess.Popen(
-        # --fresh: ignore the cached stt.json so the re-roll actually
-        # re-transcribes with the current glossary/hotwords
-        ["uv", "run", "jamak", "run", url, "--fresh"],
-        cwd=PROJECT_ROOT,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-    )
-    _running[video_id] = proc
-    return {"video_id": video_id, "status": "starting"}
+    # --fresh re-roll goes through the same one-at-a-time GPU queue
+    status = _enqueue(video_id, url, fresh=True)
+    return {"video_id": video_id, "status": status}
 
 
 @app.get("/api/jobs")

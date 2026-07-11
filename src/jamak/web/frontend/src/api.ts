@@ -6,6 +6,18 @@ export async function fetchJobs(): Promise<JobSummary[]> {
   return r.json();
 }
 
+export interface QueueItem {
+  video_id: string;
+  status: "processing" | "queued";
+  position?: number;
+}
+
+export async function fetchQueue(): Promise<QueueItem[]> {
+  const r = await fetch("/api/queue");
+  if (!r.ok) return [];
+  return r.json();
+}
+
 export interface Me {
   name: string;
   is_admin: boolean;
