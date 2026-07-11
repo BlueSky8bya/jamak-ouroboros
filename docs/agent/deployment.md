@@ -18,15 +18,21 @@ cd src/jamak/web/frontend; npm install; npm run build; cd ../../../..
 # $env:ANTHROPIC_API_KEY = (Get-ItemProperty HKCU:\Environment).ANTHROPIC_API_KEY
 ```
 
-앱 자체 로그인(터널 인증과 별개, 방어 이중화). 노출 전 반드시 설정:
+앱 자체 로그인. 두 방식(둘 다 브라우저가 "이름+비번" 창을 띄움):
 
+**방식 1 — 이름 목록 + 공용 비번 (검수팀 추천):**
 ```powershell
-$env:JAMAK_AUTH = "reviewer1:긴무작위비번1,reviewer2:긴무작위비번2"
-uv run jamak serve            # http://127.0.0.1:8710
+setx JAMAK_NAMES "홍길동,김철수,이영희"   # 허용할 사람 이름
+setx JAMAK_PASSWORD "1004"               # 공용 비번
+uv run jamak serve --port 8711
 ```
+검수자는 URL 열고 **자기 이름 + 공용비번** 입력 → 접속. 이름이 목록에 있어야 함(누가 검수하는지 식별), 비번은 공용.
+검수자 추가 = `setx JAMAK_NAMES "...,새사람"` 후 `deploy\restart-serve.cmd` 실행.
 
-- `JAMAK_AUTH` 미설정 = 인증 없음(로컬 개발용). **외부 노출 시 반드시 설정.**
-- 형식: `사용자:비번` 쉼표로 여러 명. 비번은 길고 무작위로.
+**방식 2 — 사람별 개별 비번:** `setx JAMAK_AUTH "user1:pw1,user2:pw2"`.
+
+- 둘 다 미설정 = 인증 없음(로컬 개발용). **외부 노출 시 반드시 설정.** 둘 다 설정되면 방식 1이 우선.
+- 코드(Python) 수정은 **웹앱 재시작**해야 반영(`restart-serve.cmd`); 프론트 수정은 `npm run build` 후 브라우저 새로고침. (push 자동배포는 경로 B에서.)
 
 ---
 

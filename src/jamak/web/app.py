@@ -30,9 +30,13 @@ app = FastAPI(title="jamak-ouroboros review")
 
 
 # Optional HTTP Basic auth for deployment. Off by default (local single-user).
-# Set JAMAK_AUTH="reviewer1:pw1,reviewer2:pw2" to gate the whole app when it is
-# exposed to reviewers over a tunnel. This is defense-in-depth; a named-email
-# gate at the tunnel edge (e.g. Cloudflare Access) is the recommended primary.
+# Two modes (browser shows a name + password prompt in both):
+#   1. Name whitelist + shared password (recommended for a review team):
+#        JAMAK_NAMES="홍길동,김철수"   JAMAK_PASSWORD="1004"
+#      → each reviewer types THEIR name (must be in the list) + the shared
+#        password. The name identifies who is reviewing; the password is common.
+#   2. Per-user passwords:  JAMAK_AUTH="user1:pw1,user2:pw2".
+# If neither is set the app is open (local dev). Mode 1 wins if both are set.
 def _load_auth() -> dict[str, str]:
     raw = os.environ.get("JAMAK_AUTH", "").strip()
     creds: dict[str, str] = {}
@@ -44,26 +48,38 @@ def _load_auth() -> dict[str, str]:
 
 
 _AUTH_CREDS = _load_auth()
+_SHARED_PW = os.environ.get("JAMAK_PASSWORD", "").strip()
+_ALLOWED_NAMES = {
+    n.strip() for n in os.environ.get("JAMAK_NAMES", "").split(",") if n.strip()
+}
+_NAME_MODE = bool(_ALLOWED_NAMES and _SHARED_PW)
+_AUTH_ON = _NAME_MODE or bool(_AUTH_CREDS)
+
+
+def _auth_ok(user: str, pw: str) -> bool:
+    user = user.strip()
+    if _NAME_MODE:
+        return user in _ALLOWED_NAMES and secrets.compare_digest(pw, _SHARED_PW)
+    expected = _AUTH_CREDS.get(user)
+    return expected is not None and secrets.compare_digest(pw, expected)
 
 
 @app.middleware("http")
 async def _basic_auth(request: Request, call_next):
-    if _AUTH_CREDS:
+    if _AUTH_ON:
         ok = False
         hdr = request.headers.get("authorization", "")
         if hdr.startswith("Basic "):
             try:
                 user, _, pw = base64.b64decode(hdr[6:]).decode("utf-8", "ignore").partition(":")
-                expected = _AUTH_CREDS.get(user)
-                # constant-time compare; check user membership without leaking timing
-                if expected is not None and secrets.compare_digest(pw, expected):
-                    ok = True
+                ok = _auth_ok(user, pw)
             except Exception:
                 ok = False
         if not ok:
+            # realm must be latin-1 (HTTP header) — keep it ASCII
             return Response(
                 status_code=401,
-                headers={"WWW-Authenticate": 'Basic realm="jamak"'},
+                headers={"WWW-Authenticate": 'Basic realm="jamak: your name + shared password"'},
             )
     return await call_next(request)
 
