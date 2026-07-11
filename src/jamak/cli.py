@@ -9,6 +9,7 @@ Commands:
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import typer
@@ -19,6 +20,30 @@ from .db import Job, Segment, get_session, utcnow
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 console = Console()
+
+
+def _touch_request(video_id: str, note: str) -> None:
+    """Heartbeat: stamp the in-progress JobRequest with the current stage + time
+    so the web UI can show live progress ('음성인식 42% · 5초 전') and tell a
+    real run from a stalled one. Best-effort — never breaks the pipeline."""
+    try:
+        from sqlmodel import select
+
+        from .db import JobRequest, get_session
+
+        with get_session() as s:
+            r = s.exec(
+                select(JobRequest).where(
+                    JobRequest.video_id == video_id,
+                    JobRequest.status == "processing",
+                )
+            ).first()
+            if r is not None:
+                r.note, r.updated_at = note, utcnow()
+                s.add(r)
+                s.commit()
+    except Exception:
+        pass
 
 
 @app.command()
@@ -141,15 +166,25 @@ def run(
 
     from rich.progress import Progress
 
+    _touch_request(res.video_id, "음성인식 준비 중")
     with Progress(console=console) as progress:
         task = progress.add_task("transcribing", total=res.duration_seconds)
+        _last_beat = [0.0]
 
         def cb(pos: float, total: float) -> None:
             progress.update(task, completed=min(pos, res.duration_seconds))
+            # heartbeat to the web UI, throttled (the callback fires per segment)
+            now = time.time()
+            if now - _last_beat[0] >= 4.0:
+                _last_beat[0] = now
+                pct = int(min(pos, res.duration_seconds) / max(res.duration_seconds, 1) * 100)
+                _touch_request(res.video_id, f"음성인식 {pct}%")
 
         stt_segments = transcribe(
             res.audio_path, res.job_dir, "", cb, hotwords, force=fresh
         )
+
+    _touch_request(res.video_id, "자막 정리 중")
 
     from .pipeline.split import (
         DEFAULT_MAX_CHARS,
@@ -230,6 +265,7 @@ def run(
     import os
 
     if correct and os.environ.get("ANTHROPIC_API_KEY"):
+        _touch_request(res.video_id, "교정 중 (Claude)")
         console.rule("[4/5] LLM correction (Claude)")
         from .pipeline.correct import correct_job
 

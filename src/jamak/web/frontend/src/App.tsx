@@ -288,7 +288,7 @@ function JobCard({
         <div className="job-head">
           <span className="stages">
             {chips.map((c, i) => (
-              <span key={i} className={"stage " + c.tone}>
+              <span key={i} className={"stage stage-" + c.tone}>
                 {j.running && i === 0 && <span className="spinner" />}
                 {c.icon && <span className="stage-ic">{c.icon}</span>}
                 {c.label}
@@ -786,6 +786,13 @@ export function App() {
                 {proc ? (
                   <>
                     처리 중 <strong>{proc.video_id}</strong>
+                    {proc.note && ` · ${proc.note}`}
+                    {typeof proc.age === "number" &&
+                      (proc.age > 150 ? (
+                        <span className="queue-err"> · ⚠ {proc.age}초째 응답 없음</span>
+                      ) : (
+                        ` · ${proc.age < 5 ? "방금" : `${proc.age}초 전`} 갱신`
+                      ))}
                     {queued.length > 0 && ` · 대기 ${queued.length}개`}
                   </>
                 ) : queued.length > 0 ? (

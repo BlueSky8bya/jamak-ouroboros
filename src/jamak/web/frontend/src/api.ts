@@ -11,6 +11,7 @@ export interface QueueItem {
   status: "processing" | "queued" | "error";
   position?: number;
   note?: string;
+  age?: number; // seconds since the last heartbeat (processing only)
 }
 
 export async function fetchQueue(): Promise<QueueItem[]> {

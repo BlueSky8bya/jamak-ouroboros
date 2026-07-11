@@ -908,10 +908,12 @@ img.broken { opacity: 0; }
   color: var(--faint);
 }
 .stage .stage-ic { font-size: 11px; line-height: 1; }
-.stage.progress { background: var(--blue-soft); color: var(--blue-ink); }
-.stage.warn { background: var(--amber-soft); color: var(--amber); }
-.stage.done { background: var(--green-soft); color: var(--green); }
-.stage.live { background: var(--teal-soft); color: var(--teal); }
+/* tone classes are namespaced (stage-*) so they don't collide with global
+   utilities like .progress (the progress-bar rule sets display:grid) */
+.stage.stage-progress { background: var(--blue-soft); color: var(--blue-ink); }
+.stage.stage-warn { background: var(--amber-soft); color: var(--amber); }
+.stage.stage-done { background: var(--green-soft); color: var(--green); }
+.stage.stage-live { background: var(--teal-soft); color: var(--teal); }
 
 /* per-card language selector (keeps many-language cards from overflowing) */
 /* just the layout wrapper — the single visible control is the inner .dd-btn

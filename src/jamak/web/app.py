@@ -284,10 +284,29 @@ def _queue_state() -> list[dict]:
             .where(JobRequest.status.in_(("pending", "processing", "error")))
             .order_by(JobRequest.created_at)
         ).all()
+    now = utcnow()
+
+    def _age(r) -> int:
+        # seconds since the last heartbeat (updated_at). A large value while
+        # "processing" means the run likely stalled.
+        ts = r.updated_at
+        if ts is not None and ts.tzinfo is None:
+            from datetime import timezone
+
+            ts = ts.replace(tzinfo=timezone.utc)
+        return int((now - ts).total_seconds()) if ts is not None else 0
+
     out: list[dict] = []
     for r in rows:
         if r.status == "processing":
-            out.append({"video_id": r.video_id, "status": "processing"})
+            out.append(
+                {
+                    "video_id": r.video_id,
+                    "status": "processing",
+                    "note": r.note or "처리 중",
+                    "age": _age(r),
+                }
+            )
     pos = 0
     for r in rows:
         if r.status == "pending":
