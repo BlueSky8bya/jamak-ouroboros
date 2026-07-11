@@ -6,6 +6,12 @@ export async function fetchJobs(): Promise<JobSummary[]> {
   return r.json();
 }
 
+export async function fetchMe(): Promise<{ name: string; is_admin: boolean; auth_on: boolean }> {
+  const r = await fetch("/api/me");
+  if (!r.ok) throw new Error(`me: ${r.status}`);
+  return r.json();
+}
+
 export async function fetchSegments(videoId: string, lang = "ko"): Promise<Segment[]> {
   const r = await fetch(`/api/jobs/${videoId}/segments?lang=${lang}`);
   if (!r.ok) throw new Error(`segments: ${r.status}`);

@@ -1,5 +1,5 @@
 import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
-import { createJob, exportUrl, fetchJobs, retranscribe } from "./api";
+import { createJob, exportUrl, fetchJobs, fetchMe, retranscribe } from "./api";
 import { Editor } from "./Editor";
 import { ThemeToggle } from "./theme";
 import type { JobSummary } from "./types";
@@ -132,6 +132,7 @@ function JobCard({
   query,
   isCursor,
   dataIdx,
+  isAdmin,
   onOpen,
   onReroll,
   onExport,
@@ -141,6 +142,7 @@ function JobCard({
   query: string;
   isCursor: boolean;
   dataIdx: number;
+  isAdmin: boolean;
   onOpen: (videoId: string, lang: string) => void;
   onReroll: (e: ReactMouseEvent, j: JobSummary) => void;
   onExport: (e: ReactMouseEvent, j: JobSummary, lang?: string) => void;
@@ -298,7 +300,7 @@ function JobCard({
                     ? ` · ${relTime(j.created_at)} 추가`
                     : ""}
               </span>
-              {!j.ko_complete && !j.running && (
+              {isAdmin && !j.ko_complete && !j.running && (
                 <span
                   className="reroll"
                   role="button"
@@ -323,6 +325,15 @@ function JobCard({
 export function App() {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [loaded, setLoaded] = useState(false);
+  // who am I + may I run the pipeline? (create-from-URL / retranscribe are
+  // admin-only because they drive the host's local GPU STT). Default admin=true
+  // so the local single-user case is unrestricted until /api/me says otherwise.
+  const [isAdmin, setIsAdmin] = useState(true);
+  useEffect(() => {
+    fetchMe()
+      .then((m) => setIsAdmin(m.is_admin))
+      .catch(() => setIsAdmin(true));
+  }, []);
   const [selected, setSelected] = useState<string | null>(null);
   // language track to open the editor on (the track the reviewer was viewing
   // on the card). Falls back to Korean for resume-hero / paste-to-open.
@@ -652,29 +663,31 @@ export function App() {
         </div>
       )}
 
-      <div className="url-box">
-        <input
-          ref={urlRef}
-          type="text"
-          placeholder="https://youtube.com/watch?v=... 강연 영상 링크 붙여넣기  (N)"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-        />
-        <button onClick={submit} disabled={submitting || !url.trim()}>
-          {submitting ? "시작 중" : "자막 만들기"}
-        </button>
-        {previewId && (
-          <div className="url-preview">
-            <img
-              src={`https://img.youtube.com/vi/${previewId}/mqdefault.jpg`}
-              alt=""
-              loading="lazy"
-            />
-            <span>이 영상으로 자막을 만듭니다 · Enter</span>
-          </div>
-        )}
-      </div>
+      {isAdmin && (
+        <div className="url-box">
+          <input
+            ref={urlRef}
+            type="text"
+            placeholder="https://youtube.com/watch?v=... 강연 영상 링크 붙여넣기  (N)"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+          />
+          <button onClick={submit} disabled={submitting || !url.trim()}>
+            {submitting ? "시작 중" : "자막 만들기"}
+          </button>
+          {previewId && (
+            <div className="url-preview">
+              <img
+                src={`https://img.youtube.com/vi/${previewId}/mqdefault.jpg`}
+                alt=""
+                loading="lazy"
+              />
+              <span>이 영상으로 자막을 만듭니다 · Enter</span>
+            </div>
+          )}
+        </div>
+      )}
       {error && <div className="error">{error}</div>}
 
       {resume && (
@@ -868,6 +881,7 @@ export function App() {
               query={query}
               isCursor={idx === cursor}
               dataIdx={idx}
+              isAdmin={isAdmin}
               onOpen={(v, l) => {
                 setSelectedLang(l);
                 setSelected(v);

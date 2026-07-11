@@ -55,6 +55,12 @@ _ALLOWED_NAMES = {
 _NAME_MODE = bool(_ALLOWED_NAMES and _SHARED_PW)
 _AUTH_ON = _NAME_MODE or bool(_AUTH_CREDS)
 
+# Admins may trigger the local GPU pipeline (create a job from a YouTube link,
+# retranscribe, repair-stt). Set JAMAK_ADMINS="임상택" to restrict those to named
+# admins; everyone else can review but not start processing. Unset = everyone is
+# an admin (local single-user / dev).
+_ADMINS = {n.strip() for n in os.environ.get("JAMAK_ADMINS", "").split(",") if n.strip()}
+
 
 def _auth_ok(user: str, pw: str) -> bool:
     user = user.strip()
@@ -64,10 +70,27 @@ def _auth_ok(user: str, pw: str) -> bool:
     return expected is not None and secrets.compare_digest(pw, expected)
 
 
+def _current_user(request: Request) -> str:
+    return getattr(request.state, "user", "") or ""
+
+
+def _is_admin(user: str) -> bool:
+    # no admin list configured -> everyone (keeps local dev unrestricted)
+    return (not _ADMINS) or (user.strip() in _ADMINS)
+
+
+def _require_admin(request: Request) -> None:
+    if not _is_admin(_current_user(request)):
+        raise HTTPException(
+            403, "관리자만 자막 생성(파이프라인)을 실행할 수 있습니다"
+        )
+
+
 @app.middleware("http")
 async def _basic_auth(request: Request, call_next):
     if _AUTH_ON:
         ok = False
+        user = ""
         hdr = request.headers.get("authorization", "")
         if hdr.startswith("Basic "):
             try:
@@ -81,6 +104,7 @@ async def _basic_auth(request: Request, call_next):
                 status_code=401,
                 headers={"WWW-Authenticate": 'Basic realm="jamak: your name + shared password"'},
             )
+        request.state.user = user.strip()
     return await call_next(request)
 
 # video_id -> running pipeline process (started from the web UI)
@@ -98,9 +122,20 @@ class JobCreate(BaseModel):
     url: str
 
 
+@app.get("/api/me")
+def whoami(request: Request) -> dict:
+    """Who is logged in + may they run the pipeline (admin)? Drives the UI."""
+    user = _current_user(request)
+    return {"name": user, "is_admin": _is_admin(user), "auth_on": _AUTH_ON}
+
+
 @app.post("/api/jobs")
-def create_job(body: JobCreate) -> dict:
-    """Kick off the full pipeline for a YouTube URL (background process)."""
+def create_job(request: Request, body: JobCreate) -> dict:
+    """Kick off the full pipeline for a YouTube URL (background process).
+
+    Admin-only: this runs the local GPU STT pipeline on the host machine.
+    """
+    _require_admin(request)
     from ..pipeline.ingest import extract_video_id
 
     try:
@@ -133,15 +168,16 @@ def create_job(body: JobCreate) -> dict:
 
 
 @app.post("/api/jobs/{video_id}/retranscribe")
-def retranscribe(video_id: str) -> dict:
+def retranscribe(request: Request, video_id: str) -> dict:
     """Re-roll STT for an existing video with the *current* glossary/hotwords.
 
     The glossary grows as the corpus is mined and reviews accrue; a richer
     hotword set can make whisper hear domain vocabulary it missed before. This
     re-runs `jamak run <url>` (STT -> crosscheck -> correction), replacing all
     segments. Blocked once Korean review is complete so finished work is never
-    destroyed; partial review is guarded by a frontend confirm.
+    destroyed; partial review is guarded by a frontend confirm. Admin-only (GPU).
     """
+    _require_admin(request)
     if video_id in _running_ids():
         return {"video_id": video_id, "status": "running"}
 
@@ -1339,15 +1375,16 @@ def update_translation(segment_id: int, lang: str, body: TranslationUpdate) -> d
 
 
 @app.post("/api/jobs/{video_id}/repair-stt")
-def repair_stt(video_id: str) -> dict:
+def repair_stt(request: Request, video_id: str) -> dict:
     """Recover segments where whisper hallucinated its initial_prompt.
 
     Works on segments already in the DB (e.g. videos processed before the
     crosscheck-time echo filter existed). Zero API cost: where the segment
     text is a prompt echo and a YouTube caption exists for that span, we
     replace the working text with the YouTube caption and re-open it for
-    review. Segments with no caption are left for the human.
+    review. Segments with no caption are left for the human. Admin-only.
     """
+    _require_admin(request)
     from ..glossary import whisper_prompt
     from ..pipeline.noise import (
         cascade_indices,
