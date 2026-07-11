@@ -23,6 +23,7 @@ import {
   updateSegment,
 } from "./api";
 import type { WordTime } from "./api";
+import { Dropdown } from "./Dropdown";
 import { ThemeToggle } from "./theme";
 import { TranslateReview } from "./TranslateReview";
 import type { Segment } from "./types";
@@ -1960,24 +1961,23 @@ export function Editor({
             <span className="track-label" title="지금 편집하고 내보낼 언어 트랙">
               편집·내보낼 언어
             </span>
-            <select
+            <Dropdown
               value={lang}
-              onChange={(e) => setLang(e.target.value)}
+              onChange={setLang}
               title={koDone ? "편집·내보낼 언어 트랙 선택" : "한국어 검수를 마치면 번역 언어를 선택할 수 있어요"}
-            >
-              {langs.map((l) => {
+              options={langs.map((l) => {
                 // a forked track is independent of Korean completeness — never
                 // lock/mislabel it. Only inherited (non-forked) translations are
                 // gated on ko being done.
                 const locked = l.code !== "ko" && !koDone && !forkedLangs.has(l.code);
-                return (
-                  <option key={l.code} value={l.code} disabled={locked}>
-                    {l.label}
-                    {locked ? " (한국어 검수 후)" : ""}
-                  </option>
-                );
+                return {
+                  value: l.code,
+                  label: l.label,
+                  disabled: locked,
+                  note: locked ? "한국어 검수 후" : undefined,
+                };
               })}
-            </select>
+            />
             <button className="export" disabled={exporting} onClick={() => void runExport()}>
               {exporting
                 ? lang === "ko"

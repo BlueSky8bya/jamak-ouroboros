@@ -1,6 +1,7 @@
 import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createJob, exportUrl, fetchJobs, fetchMe, logout, retranscribe, type Me } from "./api";
 import { Login } from "./Login";
+import { Dropdown } from "./Dropdown";
 import { Editor } from "./Editor";
 import { ThemeToggle } from "./theme";
 import type { JobSummary } from "./types";
@@ -182,6 +183,7 @@ function JobCard({
   return (
     <div
       data-idx={dataIdx}
+      data-card-lang={lang}
       className={
         "job-card" +
         (j.running ? " running" : "") +
@@ -276,20 +278,18 @@ function JobCard({
             ))}
           </span>
           {langOpts.length > 1 && (
-            <select
+            <Dropdown
               className="card-lang"
               value={lang}
-              onClick={(e) => e.stopPropagation()}
-              onChange={(e) => setLang(e.target.value)}
+              onChange={setLang}
               title="언어별 진행 상태 보기"
-            >
-              {langOpts.map((o) => (
-                <option key={o.code} value={o.code}>
-                  {o.label}
-                  {o.done ? " ✓" : ""}
-                </option>
-              ))}
-            </select>
+              stopPropagation
+              options={langOpts.map((o) => ({
+                value: o.code,
+                label: o.label,
+                note: o.done ? "✓" : undefined,
+              }))}
+            />
           )}
         </div>
         <strong>{highlight(j.title || j.video_id, query)}</strong>
@@ -442,11 +442,11 @@ export function App() {
         const j = visibleRef.current[cursorRef.current];
         if (j && j.segments > 0) {
           // honor the cursored card's selected language, matching a mouse click
-          // (the card's lang is local state; read it from its dropdown)
-          const cardSel = document.querySelector<HTMLSelectElement>(
-            `.job-card[data-idx="${cursorRef.current}"] select.card-lang`,
+          // (the card's lang is local state, mirrored onto data-card-lang)
+          const card = document.querySelector<HTMLElement>(
+            `.job-card[data-idx="${cursorRef.current}"]`,
           );
-          setSelectedLang(cardSel?.value || "ko");
+          setSelectedLang(card?.dataset.cardLang || "ko");
           setSelected(j.video_id);
         }
       } else if (e.key === "Escape") {
@@ -661,9 +661,6 @@ export function App() {
     <div className="landing">
       <header className="landing-header">
         <div className="header-top">
-          <span className="product-label">
-            자막<span className="brand-inf">♾️</span>
-          </span>
           <div className="header-actions">
             {me.auth_on && me.name && (
               <span className="user-chip">
@@ -689,7 +686,9 @@ export function App() {
             <ThemeToggle />
           </div>
         </div>
-        <h1>자막 검수 작업대</h1>
+        <h1>
+          자막 검수 작업대 <span className="brand-inf">♾️</span>
+        </h1>
       </header>
 
       {showHelp && (
@@ -859,34 +858,39 @@ export function App() {
         />
         <label>
           형식
-          <select value={form} onChange={(e) => setForm(e.target.value as typeof form)}>
-            <option value="all">전체</option>
-            <option value="short">쇼츠</option>
-            <option value="long">롱폼</option>
-          </select>
+          <Dropdown
+            value={form}
+            onChange={(v) => setForm(v as typeof form)}
+            options={[
+              { value: "all", label: "전체" },
+              { value: "short", label: "쇼츠" },
+              { value: "long", label: "롱폼" },
+            ]}
+          />
         </label>
         {allLangs.length > 0 && (
           <label>
             번역 언어
-            <select value={filter} onChange={(e) => setFilter(e.target.value)}>
-              <option value="all">전체</option>
-              {allLangs.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.label} 있는 영상
-                </option>
-              ))}
-            </select>
+            <Dropdown
+              value={filter}
+              onChange={setFilter}
+              options={[
+                { value: "all", label: "전체" },
+                ...allLangs.map((l) => ({ value: l.code, label: `${l.label} 있는 영상` })),
+              ]}
+            />
           </label>
         )}
         <label>
           정렬
-          <select value={sort} onChange={(e) => setSort(e.target.value as SortField)}>
-            {(Object.keys(SORT_LABEL) as SortField[]).map((k) => (
-              <option key={k} value={k}>
-                {SORT_LABEL[k]}
-              </option>
-            ))}
-          </select>
+          <Dropdown
+            value={sort}
+            onChange={(v) => setSort(v as SortField)}
+            options={(Object.keys(SORT_LABEL) as SortField[]).map((k) => ({
+              value: k,
+              label: SORT_LABEL[k],
+            }))}
+          />
         </label>
         <button
           className="dir-toggle"
