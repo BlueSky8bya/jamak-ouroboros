@@ -704,6 +704,58 @@ button {
 }
 .assignee-chip:hover { border-color: var(--blue); color: var(--blue); }
 
+/* assign-reviewer modal (styled — replaces window.prompt) */
+.assign-modal {
+  width: min(420px, 100%);
+  padding: 20px 22px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.4);
+}
+.assign-modal h3 { margin: 0 0 6px; font-size: 17px; }
+.assign-target {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assign-input {
+  width: 100%;
+  padding: 11px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+}
+.assign-input:focus { outline: none; border-color: var(--blue); }
+.assign-me {
+  margin-top: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px dashed var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.assign-me:hover { border-color: var(--blue); color: var(--blue); }
+.assign-modal .srt-actions { margin-top: 16px; }
+.assign-clear {
+  margin-right: auto;
+  padding: 9px 16px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--amber);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+}
+
 /* ===== view toggle + reset chip ===== */
 .view-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .view-toggle button {

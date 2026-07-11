@@ -465,6 +465,12 @@ export function App() {
     preview: SrtPreview;
   } | null>(null);
   const [srtBusy, setSrtBusy] = useState(false);
+  const [assignModal, setAssignModal] = useState<{
+    videoId: string;
+    title: string;
+    current: string;
+  } | null>(null);
+  const [assignName, setAssignName] = useState("");
   const [version, setVersion] = useState("");
   useEffect(() => {
     fetchVersion().then(setVersion);
@@ -662,12 +668,18 @@ export function App() {
     }
   }
 
-  async function assignReviewer(videoId: string, current: string) {
-    const v = window.prompt("담당 검수자 이름 (비우면 해제)", current || me?.name || "");
-    if (v === null) return;
+  function assignReviewer(videoId: string, current: string) {
+    const title = jobs.find((j) => j.video_id === videoId)?.title ?? "";
+    setAssignName(current || me?.name || "");
+    setAssignModal({ videoId, title, current });
+  }
+
+  async function saveAssign(name: string) {
+    if (!assignModal) return;
     setError("");
     try {
-      await setAssignee(videoId, v.trim());
+      await setAssignee(assignModal.videoId, name.trim());
+      setAssignModal(null);
       await refresh();
     } catch (e) {
       setError(`담당 지정 실패: ${e instanceof Error ? e.message : e}`);
@@ -1297,6 +1309,56 @@ export function App() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {assignModal && (
+        <div className="srt-modal-back" onClick={() => setAssignModal(null)}>
+          <form
+            className="assign-modal"
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={(e) => {
+              e.preventDefault();
+              saveAssign(assignName);
+            }}
+          >
+            <h3>👤 담당 검수자</h3>
+            <p className="assign-target" title={assignModal.title}>
+              {assignModal.title || assignModal.videoId}
+            </p>
+            <input
+              autoFocus
+              className="assign-input"
+              value={assignName}
+              onChange={(e) => setAssignName(e.target.value)}
+              placeholder="검수자 이름"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setAssignModal(null);
+              }}
+            />
+            {me?.name && assignName.trim() !== me.name && (
+              <button
+                type="button"
+                className="assign-me"
+                onClick={() => setAssignName(me.name)}
+              >
+                내 이름({me.name})으로
+              </button>
+            )}
+            <div className="srt-actions">
+              {assignModal.current && (
+                <button type="button" className="assign-clear" onClick={() => saveAssign("")}>
+                  담당 해제
+                </button>
+              )}
+              <button type="button" className="srt-cancel" onClick={() => setAssignModal(null)}>
+                취소
+              </button>
+              <button type="submit" className="srt-apply" disabled={!assignName.trim()}>
+                지정
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>
