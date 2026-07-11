@@ -680,8 +680,9 @@ button {
 .srt-apply:disabled, .srt-cancel:disabled { opacity: 0.5; cursor: default; }
 .qa.qa-undo { color: var(--amber); }
 
-/* per-video reviewer assignment chip (in the card footer) — keep one clean row:
-   the meta shrinks with an ellipsis, the chips stay fixed on the right */
+/* per-video reviewer assignment chip in the card footer.
+   meta shrinks with an ellipsis; the chips stay fixed and never clip. */
+.job-foot { flex-wrap: wrap; row-gap: 8px; }
 .job-foot .meta {
   flex: 1 1 auto;
   min-width: 0;
@@ -691,6 +692,10 @@ button {
 }
 .job-foot .assignee-chip,
 .job-foot .reroll { flex: 0 0 auto; }
+/* narrow card (grid view): meta on its own row, chips wrap below right-aligned
+   so 다시 인식 never gets cut off. List rows are wide -> stay on one line. */
+.job-grid.grid .job-foot .meta { flex-basis: 100%; }
+.job-grid.grid .job-foot .assignee-chip { margin-left: auto; }
 .assignee-chip {
   flex: 0 0 auto;
   border: 1px solid var(--line);
@@ -1115,11 +1120,14 @@ img.broken { opacity: 0; }
 }
 
 .job-info {
-  display: grid;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   gap: 11px;
   padding: 15px 16px 16px;
 }
+/* push the footer (meta + 담당 + 다시인식) to the bottom so a finished/short
+   card doesn't leave a big empty gap under its content */
+.job-info .job-foot { margin-top: auto; }
 
 /* top row: one clear stage chip on the left, language dropdown on the right */
 .job-head {
