@@ -273,7 +273,16 @@ export async function makeTranslations(
   lang: string,
 ): Promise<{ lang: string; translated: number; segments: number }> {
   const r = await fetch(`/api/jobs/${videoId}/translate?lang=${lang}`, { method: "POST" });
-  if (!r.ok) throw new Error((await r.json()).detail ?? `translate: ${r.status}`);
+  if (!r.ok) {
+    // the body may be plain text (e.g. a raw 500) — don't crash parsing it as JSON
+    let msg = `translate: ${r.status}`;
+    try {
+      msg = (await r.json()).detail ?? msg;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(msg);
+  }
   return r.json();
 }
 

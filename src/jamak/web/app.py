@@ -1523,7 +1523,21 @@ def make_translations(video_id: str, lang: str) -> dict:
 
     for d in seg_dicts:
         d["ko"] = d["text_final"] or d["text_llm"] or d["text_whisper"]
-    translated = translate_segments(seg_dicts, "ko", lang)
+
+    # translation calls the Claude API; without a key it would raise and FastAPI
+    # would return a plain-text 500 that the frontend can't parse as JSON.
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise HTTPException(
+            503,
+            "번역 기능이 이 서버에 아직 설정되지 않았습니다(ANTHROPIC_API_KEY 없음). "
+            "관리자에게 문의하세요.",
+        )
+    try:
+        translated = translate_segments(seg_dicts, "ko", lang)
+    except HTTPException:
+        raise
+    except Exception as e:  # API/auth/network error -> clean JSON, not a 500
+        raise HTTPException(502, f"번역 API 오류: {e}")
     return {"lang": lang, "translated": len(translated), "segments": len(seg_dicts)}
 
 
