@@ -75,17 +75,19 @@ function TimingStrip({
   onBoundaryDrag: (segId: number, time: number, which: "start" | "end") => void;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
-  // while dragging a boundary, freeze the window + show a live preview time.
-  // dragRef mirrors state so move/up handlers see the current drag even
-  // between renders (fast drags would otherwise read a stale closure).
-  type Drag = { segId: number; which: "start" | "end"; time: number };
-  const [drag, setDrag] = useState<Drag | null>(null);
-  const dragRef = useRef<Drag | null>(null);
+  const labelRef = useRef<HTMLSpanElement>(null);
+  // Dragging is done IMPERATIVELY (no React state per pointermove): we move the
+  // grabbed handle's `left` and the time label directly on the DOM. Driving it
+  // through setState re-rendered the whole strip every frame — that reconcile
+  // churn is what made the handle jump/stutter instead of tracking the pointer.
+  // winRef freezes the visible window for the whole drag so the mapping is stable.
   const winRef = useRef<{ start: number; span: number } | null>(null);
-  function setDragState(v: Drag | null) {
-    dragRef.current = v;
-    setDrag(v);
-  }
+  const dragRef = useRef<{
+    segId: number;
+    which: "start" | "end";
+    el: HTMLElement;
+  } | null>(null);
+  const [dragging, setDragging] = useState(false); // only to freeze the window
 
   const focused = segments.find((s) => s.id === focusedId);
   // when the playhead sits in a gap or the tail past the last cue there is no
@@ -99,7 +101,7 @@ function TimingStrip({
         })()
       : null;
   const live = (() => {
-    if (drag && winRef.current) return winRef.current;
+    if (dragging && winRef.current) return winRef.current;
     // follow the playhead while it moves (playing, or seeked outside the view);
     // otherwise anchor on the cue you're editing so it stays put
     const focusCenter = focused ? (focused.start + focused.end) / 2 : currentTime;
@@ -122,55 +124,57 @@ function TimingStrip({
   const handleTargetId = activeId ?? nearestBehind?.id ?? null;
 
   function timeAtClientX(clientX: number): number {
+    const w = winRef.current ?? { start, span };
     const rect = trackRef.current!.getBoundingClientRect();
     const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
-    return start + ratio * span;
+    return w.start + ratio * w.span;
+  }
+  // move the grabbed handle + time label straight on the DOM — no React state,
+  // so the pointer is tracked frame-for-frame instead of one reconcile behind
+  function paint(clientX: number) {
+    const d = dragRef.current;
+    const w = winRef.current;
+    if (!d || !w) return;
+    const t = timeAtClientX(clientX);
+    const pct = clamp(((t - w.start) / w.span) * 100, 0, 100);
+    d.el.style.left = `${pct}%`;
+    const lbl = labelRef.current;
+    if (lbl) {
+      lbl.style.display = "block";
+      lbl.style.left = `${pct}%`;
+      lbl.textContent = fmt(t);
+    }
   }
 
   function startDrag(e: React.PointerEvent, seg: Segment, which: "start" | "end") {
     e.stopPropagation();
     e.preventDefault();
     winRef.current = { start, span }; // freeze window for the whole drag
+    const el = e.currentTarget as HTMLElement;
+    el.classList.add("dragging");
+    dragRef.current = { segId: seg.id, which, el };
     try {
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      el.setPointerCapture(e.pointerId);
     } catch {
       /* capture unavailable (e.g. synthetic pointer) — drag still works */
     }
-    setDragState({ segId: seg.id, which, time: which === "start" ? seg.start : seg.end });
-  }
-  // coalesce pointermove → at most one state update per animation frame, so a
-  // fast drag doesn't queue a backlog of renders (the "툭툭" choppiness)
-  const rafRef = useRef<number | null>(null);
-  const pendingXRef = useRef<number | null>(null);
-  function flushDrag() {
-    rafRef.current = null;
-    const d = dragRef.current;
-    const x = pendingXRef.current;
-    if (!d || x == null) return;
-    setDragState({ segId: d.segId, which: d.which, time: timeAtClientX(x) });
+    setDragging(true); // only freezes the window; the handle moves imperatively
+    paint(e.clientX);
   }
   function moveDrag(e: React.PointerEvent) {
-    if (!dragRef.current) return;
-    pendingXRef.current = e.clientX;
-    if (rafRef.current == null) rafRef.current = requestAnimationFrame(flushDrag);
+    if (dragRef.current) paint(e.clientX);
   }
   function endDrag(e: React.PointerEvent) {
     const d = dragRef.current;
     if (!d) return;
-    if (rafRef.current != null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
     const t = timeAtClientX(e.clientX);
-    onBoundaryDrag(d.segId, t, d.which);
-    setDragState(null);
+    d.el.classList.remove("dragging");
+    if (labelRef.current) labelRef.current.style.display = "none";
+    dragRef.current = null;
     winRef.current = null;
+    setDragging(false);
+    onBoundaryDrag(d.segId, t, d.which);
   }
-  useEffect(() => {
-    return () => {
-      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
-    };
-  }, []);
 
   return (
     <div className="timing-strip">
@@ -185,9 +189,6 @@ function TimingStrip({
           // The focused/active/nearest cue's handles are emphasised, the rest dim.
           const emphasised = isFocused || isActive || s.id === handleTargetId;
           const dim = emphasised ? "" : " faint";
-          const pct = (t: number) => clamp(((t - start) / span) * 100, 0, 100);
-          const endPos = drag?.segId === s.id && drag.which === "end" ? pct(drag.time) : right;
-          const startPos = drag?.segId === s.id && drag.which === "start" ? pct(drag.time) : left;
           return (
             <div key={s.id}>
               <button
@@ -200,34 +201,22 @@ function TimingStrip({
                 onClick={() => onSeek(s.start)}
               />
               <span
-                className={
-                  "strip-handle start" +
-                  dim +
-                  (drag?.segId === s.id && drag.which === "start" ? " dragging" : "")
-                }
-                style={{ left: `${startPos}%` }}
+                className={"strip-handle start" + dim}
+                style={{ left: `${left}%` }}
                 title="드래그해서 이 자막의 시작을 조절"
                 onPointerDown={(e) => startDrag(e, s, "start")}
               />
               <span
-                className={
-                  "strip-handle" +
-                  dim +
-                  (drag?.segId === s.id && drag.which === "end" ? " dragging" : "")
-                }
-                style={{ left: `${endPos}%` }}
-                title="드래그해서 이 자막의 끝을 조절 (겹치면 옆 자막에서 멈춤)"
+                className={"strip-handle" + dim}
+                style={{ left: `${right}%` }}
+                title="드래그해서 이 자막의 끝을 조절 (넘기면 옆 자막이 밀림)"
                 onPointerDown={(e) => startDrag(e, s, "end")}
               />
             </div>
           );
         })}
         <span className="strip-marker" style={{ left: `${marker}%` }} />
-        {drag && (
-          <span className="strip-drag-time" style={{ left: `${clamp(((drag.time - start) / span) * 100, 0, 100)}%` }}>
-            {fmt(drag.time)}
-          </span>
-        )}
+        <span ref={labelRef} className="strip-drag-time" style={{ display: "none" }} />
       </div>
       <div className="strip-meta">
         <span>{fmt(start)}</span>
@@ -258,20 +247,19 @@ function WordMap({
   const PAD = 1.0;
   const SNAP = 0.12; // magnetic snap radius to a word edge (seconds)
   const trackRef = useRef<HTMLDivElement>(null);
-  const [drag, setDrag] = useState<{ which: "start" | "end"; time: number } | null>(null);
-  const dragRef = useRef<{ which: "start" | "end"; time: number } | null>(null);
-  function setD(v: { which: "start" | "end"; time: number } | null) {
-    dragRef.current = v;
-    setDrag(v);
-  }
+  const bandRef = useRef<HTMLSpanElement>(null);
+  // imperative drag (no per-move setState). Snap to a word edge only on RELEASE,
+  // so the handle glides with the pointer instead of teleporting between words.
+  const dragRef = useRef<{ which: "start" | "end"; el: HTMLElement } | null>(null);
+  const [dragging, setDragging] = useState(false);
 
   const winStart = Math.max(0, seg.start - PAD);
   const winEnd = seg.end + PAD;
   const span = Math.max(0.5, winEnd - winStart);
   const local = words.filter((w) => w.end > winStart && w.start < winEnd);
   const pct = (t: number) => clamp(((t - winStart) / span) * 100, 0, 100);
-  const start = drag?.which === "start" ? drag.time : seg.start;
-  const end = drag?.which === "end" ? drag.time : seg.end;
+  const start = seg.start;
+  const end = seg.end;
 
   function timeAt(clientX: number): number {
     const r = trackRef.current!.getBoundingClientRect();
@@ -291,28 +279,44 @@ function WordMap({
     }
     return best ?? t;
   }
+  // move the grabbed handle + resize the band on the DOM (no snap, no setState),
+  // so the pointer is tracked smoothly; snapping happens on release in up()
+  function paint(clientX: number) {
+    const d = dragRef.current;
+    if (!d) return;
+    const t = timeAt(clientX);
+    d.el.style.left = `${pct(t)}%`;
+    const s = d.which === "start" ? t : seg.start;
+    const e = d.which === "end" ? t : seg.end;
+    if (bandRef.current) {
+      bandRef.current.style.left = `${pct(s)}%`;
+      bandRef.current.style.width = `${Math.max(0, pct(e) - pct(s))}%`;
+    }
+  }
   function down(e: React.PointerEvent, which: "start" | "end") {
     e.stopPropagation();
     e.preventDefault();
+    const el = e.currentTarget as HTMLElement;
+    dragRef.current = { which, el };
     try {
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      el.setPointerCapture(e.pointerId);
     } catch {
       /* no capture — drag still works */
     }
-    setD({ which, time: which === "start" ? seg.start : seg.end });
+    setDragging(true);
+    paint(e.clientX);
   }
   function move(e: React.PointerEvent) {
-    const d = dragRef.current;
-    if (!d) return;
-    setD({ which: d.which, time: snap(timeAt(e.clientX)) });
+    if (dragRef.current) paint(e.clientX);
   }
   function up(e: React.PointerEvent) {
     const d = dragRef.current;
     if (!d) return;
-    const t = snap(timeAt(e.clientX));
-    const ns = d.which === "start" ? Math.min(t, end - 0.1) : start;
-    const ne = d.which === "end" ? Math.max(t, start + 0.1) : end;
-    setD(null);
+    const t = snap(timeAt(e.clientX)); // magnetic snap on release only
+    const ns = d.which === "start" ? Math.min(t, seg.end - 0.1) : seg.start;
+    const ne = d.which === "end" ? Math.max(t, seg.start + 0.1) : seg.end;
+    dragRef.current = null;
+    setDragging(false);
     onCommit(Math.round(ns * 1000) / 1000, Math.round(ne * 1000) / 1000);
   }
 
@@ -331,6 +335,7 @@ function WordMap({
       >
         {/* selected span (current subtitle bounds) */}
         <span
+          ref={bandRef}
           className="wm-band"
           style={{ left: `${pct(start)}%`, width: `${Math.max(0, pct(end) - pct(start))}%` }}
         />
@@ -350,7 +355,7 @@ function WordMap({
       <div className="wm-legend">
         <span>{fmt(start)}</span>
         <span className="wm-hint">
-          {drag ? "놓으면 가까운 단어 끝에 딱 붙어요" : "초록=말소리 · 손잡이를 끌어 시작/끝 맞추기"}
+          {dragging ? "놓으면 가까운 단어 끝에 딱 붙어요" : "초록=말소리 · 손잡이를 끌어 시작/끝 맞추기"}
         </span>
         <span>{fmt(end)}</span>
       </div>

@@ -2453,6 +2453,8 @@ kbd {
   transform: translateX(-7px);
   cursor: ew-resize;
   z-index: 3;
+  touch-action: none;
+  will-change: left;
 }
 .wm-handle::after {
   content: "";
