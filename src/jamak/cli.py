@@ -87,6 +87,12 @@ def run(
     fresh: bool = typer.Option(
         False, help="Ignore cached STT and re-transcribe (re-roll with current glossary)"
     ),
+    keep_audio: bool = typer.Option(
+        False,
+        help="Keep audio.wav after STT. Default: delete it (~112 MB/hr) once stt.json "
+        "is cached — review/word-map/tighten need only stt.json; retranscribe "
+        "re-downloads the audio on demand.",
+    ),
 ) -> None:
     """Full pipeline: URL in, draft .srt out."""
     from .pipeline.assemble import to_srt
@@ -251,6 +257,20 @@ def run(
         res.job_dir / f"{res.video_id}.draft.srt",
     )
     console.print(f"[bold green]draft ready:[/] {out}")
+
+    # audio.wav is only needed for STT; review/word-map/tighten use stt.json.
+    # Delete it by default so hundreds of 1-2h videos don't fill the disk
+    # (~112 MB/hr) — retranscribe re-downloads it via ingest when needed.
+    if not keep_audio and res.audio_path.exists():
+        try:
+            freed = res.audio_path.stat().st_size / 1_048_576
+            res.audio_path.unlink()
+            console.print(
+                f"cleaned audio.wav ({freed:.0f} MB freed; stt.json kept, "
+                "re-downloads on retranscribe). --keep-audio to retain."
+            )
+        except OSError:
+            pass
 
 
 @app.command("seed-import")
@@ -441,6 +461,20 @@ def backfill_dates() -> None:
 
 
 @app.command()
+def backup(
+    keep: int = typer.Option(30, help="How many timestamped backups to keep"),
+) -> None:
+    """Back up jamak.db to data/backups/ (timestamped, safe with live writes)."""
+    from .db import backup_db
+
+    dest = backup_db(keep=keep)
+    if dest is None:
+        console.print("[yellow]no DB to back up yet[/]")
+    else:
+        console.print(f"[bold green]backed up:[/] {dest}")
+
+
+@app.command()
 def serve(
     port: int = typer.Option(8710, help="Port for the review web app"),
     host: str = typer.Option(
@@ -448,16 +482,24 @@ def serve(
         help="Bind address. Keep 127.0.0.1 behind a tunnel (Cloudflare/Tailscale); "
         "use 0.0.0.0 only to expose on the LAN. Set JAMAK_AUTH before exposing.",
     ),
+    backup_hours: float = typer.Option(
+        24.0, help="Auto-backup jamak.db every N hours while serving (0 = off)"
+    ),
 ) -> None:
     """Start the review web app (http://localhost:8710).
 
     Deployment: keep host=127.0.0.1 and put a tunnel (Cloudflare Tunnel +
     Access, or Tailscale) in front — see docs/agent/deployment.md. Set
-    JAMAK_AUTH="user:pw,..." to require a login on the app itself.
+    JAMAK_AUTH="user:pw,..." to require a login on the app itself. Auto-backs up
+    jamak.db on start and every --backup-hours (data/backups/, keeps last 30).
     """
     import os
+    import threading
+    import time
 
     import uvicorn
+
+    from .db import backup_db
 
     config.ensure_dirs()
     if host != "127.0.0.1" and not os.environ.get("JAMAK_AUTH"):
@@ -465,6 +507,19 @@ def serve(
             "[bold yellow]warning:[/] binding a non-local host with no JAMAK_AUTH — "
             "the app is unauthenticated. Set JAMAK_AUTH or front it with a tunnel gate."
         )
+
+    # keep the year+ of learning data safe: back up on start, then on a timer
+    if backup_hours > 0:
+        def _backup_loop() -> None:
+            while True:
+                try:
+                    backup_db()
+                except Exception:
+                    pass
+                time.sleep(backup_hours * 3600)
+
+        threading.Thread(target=_backup_loop, daemon=True).start()
+
     console.print(f"[bold green]review app:[/] http://{host}:{port}")
     uvicorn.run("jamak.web.app:app", host=host, port=port)
 

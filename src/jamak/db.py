@@ -7,6 +7,7 @@ Markdown exports (e.g. glossary snapshots) are views, never the original.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from sqlmodel import Field, Session, SQLModel, create_engine
@@ -224,3 +225,38 @@ def get_engine():
 
 def get_session() -> Session:
     return Session(get_engine())
+
+
+def backup_db(keep: int = 30) -> Optional[Path]:
+    """Timestamped online backup of the SQLite DB (safe while it's being written).
+
+    jamak.db is the single source of truth for a year+ of review/learning data,
+    yet it's a tiny text-only file — a backup is cheap and the loss would not be.
+    Writes data/backups/jamak-<ts>.db via SQLite's online backup API and keeps
+    the newest `keep` copies. Returns the backup path, or None if there's no DB.
+    """
+    import sqlite3
+
+    if not Path(DB_PATH).exists():
+        return None
+    backups = Path(DB_PATH).parent / "backups"
+    backups.mkdir(parents=True, exist_ok=True)
+    dest = backups / f"jamak-{datetime.now().strftime('%Y%m%d-%H%M%S')}.db"
+
+    src = sqlite3.connect(str(DB_PATH))
+    try:
+        dst = sqlite3.connect(str(dest))
+        try:
+            src.backup(dst)  # atomic, consistent even with concurrent writers
+        finally:
+            dst.close()
+    finally:
+        src.close()
+
+    if keep > 0:
+        for old in sorted(backups.glob("jamak-*.db"))[:-keep]:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+    return dest

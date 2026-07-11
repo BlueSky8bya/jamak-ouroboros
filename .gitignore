@@ -21,3 +21,4 @@ src/jamak/web/frontend/dist/
 # OS
 Thumbs.db
 Desktop.ini
+data/backups/

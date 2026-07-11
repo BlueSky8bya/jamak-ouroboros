@@ -100,7 +100,8 @@ URL이 매번 바뀌고 인증이 `JAMAK_AUTH`뿐 → 임시 확인용만.
 
 - **항상 켜두기**: `serve`+터널을 Windows 서비스로. `nssm`(권장) 또는 작업 스케줄러 "로그온 시 실행". 재부팅 후 자동 기동.
 - **동시성**: SQLite `busy_timeout=30s`로 소수 검수자(서로 다른 영상)는 안전. **같은 영상 구조(나누기·합치기)를 두 명이 동시 편집하면 idx 경합 위험** — 영상별로 나눠 맡기. 완전한 잠금은 이연(ADR-0007 후속, SQLite→PG 시).
-- **백업**: `data/jamak.db`를 주기적으로 복사(원본 학습 데이터). `data/seeds/`도 보존.
+- **백업(내장)**: `serve`가 시작 시 + `--backup-hours`(기본 24h)마다 `data/backups/jamak-<시각>.db`로 자동 백업(최근 30개 유지, SQLite 온라인 백업 = 라이브 중 안전). 수동은 `uv run jamak backup`. `data/seeds/`도 보존. 더 안전하게: `data/backups/`를 OneDrive/구글드라이브 폴더로 두면 오프사이트.
+- **디스크(audio)**: `jamak run`은 기본으로 STT 후 `audio.wav`(~112MB/시간)를 지움(검수·단어맵·다듬기는 stt.json만 필요, 재전사 시 재다운로드). 원본 오디오를 남기려면 `--keep-audio`. → 몇백 개 1~2시간 영상도 디스크 안 참.
 - **비용**: 파이프라인·번역은 여전히 로컬 실행 → Claude API 영상당 과금. 검수 자체는 무API.
 - **비밀**: `ANTHROPIC_API_KEY`·`JAMAK_AUTH`는 호스트 환경변수로만. 프론트 번들에 절대 넣지 않음.
 - **HTTPS**: Cloudflare/Tailscale가 TLS 종단 제공 → 앱은 평문 127.0.0.1로 충분.
