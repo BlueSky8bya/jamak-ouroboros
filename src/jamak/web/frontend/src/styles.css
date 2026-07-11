@@ -876,19 +876,12 @@ img.broken { opacity: 0; }
 .stage.live { background: var(--teal-soft); color: var(--teal); }
 
 /* per-card language selector (keeps many-language cards from overflowing) */
+/* just the layout wrapper — the single visible control is the inner .dd-btn
+   pill (.dd.card-lang .dd-btn). No box here, or it double-borders the pill. */
 .card-lang {
   flex: 0 0 auto;
   max-width: 48%;
-  padding: 4px 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface-soft);
-  color: var(--muted);
-  font-size: 11.5px;
-  font-weight: 700;
-  cursor: pointer;
 }
-.card-lang:hover { border-color: var(--blue); color: var(--blue); }
 .job-progress.done span { background: linear-gradient(90deg, var(--green), #34d399); }
 
 /* bottom row: meta text on the left, action button on the right */
@@ -1062,7 +1055,8 @@ img.broken { opacity: 0; }
 }
 
 .pc-btn {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 60px;
   padding: 8px 6px;
   font-size: 13px;
   border: 1px solid var(--line);
@@ -1070,16 +1064,19 @@ img.broken { opacity: 0; }
   border-radius: 7px;
   cursor: pointer;
   color: var(--text);
+  white-space: nowrap;
 }
 
 .pc-btn:hover {
   border-color: var(--blue);
 }
 
-/* playback-speed segmented control (transcription-tool staple) */
+/* playback-speed segmented control (transcription-tool staple) — its own
+   full-width row under the transport buttons, each speed stretched evenly so
+   it fills the panel at any width instead of clumping to one side. */
 .pc-speed {
-  display: inline-flex;
-  flex: 0 0 auto;
+  display: flex;
+  flex: 1 1 100%;
   gap: 2px;
   padding: 2px;
   border: 1px solid var(--line);
@@ -1087,12 +1084,13 @@ img.broken { opacity: 0; }
   background: var(--surface);
 }
 .pc-speed-btn {
+  flex: 1 1 0;
   border: 0;
   background: transparent;
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
-  padding: 5px 7px;
+  padding: 6px 7px;
   border-radius: 6px;
   cursor: pointer;
   transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
@@ -2590,7 +2588,15 @@ kbd {
 
 /* fill the export-row grid cell; stay compact as a card badge */
 .export-row .dd { width: 100%; }
-.dd.card-lang .dd-btn { padding: 5px 9px; font-size: 12px; border-radius: 999px; }
+.dd.card-lang .dd-btn {
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted);
+}
+.dd.card-lang .dd-btn:hover { color: var(--blue); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
@@ -2618,12 +2624,19 @@ kbd {
 /* action tools: size to their label and wrap to a second row when the panel is
    narrow (edit-focus mode) — flex:1 1 0 forced them onto one squeezed line and
    the nowrap text spilled out of the buttons. */
-.tools { gap: 6px; }
+/* even columns so the tool row reads balanced (was flex:0 0 auto → ragged,
+   each pill sized to its own label). auto-fit reflows to fewer columns as the
+   edit panel narrows, keeping every button the same width per row. */
+.tools {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 6px;
+}
 .tools .tool {
-  flex: 0 0 auto;
-  max-width: 100%;
+  min-width: 0;
+  max-width: none;
   justify-content: center;
-  padding: 8px 11px;
+  padding: 8px 10px;
   white-space: nowrap;
 }
 .tools .tool.toggle { display: none; }
