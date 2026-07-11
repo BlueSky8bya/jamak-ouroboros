@@ -90,6 +90,8 @@ function TimingStrip({
     el: HTMLElement;
     startX: number;
   } | null>(null);
+  const markerRef = useRef<HTMLSpanElement>(null);
+  const scrubRef = useRef(false); // dragging the playhead to seek (scrub)
   const [dragging, setDragging] = useState(false); // only to freeze the window
 
   const focused = segments.find((s) => s.id === focusedId);
@@ -168,9 +170,19 @@ function TimingStrip({
     paint(e.clientX);
   }
   function moveDrag(e: React.PointerEvent) {
+    if (scrubRef.current) return seekPaint(e.clientX);
     if (dragRef.current) paint(e.clientX);
   }
   function endDrag(e: React.PointerEvent) {
+    if (scrubRef.current) {
+      seekPaint(e.clientX);
+      scrubRef.current = false;
+      winRef.current = null;
+      setDragging(false);
+      onDragActive?.(false);
+      if (labelRef.current) labelRef.current.textContent = "";
+      return;
+    }
     const d = dragRef.current;
     if (!d) return;
     const t = timeAtClientX(e.clientX);
@@ -181,6 +193,36 @@ function TimingStrip({
     setDragging(false);
     onDragActive?.(false);
     onBoundaryDrag(d.segId, t, d.which);
+  }
+
+  // scrub the playhead to seek — drag the white marker (or click/drag the empty
+  // track). The marker + time label move imperatively (poll frozen), and we seek
+  // the video to that time, so the strip doubles as a video scrubber.
+  function seekPaint(clientX: number) {
+    const w = winRef.current;
+    if (!w) return;
+    const t = timeAtClientX(clientX);
+    const pct = clamp(((t - w.start) / w.span) * 100, 0, 100);
+    if (markerRef.current) markerRef.current.style.left = `${pct}%`;
+    const lbl = labelRef.current;
+    if (lbl) {
+      lbl.style.left = `${pct}%`;
+      lbl.textContent = fmt(t);
+    }
+    onSeek(t);
+  }
+  function startScrub(e: React.PointerEvent) {
+    e.preventDefault();
+    winRef.current = { start, span }; // freeze window so the marker doesn't recenter
+    scrubRef.current = true;
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      /* capture unavailable — scrub still works */
+    }
+    onDragActive?.(true); // freeze poll (our imperative marker owns the position)
+    setDragging(true);
+    seekPaint(e.clientX);
   }
 
   return (
@@ -194,6 +236,12 @@ function TimingStrip({
         ref={trackRef}
         onPointerMove={moveDrag}
         onPointerUp={endDrag}
+        onPointerDown={(e) => {
+          // click/drag the empty track background to seek (scrub). Segments and
+          // handles are children with their own handlers, so this only fires on
+          // the bare track area.
+          if (e.target === trackRef.current) startScrub(e);
+        }}
       >
         {local.map((s) => {
           const left = clamp(((s.start - start) / span) * 100, 0, 100);
@@ -231,7 +279,13 @@ function TimingStrip({
             </div>
           );
         })}
-        <span className="strip-marker" style={{ left: `${marker}%` }} />
+        <span
+          ref={markerRef}
+          className="strip-marker"
+          style={{ left: `${marker}%` }}
+          title="드래그해서 재생 위치 이동 (스크럽)"
+          onPointerDown={startScrub}
+        />
         {/* left + text are set imperatively during drag; React only owns display
             (via `dragging`) so it can't reset our imperative position each tick */}
         <span ref={labelRef} className="strip-drag-time" style={{ display: dragging ? "block" : "none" }} />

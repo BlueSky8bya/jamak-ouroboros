@@ -1408,11 +1408,30 @@ img.broken { opacity: 0; }
   position: absolute;
   top: 0;
   bottom: 0;
+  width: 14px; /* wide transparent grab zone; the 2px line is drawn in ::after */
+  transform: translateX(-7px);
+  background: transparent;
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 2; /* above segments, below edit handles */
+}
+.strip-marker::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 0;
+  bottom: 0;
   width: 2px;
-  transform: translateX(-1px);
   background: var(--text);
   box-shadow: 0 0 0 2px rgba(243, 247, 250, 0.9);
 }
+.strip-marker:hover::after,
+.strip-track:not(.smooth) .strip-marker:active::after {
+  width: 3px;
+  left: 5.5px;
+}
+/* the bare track hints it can be clicked to seek */
+.strip-track { cursor: pointer; }
 
 .strip-meta {
   display: flex;
