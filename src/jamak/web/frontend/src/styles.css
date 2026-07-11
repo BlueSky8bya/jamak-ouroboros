@@ -680,8 +680,17 @@ button {
 .srt-apply:disabled, .srt-cancel:disabled { opacity: 0.5; cursor: default; }
 .qa.qa-undo { color: var(--amber); }
 
-/* per-video reviewer assignment chip (in the card footer) */
-.job-foot .meta { flex: 1; min-width: 0; }
+/* per-video reviewer assignment chip (in the card footer) — keep one clean row:
+   the meta shrinks with an ellipsis, the chips stay fixed on the right */
+.job-foot .meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.job-foot .assignee-chip,
+.job-foot .reroll { flex: 0 0 auto; }
 .assignee-chip {
   flex: 0 0 auto;
   border: 1px solid var(--line);

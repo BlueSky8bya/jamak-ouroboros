@@ -1243,7 +1243,14 @@ export function App() {
       </div>
 
       {srtModal && (
-        <div className="srt-modal-back" onClick={() => !srtBusy && setSrtModal(null)}>
+        <div
+          className="srt-modal-back"
+          onMouseDown={(e) => {
+            // only close on a press that STARTS on the backdrop — not a text
+            // drag-select inside the modal that happens to release out here
+            if (e.target === e.currentTarget && !srtBusy) setSrtModal(null);
+          }}
+        >
           <div className="srt-modal" onClick={(e) => e.stopPropagation()}>
             <h3>📄 이 .srt를 적용할까요?</h3>
 
@@ -1313,7 +1320,12 @@ export function App() {
       )}
 
       {assignModal && (
-        <div className="srt-modal-back" onClick={() => setAssignModal(null)}>
+        <div
+          className="srt-modal-back"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setAssignModal(null);
+          }}
+        >
           <form
             className="assign-modal"
             onClick={(e) => e.stopPropagation()}
