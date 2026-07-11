@@ -19,7 +19,7 @@ Harness Protocol: project-initializing_260710.md
 - **로컬 정리 완료**: cloudflared·8711 serve 종료, 시작프로그램 자동기동 해제(.disabled). `DATABASE_URL` setx 영구 설정(로컬 jamak 전부 클라우드 사용).
 - **백업(경로 B)**: `jamak backup-cloud`(클라우드 PG→로컬 gzip SQLite 스냅샷, pg_dump 불필요, --keep 12). 주간 Windows 태스크 `jamak-backup-cloud`(일 03:00) → `JAMAK_BACKUP_DIR`(=구글드라이브 `G:\내 드라이브\01_TMP\HKY\jamak-backups`)로 오프사이트. 현재 스냅샷 322KB(텍스트 전용이라 수백 영상도 <1GB).
 - **버그수정: 클라우드 "만들기" 유령카드**: 클라우드 컨테이너는 GPU/ffmpeg 없어 ingest에서 크래시(→Job행 전이라 카드 소멸). `JAMAK_NO_PIPELINE=1`(Railway에 설정 필요) → create/retranscribe 거부 + 프론트 url박스·재인식 숨김(`/api/me can_ingest`). repair-stt는 무GPU라 유지. 영상은 로컬(`jamak run` 또는 로컬 `jamak serve` 웹UI).
-- **순차 큐**: 단일 GPU 보호 위해 여러 링크 제출 시 **하나씩 순차 처리**(_queue/_current+백그라운드 펌프). `GET /api/queue` + 프론트 `처리 중 X·대기 N개` 배너. create/retranscribe가 큐로 라우팅. 병렬은 VRAM OOM이라 미채택.
+- **순차 큐 → DB 요청 큐로 전환(경로 B 완성)**: 인메모리 큐 폐기. 웹앱은 GPU 안 돌리고 `JobRequest`(DB)에 **요청만 기록**(관리자, 클라우드 포함 어디서든). 로컬 `jamak worker`가 pending 요청을 가져가 **하나씩** 처리(로컬 GPU) → 클라우드 DB로. 성공 시 요청行 삭제, 실패 시 error+note. `create_job`/`retranscribe`=요청 기록, `_running_ids`/`_queue_state`=JobRequest 조회, `/api/queue` DB기반. `JAMAK_NO_PIPELINE` 폐기(can_ingest=is_admin), url박스 관리자에게 복귀. 배너=처리중/대기(워커 실행 안내)/실패. 클라우드 실검증(요청 pending→queued, 정리 완료). 병렬은 VRAM OOM이라 미채택.
 
 ## Recent Additions (2026-07-12 — 경로 B: 클라우드 웹앱 + 전용 Postgres, ADR-0008)
 
