@@ -1884,6 +1884,19 @@ def import_srt(request: Request, video_id: str, body: SrtImport) -> dict:
     if not subs:
         raise HTTPException(400, ".srt에 자막이 없습니다.")
 
+    # this endpoint writes the Korean SOURCE track (lang="ko"). Reject a
+    # non-Korean .srt (e.g. an English translation dropped by mistake) — a
+    # translation belongs to its own track, only after the Korean is reviewed.
+    joined = " ".join(s.content for s in subs)
+    hangul = sum(1 for ch in joined if "가" <= ch <= "힣")
+    latin = sum(1 for ch in joined if "a" <= ch.lower() <= "z")
+    if hangul + latin > 0 and hangul < latin:
+        raise HTTPException(
+            400,
+            "한국어 자막(.srt)만 올릴 수 있어요. 영어 등 번역 자막은 한국어 검수가 "
+            "끝난 뒤 해당 언어 트랙에서 지원할 예정입니다.",
+        )
+
     with get_session() as session:
         job = session.exec(select(Job).where(Job.video_id == video_id)).first()
         if job is None:
