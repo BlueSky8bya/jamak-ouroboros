@@ -367,14 +367,18 @@ def queue_state() -> list[dict]:
 
 @app.delete("/api/queue/{video_id}")
 def cancel_request(request: Request, video_id: str) -> dict:
-    """Drop a pending / errored request (admin). A request already being
-    processed by the worker is left alone."""
+    """Drop a request (admin) — pending, errored, or stuck-'processing'.
+
+    A worker that dies mid-run (Ctrl+C) leaves the request stuck at 'processing'
+    with no live worker; deleting the row clears it. (If a worker is actually
+    running it, the run finishes on its own — only the queue entry is removed.)
+    """
     _require_admin(request)
     with get_session() as session:
         rows = session.exec(
             select(JobRequest).where(
                 JobRequest.video_id == video_id,
-                JobRequest.status.in_(("pending", "error")),
+                JobRequest.status.in_(("pending", "error", "processing")),
             )
         ).all()
         for r in rows:

@@ -800,20 +800,18 @@ export function App() {
                   <span className="queue-err"> · 실패 {errored.length}개</span>
                 )}
               </span>
-              {(queued.length > 0 || errored.length > 0) && (
-                <span className="queue-cancels">
-                  {[...queued, ...errored].map((q) => (
-                    <button
-                      key={q.video_id}
-                      className="queue-cancel"
-                      title={`${q.video_id} 요청 취소`}
-                      onClick={() => cancel(q.video_id)}
-                    >
-                      ✕ {q.video_id}
-                    </button>
-                  ))}
-                </span>
-              )}
+              <span className="queue-cancels">
+                {[...(proc ? [proc] : []), ...queued, ...errored].map((q) => (
+                  <button
+                    key={q.video_id}
+                    className="queue-cancel"
+                    title={`${q.video_id} 요청 취소 (멈춘 처리도 지움)`}
+                    onClick={() => cancel(q.video_id)}
+                  >
+                    ✕ {q.video_id}
+                  </button>
+                ))}
+              </span>
             </div>
           );
         })()}

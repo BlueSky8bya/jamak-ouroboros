@@ -780,6 +780,21 @@ def worker(
 
     from .db import JobRequest, get_session
 
+    # Reclaim orphans: a fresh worker means nothing is legitimately in flight, so
+    # any request left "processing" was stranded by a previous worker that died
+    # (e.g. Ctrl+C mid-run). Reset them to "pending" so this worker re-runs them
+    # (cached STT makes the re-run cheap). Run ONE worker at a time.
+    with get_session() as s0:
+        stuck = s0.exec(
+            select(JobRequest).where(JobRequest.status == "processing")
+        ).all()
+        for r in stuck:
+            r.status, r.updated_at = "pending", utcnow()
+            s0.add(r)
+        if stuck:
+            s0.commit()
+            console.print(f"[yellow]reclaimed {len(stuck)} stuck request(s)[/]")
+
     console.print(
         "[bold]jamak worker[/] - waiting for subtitle requests (Ctrl+C to stop)"
     )
