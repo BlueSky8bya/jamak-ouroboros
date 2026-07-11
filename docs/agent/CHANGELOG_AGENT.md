@@ -1,5 +1,44 @@
 # Agent Change Log
 
+## v0.2.0 — 2026-07-11~12 (배포 + 경로 B + 검수 도구)
+
+세부 커밋은 git 이력 참조(메시지 상세). 아래는 테마별 통합 기록. 라이브 배포처 = https://hky-jamak.com (Railway, Singapore).
+
+### CHG-20260711-001 — DEPLOY — 터널 방식 1차 배포 + 역할 인증 (ADR-0007)
+Change: 로컬 `jamak serve`(127.0.0.1) 앞에 Cloudflare Tunnel(hky-jamak.com). 스타일된 인앱 로그인(크롬 팝업 아님) + 서명 세션 쿠키. 비번=역할(관리자/검수자), 이름은 표시용. 우상단 접속자 칩·계정변경. 네이티브 select→커스텀 Dropdown 전면. h1 "자막 검수 작업대 ♾️". 3축 진행 링.
+Validation: 로그인 200/401, 커스텀 드롭다운 렌더, 라이브 URL 200.
+Rollback: ADR-0007 + 관련 web 커밋 revert.
+
+### CHG-20260712-001 — DEPLOY — 경로 B: 클라우드 웹앱 + 전용 Postgres (ADR-0008)
+Change: 검수앱 Railway 상시 호스팅 + 전용 Postgres 단일 DB. `DATABASE_URL` 있으면 PG(psycopg), 없으면 기존 SQLite(로컬 100% 그대로). stt.json→`SttBlob`(DB, 워드맵/타이밍 클라우드 동작). `jamak migrate-to-cloud` 이관. Dockerfile(node빌드→python serve)·railway.json. DB 리전 Singapore 이전(앱·DB 동일 리전, 프록시 URL 불변). 앱 DATABASE_URL=internal(egress 0).
+Validation: SQLite 무변화·URL 정규화·SttBlob·PK보존 이관·클라우드 쓰기왕복·리전 이전 후 데이터 온전(7 job/3722 seg).
+Rollback: `DATABASE_URL` 미설정 = 로컬 SQLite 복귀.
+
+### CHG-20260712-002 — FEAT — DB 요청 큐 + jamak worker (경로 B 영상 생성)
+Change: 웹앱은 GPU 안 돌리고 `JobRequest`(DB)에 요청만 기록(관리자, 클라우드 포함). 로컬 `jamak worker`가 pending을 하나씩 처리→클라우드 DB. 워커 시작 시 stuck `processing`→`pending` 회수(Ctrl+C 복구). 파이프라인 heartbeat(음성인식%/자막정리/교정중)→`/api/queue` note+age→배너·카드 진행 표시, ⚠는 STT 정체만. `JAMAK_NO_PIPELINE` 폐기(can_ingest=is_admin). 취소 ✕(pending/error/stuck-processing).
+Validation: 요청·dedup·순차·reclaim·취소 temp-DB, 클라우드 실검증(요청 pending→queued, heartbeat note).
+Rollback: 관련 app.py/cli.py/App.tsx revert.
+
+### CHG-20260712-003 — FEAT — 클라우드 DB 백업 자동화 (오프사이트)
+Change: `jamak backup-cloud` — 클라우드 PG→로컬 gzip SQLite 스냅샷(pg_dump 불필요, --keep). 주간 Windows 태스크(`jamak-backup-cloud`)→구글드라이브(`JAMAK_BACKUP_DIR`). 워커 로그온 자동시작(시작프로그램). 텍스트뿐이라 스냅샷 수백KB~수십MB.
+Validation: 스냅샷 복원 행수 일치(322KB), 드라이브 저장, 태스크 등록.
+Rollback: 명령·태스크·시작프로그램 파일 제거.
+
+### CHG-20260712-004 — FEAT — 검수 완료 .srt 카드 임포트 + 되돌리기 + 한국어 가드
+Change: 카드에 .srt 드래그/📄버튼→시간겹침 정렬→ko `text_final`+reviewed→우로보로스 흡수. 적용 전 미리보기 모달(대상 영상·매칭 N/총·낮으면 경고·취소). 적용 전 `SrtBackup` 스냅샷→카드 `↩ .srt 취소`로 정확 복원. 한글:영문 비율로 비한국어 거부. 비-srt 거부.
+Validation: 정렬·미리보기·적용·undo·언어감지 temp-DB, 실브라우저 드롭→모달→취소.
+Rollback: import-srt/undo-srt/SrtBackup 관련 revert.
+
+### CHG-20260712-005 — FEAT — 영상별 담당 검수자 (담당자)
+Change: `Job.assignee`(+마이그레이션). 카드 `👤 담당` 배지→스타일 모달(내 이름 프리필·해제·취소·지정, 크롬 prompt 아님). 누구나 클레임/재지정(비번+자유이름 모델). `POST /api/jobs/{id}/assignee`, list_jobs 노출.
+Validation: set/list/clear temp-DB + 클라우드 왕복(정리), 칩 렌더·모달.
+Rollback: assignee 관련 revert.
+
+### CHG-20260712-006 — FIX/UX — 웹 폴리시 배치
+Change: 드롭다운 body portal(카드 transform/overflow 탈출). no-cache index.html(재배포 즉시 반영). 배포버전 배지(`/api/version`, RAILWAY_GIT_COMMIT_SHA). 리스트 썸네일 16:9 무크롭·무빈공간(고정행+auto열). 그리드 footer 버튼 무클리핑(meta 한줄+칩 다음줄) + footer 하단고정(완료카드 빈공간↓). 모달 텍스트드래그-닫힘 버그(onMouseDown target). 진행칩 패딩(전역 .progress 충돌 네임스페이스). 번역 무-API키 500→깔끔 안내. 처리중 숫자→펄스점.
+Validation: 각 항목 실브라우저 측정(portal/ratio/clip/footer/modal drag/ %).
+Rollback: 해당 web 커밋 revert.
+
 ## v0.1.0 — 2026-07-10
 
 ### CHG-20260710-007 — FEAT — 현재 영상 피드백 전파

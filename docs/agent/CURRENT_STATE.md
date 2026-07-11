@@ -1,14 +1,34 @@
 # Current State
 
-Last Updated: 2026-07-12 (경로 B: 클라우드 웹앱 + 전용 Postgres — ADR-0008)
-Project Version: 0.1.0
+Last Updated: 2026-07-12 (경로 B 후속: 워커·백업·.srt임포트·담당자·UI 폴리시)
+Project Version: 0.2.0
 Harness Protocol: project-initializing_260710.md
 
 ## Current Objective
 
-경로 B **배포 완료 · 라이브**: https://hky-jamak.com (Railway + Postgres). 검수자는 관리자 PC 꺼져도 접속. 다음: 실사용 검수, 로컬 터널(8711)·cloudflared 정리 여부.
+**라이브 운영 중**: https://hky-jamak.com (Railway 앱+Postgres, Singapore 리전). 검수자 다인 협업 가능(담당자 지정). 관리자 PC는 영상 만들 때만(`jamak worker`). 다음: 실사용 다회차 검수로 CER 추이 확인, 검수자 실제 온보딩.
 
-## Deployed (2026-07-12 — 경로 B 라이브)
+## Recent Additions (2026-07-12 — 경로 B 후속 배치, v0.2.0)
+
+경로 B 라이브(af693bd) 이후 사용자 실사용하며 요청한 기능·수정. 전부 커밋·배포·검증(대부분 실브라우저). 세부는 git 이력 + CHANGELOG_AGENT v0.2.0.
+
+- **DB 요청 큐 + `jamak worker`**: 웹앱=요청만 기록(JobRequest), 로컬 워커가 하나씩 처리. 워커 시작 시 stuck `processing` 회수(Ctrl+C 복구). 파이프라인 heartbeat→진행% 표시(배너·카드), ⚠는 STT 정체만. 취소 ✕. `JAMAK_NO_PIPELINE` 폐기.
+- **백업 자동화**: `jamak backup-cloud`(PG→gzip SQLite, pg_dump 불필요) + 주간 태스크→구글드라이브. 워커 로그온 자동시작.
+- **DB Singapore 이전**: 앱·DB 동일 리전(한국 지연↓). 프록시 URL 불변→설정 변경 0. 앱 DATABASE_URL=internal(egress 0). 이전 전 백업, 데이터 온전(7 job/3722 seg).
+- **.srt 카드 임포트**: 드래그/📄버튼→시간겹침 정렬→ko text_final+reviewed+흡수. 미리보기 모달(대상·매칭·낮으면 경고). **되돌리기**(`SrtBackup`→`↩ .srt 취소`). **한국어만**(한글비율 감지) + 비-srt 거부. STT/교정 파인튜닝 데이터 이관 수단.
+- **담당 검수자**: `Job.assignee`, 카드 `👤 담당` 배지→스타일 모달(내이름 프리필). 누구나 클레임(비번+자유이름 모델).
+- **번역 무-키 500 → 안내**: ANTHROPIC_API_KEY 없으면 503 깔끔 메시지(프론트 JSON파싱 크래시 제거). 클라우드에 키 추가하면 동작.
+- **UI 폴리시**: 드롭다운 body portal(카드 transform/overflow 탈출), no-cache index.html(재배포 즉시 반영), 배포버전 배지(`/api/version`), 리스트 썸네일 16:9 무크롭·무빈공간, 그리드 footer 버튼 무클리핑+하단고정, 모달 텍스트드래그-닫힘 수정, 진행칩 패딩(전역 .progress 충돌), 처리중 숫자→펄스점.
+- **비번 rotate**(공개이력 노출): 관리자 2312hky·검수자 1004hky(옛것 무효). 실값은 env/Railway만.
+
+## Deployed 참고 (2026-07-12 — 경로 B 라이브)
+- **URL**: https://hky-jamak.com (커스텀 apex, Cloudflare→Railway 회색구름, Railway TLS). Railway 프로젝트 dynamic-courage/production, `jamak-ouroboros`(Dockerfile)+Postgres(Singapore).
+- **env**: DATABASE_URL(internal 참조), JAMAK_ADMIN_PASSWORD, JAMAK_PASSWORD, JAMAK_SECRET, ANTHROPIC_API_KEY. GitHub push→자동 재배포.
+- **로컬 워커**: `setx DATABASE_URL <cloud>` 후 `uv run jamak worker`(시작프로그램 자동), 백업 `JAMAK_BACKUP_DIR`=구글드라이브.
+
+### 경로 B 배포 이력 상세 (2026-07-12, 시간순 — 일부는 이후 상위 배치에서 갱신됨)
+
+주의: 아래 `JAMAK_NO_PIPELINE`·"유령카드"·"순차 큐"는 이후 **DB 요청 큐+worker(CHG-20260712-002)로 대체**됨 — NO_PIPELINE 폐기, url박스는 관리자 상시 노출, 처리는 워커가 담당. 이력으로만 참고.
 
 - **URL**: https://hky-jamak.com (커스텀 apex, Cloudflare CNAME→Railway, 회색구름/DNS only, Railway TLS). 백업 URL jamak-ouroboros-production.up.railway.app.
 - **Railway**: 프로젝트 dynamic-courage/production, `jamak-ouroboros` 서비스(Dockerfile 빌드) + Postgres. env: DATABASE_URL(참조), JAMAK_ADMIN_PASSWORD, JAMAK_PASSWORD, JAMAK_SECRET. GitHub push→자동 재배포.
