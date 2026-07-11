@@ -18,20 +18,18 @@ cd src/jamak/web/frontend; npm install; npm run build; cd ../../../..
 # $env:ANTHROPIC_API_KEY = (Get-ItemProperty HKCU:\Environment).ANTHROPIC_API_KEY
 ```
 
-앱 자체 로그인 — **스타일된 인앱 로그인 폼**(크롬 기본 팝업 아님) + 서명 세션 쿠키. 이름+비번, 눈모양 토글로 비번 보기. 역할별로 비번이 다름:
+앱 자체 로그인 — **스타일된 인앱 로그인 폼**(크롬 기본 팝업 아님) + 서명 세션 쿠키. 눈모양 토글로 비번 보기. **역할은 어느 비번이 맞는지로 결정**(이름은 표시용):
 
 ```powershell
-setx JAMAK_ADMINS "임상택"                 # 관리자 이름(파이프라인 실행 권한)
-setx JAMAK_ADMIN_PASSWORD "<관리자-비번>"        # 관리자 비번
-setx JAMAK_NAMES "조기호,다른검수자"        # 검수자 이름들
-setx JAMAK_PASSWORD "<검수자-비번>"              # 검수자 공용 비번
+setx JAMAK_ADMIN_PASSWORD "<관리자-비번>"    # 이 비번 = 관리자(파이프라인 실행 권한)
+setx JAMAK_PASSWORD "<검수자-비번>"          # 이 비번 = 검수자(검수/번역/내보내기만)
 setx JAMAK_SECRET "<임의 64자리 hex>"       # 쿠키 서명키(재시작 후에도 로그인 유지)
 uv run jamak serve --port 8711
 ```
-- 관리자는 자기 이름 + 관리자비번, 검수자는 자기 이름 + 검수자비번으로 로그인.
+- **관리자 비번** 입력 → 관리자, **검수자 비번** → 검수자, 둘 다 아니면 입장 불가. 이름은 "누가 접속 중" 칩용(선택).
 - **관리자 전용**: 유튜브 링크→자막 만들기, 음성인식 다시/복구(로컬 GPU 파이프라인). 검수자는 검수·번역·내보내기만.
-- 검수자 추가 = `setx JAMAK_NAMES "...,새사람"` → `deploy\restart-serve.cmd`. (새 검수자는 검수자 공용비번 사용)
-- 레거시 개별비번 `JAMAK_AUTH="user:pw,..."`도 폴백으로 동작. 아무것도 미설정 = 무인증(로컬).
+- **검수자 추가 = 검수자 비번만 알려주면 끝** (이름 등록·재시작 불필요). 특정인 차단은 검수자 비번 교체로 전체 재발급.
+- 레거시 개별비번 `JAMAK_AUTH="user:pw,..."`도 폴백(이름이 `JAMAK_ADMINS`에 있으면 관리자, 아니면 검수자). 아무 비번도 미설정 = 무인증(로컬).
 - 코드(Python) 수정은 **웹앱 재시작**해야 반영(`restart-serve.cmd`); 프론트 수정은 `npm run build` 후 새로고침. (push 자동배포는 경로 B에서.)
 
 ---
@@ -139,13 +137,12 @@ Railway Postgres 하나로 통일한다. 유튜브→자막 생성만 로컬 GPU
 ## 1. 웹앱 서비스 환경변수 (Variables 탭)
 ```
 DATABASE_URL           = ${{Postgres.DATABASE_URL}}   # Railway 변수 참조(내부 네트워크)
-JAMAK_ADMINS           = 임상택
-JAMAK_ADMIN_PASSWORD   = <관리자-비번>
-JAMAK_NAMES            = 조기호
-JAMAK_PASSWORD         = <검수자-비번>
+JAMAK_ADMIN_PASSWORD   = <관리자-비번>                # 이 비번 = 관리자
+JAMAK_PASSWORD         = <검수자-비번>                # 이 비번 = 검수자
 JAMAK_SECRET           = <임의 64자리 hex>            # 쿠키 서명키(재배포에도 로그인 유지)
 ANTHROPIC_API_KEY      = <검수 중 번역 버튼 쓸 거면>   # 검수만이면 불필요
 ```
+- 역할은 **비번으로 결정** — 검수자 추가 = 검수자 비번만 공유(Railway 편집 불필요). `JAMAK_ADMINS`/`JAMAK_NAMES`는 인증에 불필요(있어도 무시).
 - `${{Postgres.DATABASE_URL}}` = Railway의 서비스 간 변수 참조(같은 프로젝트 내부망, 무료 트래픽).
 - 앱은 `postgres://`/`postgresql://` 어느 형태든 psycopg용으로 자동 정규화.
 - 저장하면 Railway가 자동 재배포. 도메인은 **Settings → Networking → Generate Domain**.

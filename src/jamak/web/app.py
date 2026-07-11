@@ -66,12 +66,14 @@ def _load_stt(video_id: str, session=None) -> "list | None":
 # posts to /api/login and gets a signed session cookie; the middleware checks the
 # cookie on API calls. Off by default (local single-user).
 #
-# Roles have separate shared passwords:
-#   JAMAK_ADMINS="임상택"            JAMAK_ADMIN_PASSWORD="<관리자-비번>"   (run the GPU pipeline)
-#   JAMAK_NAMES="조기호,..."         JAMAK_PASSWORD="<검수자-비번>"         (review only)
-# A reviewer logs in with THEIR name (must be listed) + the reviewer password;
-# an admin with their name + the admin password. Adding a reviewer = append to
-# JAMAK_NAMES. Legacy per-user JAMAK_AUTH="user:pw,..." still works as a fallback.
+# Role is decided by WHICH shared password matches, NOT by a name allowlist:
+#   JAMAK_ADMIN_PASSWORD  -> admin  (run the GPU pipeline + everything)
+#   JAMAK_PASSWORD        -> reviewer (review/translate/export only)
+#   neither matches       -> rejected
+# The typed name is only a display label for the "who's online" chip, so adding a
+# reviewer = just share the reviewer password (no env edit / redeploy needed).
+# Legacy per-user JAMAK_AUTH="user:pw,..." still works (role = admin if the name
+# is in JAMAK_ADMINS, else reviewer).
 import hashlib
 import hmac
 
@@ -91,53 +93,71 @@ def _load_auth() -> dict[str, str]:
 _AUTH_CREDS = _load_auth()
 _REVIEWER_PW = os.environ.get("JAMAK_PASSWORD", "").strip()
 _ADMIN_PW = os.environ.get("JAMAK_ADMIN_PASSWORD", "").strip()
-_ALLOWED_NAMES = {n.strip() for n in os.environ.get("JAMAK_NAMES", "").split(",") if n.strip()}
+# admin names only matter for the legacy JAMAK_AUTH fallback; the password-based
+# roles below ignore names entirely.
 _ADMINS = {n.strip() for n in os.environ.get("JAMAK_ADMINS", "").split(",") if n.strip()}
-_AUTH_ON = bool(_ADMINS or _ALLOWED_NAMES or _AUTH_CREDS)
+_AUTH_ON = bool(_ADMIN_PW or _REVIEWER_PW or _AUTH_CREDS)
 # session-cookie signing key. Persist JAMAK_SECRET so logins survive a restart.
 _SECRET = (os.environ.get("JAMAK_SECRET") or secrets.token_hex(32)).encode()
-_KNOWN = _ADMINS | _ALLOWED_NAMES | set(_AUTH_CREDS)
+_SEP = "\x1f"  # unit separator between role and display name inside the cookie
 
 
-def _auth_ok(name: str, pw: str) -> bool:
-    name = name.strip()
-    if name in _ADMINS and _ADMIN_PW and secrets.compare_digest(pw, _ADMIN_PW):
-        return True
-    if name in _ALLOWED_NAMES and _REVIEWER_PW and secrets.compare_digest(pw, _REVIEWER_PW):
-        return True
-    expected = _AUTH_CREDS.get(name)
-    return expected is not None and secrets.compare_digest(pw, expected)
+def _auth_role(name: str, pw: str) -> str:
+    """Role this password grants: 'admin', 'reviewer', or '' (reject).
+
+    Admin is checked first so the admin password always wins even if the two
+    passwords were (mis)configured to the same value.
+    """
+    if _ADMIN_PW and secrets.compare_digest(pw, _ADMIN_PW):
+        return "admin"
+    if _REVIEWER_PW and secrets.compare_digest(pw, _REVIEWER_PW):
+        return "reviewer"
+    expected = _AUTH_CREDS.get(name.strip())  # legacy JAMAK_AUTH fallback
+    if expected is not None and secrets.compare_digest(pw, expected):
+        return "admin" if name.strip() in _ADMINS else "reviewer"
+    return ""
 
 
-def _sign(name: str) -> str:
-    b = base64.urlsafe_b64encode(name.encode()).decode()
+def _sign(role: str, name: str) -> str:
+    payload = f"{role}{_SEP}{name}"
+    b = base64.urlsafe_b64encode(payload.encode()).decode()
     sig = hmac.new(_SECRET, b.encode(), hashlib.sha256).hexdigest()
     return f"{b}.{sig}"
 
 
-def _verify_cookie(val: str) -> str:
+def _verify_cookie(val: str) -> tuple[str, str]:
+    """(role, display_name) from a valid signed cookie, else ('', '')."""
     try:
         b, sig = val.split(".", 1)
         good = hmac.new(_SECRET, b.encode(), hashlib.sha256).hexdigest()
         if not secrets.compare_digest(sig, good):
-            return ""
-        name = base64.urlsafe_b64decode(b).decode()
-        return name if name in _KNOWN else ""
+            return "", ""
+        payload = base64.urlsafe_b64decode(b).decode()
+        role, _, name = payload.partition(_SEP)
+        if role not in ("admin", "reviewer"):
+            return "", ""
+        return role, name
     except Exception:
-        return ""
+        return "", ""
 
 
 def _current_user(request: Request) -> str:
     return getattr(request.state, "user", "") or ""
 
 
-def _is_admin(user: str) -> bool:
-    # no admin list configured -> everyone (keeps local dev unrestricted)
-    return (not _ADMINS) or (user.strip() in _ADMINS)
+def _current_role(request: Request) -> str:
+    return getattr(request.state, "role", "") or ""
+
+
+def _is_admin(request: Request) -> bool:
+    # auth off -> local dev, everyone is admin
+    if not _AUTH_ON:
+        return True
+    return _current_role(request) == "admin"
 
 
 def _require_admin(request: Request) -> None:
-    if not _is_admin(_current_user(request)):
+    if not _is_admin(request):
         raise HTTPException(403, "관리자만 자막 생성(파이프라인)을 실행할 수 있습니다")
 
 
@@ -148,16 +168,19 @@ _PUBLIC_API = {"/api/login", "/api/logout", "/api/me"}
 @app.middleware("http")
 async def _session_auth(request: Request, call_next):
     request.state.user = ""
+    request.state.role = ""
     if _AUTH_ON:
-        request.state.user = _verify_cookie(request.cookies.get("jamak_session", ""))
+        role, name = _verify_cookie(request.cookies.get("jamak_session", ""))
+        request.state.role = role
+        request.state.user = name
         path = request.url.path
-        if path.startswith("/api/") and path not in _PUBLIC_API and not request.state.user:
+        if path.startswith("/api/") and path not in _PUBLIC_API and not role:
             return JSONResponse({"detail": "로그인이 필요합니다"}, status_code=401)
     return await call_next(request)
 
 
 class LoginBody(BaseModel):
-    name: str
+    name: str = ""  # optional display label; role comes from the password
     password: str
 
 
@@ -166,15 +189,16 @@ def login(body: LoginBody) -> Response:
     name = body.name.strip()
     if not _AUTH_ON:
         return JSONResponse({"name": name, "is_admin": True, "authed": True})
-    if not name or not _auth_ok(name, body.password):
-        raise HTTPException(401, "이름 또는 비밀번호가 맞지 않습니다")
-    resp = JSONResponse({"name": name, "is_admin": _is_admin(name), "authed": True})
+    role = _auth_role(name, body.password)
+    if not role:
+        raise HTTPException(401, "비밀번호가 맞지 않습니다")
+    resp = JSONResponse({"name": name, "is_admin": role == "admin", "authed": True})
     resp.set_cookie(
         "jamak_session",
-        _sign(name),
+        _sign(role, name),
         httponly=True,
         samesite="lax",
-        secure=True,  # served over HTTPS (Cloudflare tunnel)
+        secure=True,  # served over HTTPS (Railway / Cloudflare)
         max_age=60 * 60 * 24 * 30,
     )
     return resp
@@ -204,13 +228,13 @@ class JobCreate(BaseModel):
 @app.get("/api/me")
 def whoami(request: Request) -> dict:
     """Who is logged in + may they run the pipeline (admin)? Drives the UI."""
-    user = _current_user(request)
     if not _AUTH_ON:
         return {"name": "", "is_admin": True, "authed": True, "auth_on": False}
+    role = _current_role(request)
     return {
-        "name": user,
-        "is_admin": _is_admin(user),
-        "authed": bool(user),
+        "name": _current_user(request),
+        "is_admin": role == "admin",
+        "authed": bool(role),
         "auth_on": True,
     }
 

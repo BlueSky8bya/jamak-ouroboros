@@ -12,7 +12,7 @@ export function Login({ onLogin }: { onLogin: (me: Me) => void }) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim() || !pw || busy) return;
+    if (!pw || busy) return;
     setBusy(true);
     setError("");
     try {
@@ -30,14 +30,13 @@ export function Login({ onLogin }: { onLogin: (me: Me) => void }) {
           <span className="login-logo">자막</span>
           <div>
             <h1>자막 검수</h1>
-            <p>이름과 비밀번호를 입력하세요</p>
+            <p>비밀번호로 들어가세요 (이름은 표시용)</p>
           </div>
         </div>
 
         <label className="login-field">
-          <span>이름</span>
+          <span>이름 <span className="login-opt">(선택)</span></span>
           <input
-            autoFocus
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="예: 홍길동"
@@ -49,6 +48,7 @@ export function Login({ onLogin }: { onLogin: (me: Me) => void }) {
           <span>비밀번호</span>
           <div className="login-pw">
             <input
+              autoFocus
               type={show ? "text" : "password"}
               value={pw}
               onChange={(e) => setPw(e.target.value)}
@@ -69,7 +69,7 @@ export function Login({ onLogin }: { onLogin: (me: Me) => void }) {
 
         {error && <div className="login-error">{error}</div>}
 
-        <button className="login-submit" type="submit" disabled={busy || !name.trim() || !pw}>
+        <button className="login-submit" type="submit" disabled={busy || !pw}>
           {busy ? "확인 중..." : "들어가기"}
         </button>
       </form>
