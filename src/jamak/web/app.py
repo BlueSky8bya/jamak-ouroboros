@@ -162,7 +162,39 @@ def _require_admin(request: Request) -> None:
 
 
 # API paths reachable without a session (so the SPA can show the login form)
-_PUBLIC_API = {"/api/login", "/api/logout", "/api/me"}
+_PUBLIC_API = {"/api/login", "/api/logout", "/api/me", "/api/version"}
+
+
+def _deploy_version() -> str:
+    """Short identifier of the running build, shown in the UI so you can tell at
+    a glance whether the site is the just-pushed version. On Railway this is the
+    deployed commit (RAILWAY_GIT_COMMIT_SHA, injected automatically); locally it
+    falls back to the current git SHA (the .git dir is excluded from the Docker
+    image, so the env var is what the cloud uses)."""
+    v = os.environ.get("RAILWAY_GIT_COMMIT_SHA") or os.environ.get("JAMAK_VERSION")
+    if v:
+        return v[:7]
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except Exception:
+        pass
+    return "dev"
+
+
+_VERSION = _deploy_version()
+
+
+@app.get("/api/version")
+def version() -> dict:
+    return {"version": _VERSION}
 
 
 @app.middleware("http")

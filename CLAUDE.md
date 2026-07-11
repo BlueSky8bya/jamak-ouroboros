@@ -30,3 +30,4 @@ uv run jamak export <video_id>   # .srt 내보내기
 - `ANTHROPIC_API_KEY`가 세션에 없고 User 레지스트리에 있으면:
   `$env:ANTHROPIC_API_KEY=(Get-ItemProperty HKCU:\Environment).ANTHROPIC_API_KEY; <명령>`
 - 검수 완료 자막 발생 시 피드백 흡수(diff → DB) 없이 세션을 끝내지 않는다
+- **배포 버전 보고**: `origin/main`에 push할 때마다 방금 배포된 **커밋 short SHA**(= 사이트 헤더의 "배포 XXXXXXX" 문자열)를 사용자에게 알린다. Railway가 push된 커밋으로 자동 재배포하고, 앱은 `RAILWAY_GIT_COMMIT_SHA`(로컬은 git SHA 폴백)를 `/api/version`으로 노출 → 사이트가 방금 버전인지 헤더에서 바로 확인 가능.

@@ -5,6 +5,7 @@ import {
   fetchJobs,
   fetchMe,
   fetchQueue,
+  fetchVersion,
   logout,
   retranscribe,
   type Me,
@@ -345,6 +346,10 @@ function JobCard({
 export function App() {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [version, setVersion] = useState("");
+  useEffect(() => {
+    fetchVersion().then(setVersion);
+  }, []);
   const [loaded, setLoaded] = useState(false);
   // who am I? drives the login gate + admin-only pipeline UI. Until /api/me
   // answers we render nothing (avoids a flash of the app before the login form).
@@ -705,6 +710,11 @@ export function App() {
         <h1>
           자막 검수 작업대 <span className="brand-inf">♾️</span>
         </h1>
+        {version && (
+          <span className="deploy-tag" title="현재 배포된 버전(커밋)">
+            배포 {version}
+          </span>
+        )}
       </header>
 
       {showHelp && (

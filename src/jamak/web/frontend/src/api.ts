@@ -18,6 +18,16 @@ export async function fetchQueue(): Promise<QueueItem[]> {
   return r.json();
 }
 
+export async function fetchVersion(): Promise<string> {
+  try {
+    const r = await fetch("/api/version");
+    if (!r.ok) return "";
+    return (await r.json()).version ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export interface Me {
   name: string;
   is_admin: boolean;
