@@ -2537,13 +2537,15 @@ kbd {
 }
 .pc-toggle input { accent-color: var(--blue); }
 
-/* action tools fill the row evenly — no empty gap on the right, no wrap */
+/* action tools: size to their label and wrap to a second row when the panel is
+   narrow (edit-focus mode) — flex:1 1 0 forced them onto one squeezed line and
+   the nowrap text spilled out of the buttons. */
 .tools { gap: 6px; }
 .tools .tool {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 0 0 auto;
+  max-width: 100%;
   justify-content: center;
-  padding: 8px 6px;
+  padding: 8px 11px;
   white-space: nowrap;
 }
 .tools .tool.toggle { display: none; }
