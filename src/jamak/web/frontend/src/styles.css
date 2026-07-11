@@ -1067,6 +1067,33 @@ img.broken { opacity: 0; }
   border-color: var(--blue);
 }
 
+/* playback-speed segmented control (transcription-tool staple) */
+.pc-speed {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.pc-speed-btn {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.pc-speed-btn:hover { color: var(--text); }
+.pc-speed-btn.on {
+  color: #fff;
+  background: var(--blue);
+}
+
 .pc-btn.play {
   flex: 1.6;
   font-weight: 800;
@@ -2309,6 +2336,30 @@ kbd {
 .reviewed-check input:checked { animation: check-pop var(--dur) var(--ease); }
 @keyframes check-pop { 0% { transform: scale(0.7); } 55% { transform: scale(1.18); } 100% { transform: scale(1); } }
 .row.reviewed { transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+
+/* ===== immersion polish (benchmarked: media players / DAW / Descript) ===== */
+/* on-video caption fades + rises in each time a new cue appears (React keys the
+   span by cue id, so it remounts and replays) — softer than a hard pop */
+.cc-overlay span { animation: cc-in 200ms var(--ease); }
+@keyframes cc-in {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: none; }
+}
+/* karaoke: the word block under the playhead lights up as it's spoken */
+.wm-word { transition: opacity var(--dur-fast) var(--ease), height var(--dur-fast) var(--ease), top var(--dur-fast) var(--ease); }
+.wm-word.on {
+  opacity: 1;
+  top: 10px;
+  height: 22px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--teal) 70%, transparent);
+}
+/* the currently-playing cue in the strip breathes softly while playing */
+.strip-track.smooth .strip-seg.active {
+  animation: strip-breathe 1.6s ease-in-out infinite;
+}
+@keyframes strip-breathe {
+  50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 32%, transparent); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }

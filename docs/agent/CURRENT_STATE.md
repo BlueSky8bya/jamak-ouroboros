@@ -87,6 +87,15 @@ cp949 콘솔에서 유니코드 특수문자 크래시 → CLI 문자열에서 e
 4. 관찰 항목: LLM 자동자막 문맥 보충([1] "지혜로우니까"), 사투리 정규화(내한테→나한테) — 과교정 패턴이면 correct.py 프롬프트 조정
 5. ISSUE-002 (긴 세그먼트 분할) — 검수 불편하면 착수
 
+## Recent Additions (2026-07-11 — 몰입·편의 애니메이션/기능 벤치마킹 추가)
+
+기존 모션 토큰(--dur*/--ease)·prefers-reduced-motion 시스템에 맞춰 추가:
+- **재생 속도 컨트롤**(0.5/0.75/1/1.5×, `usePlayer.setRate`+세그먼트 버튼): 느리게 재생해 타이밍·발음 검수 쉽게. 전사툴 표준. 검증: 버튼 4개, 1×→1.5× 전환 e2e.
+- **영상 위 자막 페이드인**: cue 바뀔 때마다 span을 cue id로 remount → `cc-in`(opacity+상승) 재생. YouTube/Netflix 캡션 관례. 검증: `animationName=cc-in`.
+- **재생 중 현재 큐 숨쉬기**: `.strip-track.smooth .strip-seg.active`에 `strip-breathe` 부드러운 글로우. 미디어플레이어 now-playing. 검증: `animationName=strip-breathe`.
+- **발화맵 카라오케**: 재생헤드가 지나는 단어 블록 `.wm-word.on` 하이라이트(밝기·높이). DAW/Descript. 코드검증(단어시각 있는 포커스 행에서 동작).
+- 전부 `prefers-reduced-motion`에서 자동 무효(기존 가드). DB 무변경.
+
 ## Recent Additions (2026-07-11 — 타임라인 스트립 드래그 개선)
 
 사용자 요청 3건, 전부 수정·검증:

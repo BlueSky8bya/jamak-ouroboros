@@ -361,7 +361,7 @@ function WordMap({
         {local.map((w, i) => (
           <span
             key={i}
-            className="wm-word"
+            className={"wm-word" + (currentTime >= w.start && currentTime < w.end ? " on" : "")}
             style={{ left: `${pct(w.start)}%`, width: `${Math.max(0.6, pct(w.end) - pct(w.start))}%` }}
             title={w.word.trim()}
           />
@@ -979,10 +979,8 @@ export function Editor({
   // 250ms clock poll so the editor stops re-rendering and the main thread stays
   // free, letting the dragged handle track the pointer without stutter
   const dragFreezeRef = useRef(false);
-  const { currentTime, playing, seekTo, seekBy, play, pause, playPause } = usePlayer(
-    videoId,
-    dragFreezeRef,
-  );
+  const { currentTime, playing, rate, setRate, seekTo, seekBy, play, pause, playPause } =
+    usePlayer(videoId, dragFreezeRef);
 
   const rowsRef = useRef(new Map<number, RowHandle>());
   const focusedIdRef = useRef<number | null>(null);
@@ -1677,9 +1675,13 @@ export function Editor({
             (() => {
               // show the language being reviewed on the video, not Korean.
               let cc = "";
+              let ccKey: number | undefined;
               if (isKo || forked) {
                 // current track has its own segments/timing
-                if (activeSeg) cc = displayText(activeSeg);
+                if (activeSeg) {
+                  cc = displayText(activeSeg);
+                  ccKey = activeSeg.id;
+                }
               } else {
                 // non-forked translation: no lang segments exist, so drive the
                 // overlay off the inherited Korean timing (koRefSegs) and show
@@ -1688,11 +1690,16 @@ export function Editor({
                 const koSeg = koRefSegs.find(
                   (k) => currentTime >= k.start && currentTime < k.end,
                 );
-                if (koSeg) cc = transMap[koSeg.id] ?? "";
+                if (koSeg) {
+                  cc = transMap[koSeg.id] ?? "";
+                  ccKey = koSeg.id;
+                }
               }
               return cc ? (
                 <div className="cc-overlay">
-                  <span>{cc}</span>
+                  {/* key by cue id → React remounts the span per cue, replaying
+                      the fade-in (a caption change reads as a new line) */}
+                  <span key={ccKey}>{cc}</span>
                 </div>
               ) : null;
             })()}
@@ -1718,6 +1725,18 @@ export function Editor({
           <button className="pc-btn" title="3초 앞으로 (Ctrl+→)" onClick={() => seekBy(3)}>
             3초 ⟳
           </button>
+          <div className="pc-speed" title="재생 속도 — 느리게 하면 타이밍·발음 검수가 쉬워요">
+            {[0.5, 0.75, 1, 1.5].map((r) => (
+              <button
+                key={r}
+                type="button"
+                className={"pc-speed-btn" + (rate === r ? " on" : "")}
+                onClick={() => setRate(r)}
+              >
+                {r}×
+              </button>
+            ))}
+          </div>
           <div className="pc-settings">
             <label className="pc-toggle" title="편집 중인 구간의 소리를 반복 재생 (되감기 없이 다시 듣기) (Alt+R)">
               <input

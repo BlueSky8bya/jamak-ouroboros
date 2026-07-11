@@ -16,6 +16,7 @@ export function usePlayer(videoId: string, freezeRef?: RefObject<boolean>) {
   const [ready, setReady] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [rate, setRateState] = useState(1);
 
   useEffect(() => {
     let disposed = false;
@@ -75,6 +76,11 @@ export function usePlayer(videoId: string, freezeRef?: RefObject<boolean>) {
     ready,
     currentTime,
     playing,
+    rate,
+    setRate: (r: number) => {
+      p()?.setPlaybackRate?.(r);
+      setRateState(r);
+    },
     seekTo: (t: number) => p()?.seekTo?.(t, true),
     seekBy: (delta: number) => {
       const cur = p()?.getCurrentTime?.() ?? 0;
