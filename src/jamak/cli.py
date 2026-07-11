@@ -669,5 +669,98 @@ def migrate_to_cloud(
     console.print("[bold green]migration complete[/] -> cloud Postgres")
 
 
+@app.command("backup-cloud")
+def backup_cloud(
+    from_url: str = typer.Option(
+        "",
+        "--from",
+        help="Source Postgres URL. Defaults to the DATABASE_URL env var.",
+    ),
+    out: str = typer.Option(
+        "", help="Output directory (default: data/backups). Point it at a "
+        "Google Drive / OneDrive folder for an offsite copy."
+    ),
+    keep: int = typer.Option(12, help="How many timestamped snapshots to keep"),
+    no_gzip: bool = typer.Option(False, help="Keep the raw .db (skip gzip)"),
+) -> None:
+    """Snapshot the cloud Postgres into a local (gzipped) SQLite file.
+
+    A restore-anywhere copy of the year+ of review/learning data, independent of
+    Railway. The DB is text-only (no audio/video), so even hundreds of long
+    videos stay well under 1 GB and gzip ~5-10x. Restore: gunzip the .db and use
+    it as data/jamak.db, or `migrate-to-cloud --to <new PG> --force` from it.
+    """
+    import gzip
+    import os
+    import shutil
+    from datetime import datetime
+
+    from sqlmodel import Session, SQLModel, create_engine, select
+
+    from .db import (
+        Correction,
+        GlossaryTerm,
+        Job,
+        LlmCache,
+        Segment,
+        SttBlob,
+        Track,
+        Translation,
+        _db_url,
+        _ensure_columns,
+    )
+
+    src_url = from_url.strip() or os.environ.get("DATABASE_URL", "").strip()
+    if not src_url:
+        console.print("[red]no source: pass --from or set DATABASE_URL[/]")
+        raise typer.Exit(1)
+    os.environ["DATABASE_URL"] = src_url
+    norm = _db_url()
+    if norm is None or not norm.startswith("postgresql"):
+        console.print(f"[red]source must be cloud Postgres, got:[/] {src_url}")
+        raise typer.Exit(1)
+
+    outdir = Path(out) if out else (config.DATA_DIR / "backups")
+    outdir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    dest_db = outdir / f"jamak-cloud-{stamp}.db"
+
+    src = create_engine(norm, pool_pre_ping=True)
+    dst = create_engine(f"sqlite:///{dest_db}")
+    SQLModel.metadata.create_all(dst)
+    _ensure_columns(dst)
+
+    # parents before children (FKs); PK ids preserved so the snapshot restores 1:1
+    order = [Job, Track, Segment, Translation, SttBlob, Correction, LlmCache, GlossaryTerm]
+    with Session(src) as ss, Session(dst) as ds:
+        for model in order:
+            rows = ss.exec(select(model)).all()
+            for row in rows:
+                ds.add(model(**row.model_dump()))
+            ds.commit()
+    src.dispose()
+    dst.dispose()
+
+    final = dest_db
+    if not no_gzip:
+        gz = dest_db.with_suffix(".db.gz")
+        with open(dest_db, "rb") as f_in, gzip.open(gz, "wb", compresslevel=9) as f_out:
+            shutil.copyfileobj(f_in, f_out)
+        dest_db.unlink()
+        final = gz
+
+    # rotate: keep the newest `keep` snapshots (both .db and .db.gz)
+    if keep > 0:
+        snaps = sorted(outdir.glob("jamak-cloud-*.db*"))
+        for old in snaps[:-keep]:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+
+    size_kb = final.stat().st_size / 1024
+    console.print(f"[bold green]backed up[/] -> {final} ({size_kb:.0f} KB)")
+
+
 if __name__ == "__main__":
     app()
