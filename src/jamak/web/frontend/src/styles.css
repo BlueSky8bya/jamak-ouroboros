@@ -680,6 +680,30 @@ button {
 .srt-apply:disabled, .srt-cancel:disabled { opacity: 0.5; cursor: default; }
 .qa.qa-undo { color: var(--amber); }
 
+/* per-video reviewer assignment chip (in the card footer) */
+.job-foot .meta { flex: 1; min-width: 0; }
+.assignee-chip {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.assignee-chip.has {
+  color: var(--blue-ink);
+  background: var(--blue-soft);
+  border-color: transparent;
+}
+.assignee-chip:hover { border-color: var(--blue); color: var(--blue); }
+
 /* ===== view toggle + reset chip ===== */
 .view-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .view-toggle button {

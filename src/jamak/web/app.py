@@ -573,6 +573,7 @@ def list_jobs() -> list[dict]:
                     "upload_date": j.upload_date,
                     "running": j.video_id in running,
                     "srt_undo": j.video_id in srt_undo_ids,
+                    "assignee": j.assignee,
                 }
             )
         # pipeline just launched, no DB row yet — show a placeholder card
@@ -2016,6 +2017,26 @@ def undo_srt(request: Request, video_id: str) -> dict:
         session.delete(bk)
         session.commit()
     return {"restored": restored}
+
+
+class AssigneeBody(BaseModel):
+    name: str = ""
+
+
+@app.post("/api/jobs/{video_id}/assignee")
+def set_assignee(video_id: str, body: AssigneeBody) -> dict:
+    """Set (or clear, with '') the reviewer assigned to this video. Any logged-in
+    reviewer can claim/reassign — the team is small and trust-based."""
+    name = body.name.strip()[:60]
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+        job.assignee = name
+        job.updated_at = utcnow()
+        session.add(job)
+        session.commit()
+    return {"video_id": video_id, "assignee": name}
 
 
 @app.get("/api/health")

@@ -10,6 +10,7 @@ import {
   importSrt,
   logout,
   retranscribe,
+  setAssignee,
   undoSrt,
   type Me,
   type QueueItem,
@@ -180,6 +181,7 @@ function JobCard({
   onCopyLink,
   onSrtFile,
   onUndoSrt,
+  onAssign,
 }: {
   job: JobSummary;
   query: string;
@@ -193,6 +195,7 @@ function JobCard({
   onCopyLink: (e: ReactMouseEvent, j: JobSummary) => void;
   onSrtFile: (videoId: string, file: File) => void;
   onUndoSrt: (videoId: string) => void;
+  onAssign: (videoId: string, current: string) => void;
 }) {
   const [lang, setLang] = useState("ko");
   const [dragOver, setDragOver] = useState(false);
@@ -420,6 +423,16 @@ function JobCard({
                     ? ` · ${relTime(j.created_at)} 추가`
                     : ""}
               </span>
+              <button
+                className={"assignee-chip" + (j.assignee ? " has" : "")}
+                title="담당 검수자 지정·변경 (비우면 해제)"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAssign(j.video_id, j.assignee ?? "");
+                }}
+              >
+                👤 {j.assignee || "담당 지정"}
+              </button>
               {canIngest && !j.ko_complete && !j.running && (
                 <span
                   className="reroll"
@@ -646,6 +659,18 @@ export function App() {
       setError(`.srt 적용 실패: ${e instanceof Error ? e.message : e}`);
     } finally {
       setSrtBusy(false);
+    }
+  }
+
+  async function assignReviewer(videoId: string, current: string) {
+    const v = window.prompt("담당 검수자 이름 (비우면 해제)", current || me?.name || "");
+    if (v === null) return;
+    setError("");
+    try {
+      await setAssignee(videoId, v.trim());
+      await refresh();
+    } catch (e) {
+      setError(`담당 지정 실패: ${e instanceof Error ? e.message : e}`);
     }
   }
 
@@ -1176,6 +1201,7 @@ export function App() {
               proc={queue.find((q) => q.status === "processing" && q.video_id === j.video_id)}
               onSrtFile={onSrtFile}
               onUndoSrt={undoSrtImport}
+              onAssign={assignReviewer}
               onOpen={(v, l) => {
                 setSelectedLang(l);
                 setSelected(v);

@@ -22,6 +22,7 @@ export interface JobSummary {
   upload_date: string; // YouTube upload date YYYYMMDD ('' if unknown)
   running: boolean;
   srt_undo?: boolean; // an applied .srt import can be reverted
+  assignee?: string; // reviewer who claimed this video ('' = unassigned)
 }
 
 export interface Segment {

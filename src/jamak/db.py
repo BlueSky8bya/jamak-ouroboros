@@ -36,6 +36,10 @@ class Job(SQLModel, table=True):
     # finishing the words doesn't mean the cue times are done. This flags the
     # human-confirmed timing pass for the whole video.
     timing_done: bool = False
+    # display name of the reviewer who claimed this video ('' = unassigned).
+    # Reviewers log in with a free-form name (password-based roles), so this is
+    # just that name — no fixed roster needed.
+    assignee: str = ""
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
@@ -234,6 +238,7 @@ def _ensure_columns(engine) -> None:
         "job": {
             "upload_date": "VARCHAR DEFAULT ''",
             "timing_done": f"BOOLEAN DEFAULT {bt}",
+            "assignee": "VARCHAR DEFAULT ''",
         },
         "segment": {
             "low_conf": "VARCHAR DEFAULT ''",
