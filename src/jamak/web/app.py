@@ -242,113 +242,61 @@ def logout() -> Response:
     resp.delete_cookie("jamak_session")
     return resp
 
-# A cloud host (Railway) has no GPU/ffmpeg, so the STT pipeline can't run there.
-# Set JAMAK_NO_PIPELINE=1 on such a host: the create / re-transcribe endpoints
-# then refuse with a clear message (instead of spawning a job that crashes in
-# ingest and leaves no DB row — the "card appears then vanishes" bug), and the
-# frontend hides the url box / re-roll buttons. Videos are made on the local GPU
-# machine (`jamak run <url>` with DATABASE_URL pointed at the cloud DB).
-_NO_PIPELINE = os.environ.get("JAMAK_NO_PIPELINE", "").strip().lower() not in (
-    "",
-    "0",
-    "false",
-    "no",
-)
+# --- Pipeline requests (ADR-0008 path B) --------------------------------------
+# The web app NEVER runs the GPU pipeline itself — the cloud host has no GPU.
+# Creating a video only records a JobRequest here; a `jamak worker` on the local
+# GPU machine polls for pending requests and processes them ONE AT A TIME (a
+# single 8 GB GPU can't transcribe two videos at once). The DB is the single
+# queue shared by the cloud app (records requests) and the local worker (drains).
+from ..db import JobRequest
 
 
-def _require_pipeline() -> None:
-    if _NO_PIPELINE:
-        raise HTTPException(
-            400,
-            "이 서버에서는 영상 생성·재인식을 실행할 수 없습니다(로컬 GPU 필요). "
-            "관리자 PC에서 실행하세요: uv run jamak run <url>",
-        )
-
-
-# Sequential pipeline queue. A single 8 GB GPU can't transcribe two videos at
-# once (VRAM), so submitted videos run ONE AT A TIME, back to back — parallel STT
-# on one GPU only OOMs / slows both. Videos are ingested on the local machine, so
-# this queue lives in that serve process.
-import threading
-import time
-
-_QLOCK = threading.Lock()
-_queue: list[dict] = []  # waiting: [{"video_id","url","fresh"}]
-_current: "dict | None" = None  # running: {"video_id","url","fresh","proc"}
-
-
-def _spawn_run(url: str, fresh: bool) -> subprocess.Popen:
-    cmd = ["uv", "run", "jamak", "run", url]
-    if fresh:
-        cmd.append("--fresh")
-    return subprocess.Popen(
-        cmd,
-        cwd=PROJECT_ROOT,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-    )
-
-
-def _pump() -> None:
-    """Start the next queued video if nothing is currently processing."""
-    global _current
-    with _QLOCK:
-        if _current is not None:
-            if _current["proc"].poll() is None:
-                return  # still running -> hold the GPU
-            _current = None  # finished
-        if _queue:
-            item = _queue.pop(0)
-            item["proc"] = _spawn_run(item["url"], item.get("fresh", False))
-            _current = item
-
-
-def _enqueue(video_id: str, url: str, fresh: bool = False) -> str:
-    """Add a video to the queue (deduped). Returns 'processing' or 'queued'."""
-    with _QLOCK:
-        if _current is not None and _current["video_id"] == video_id:
-            return "processing"
-        if any(it["video_id"] == video_id for it in _queue):
-            return "queued"
-        _queue.append({"video_id": video_id, "url": url, "fresh": fresh})
-    _pump()
-    with _QLOCK:
-        return "processing" if (_current and _current["video_id"] == video_id) else "queued"
+def _request_job(video_id: str, url: str, fresh: bool = False) -> str:
+    """Record a pipeline request (deduped by video_id). Returns queue status."""
+    with get_session() as session:
+        existing = session.exec(
+            select(JobRequest).where(
+                JobRequest.video_id == video_id,
+                JobRequest.status.in_(("pending", "processing")),
+            )
+        ).first()
+        if existing is not None:
+            return existing.status
+        session.add(JobRequest(video_id=video_id, url=url, fresh=fresh))
+        session.commit()
+    return "pending"
 
 
 def _running_ids() -> set[str]:
-    """The one video currently being processed (a set, for existing callers)."""
-    _pump()
-    with _QLOCK:
-        return {_current["video_id"]} if _current is not None else set()
+    """video_ids the worker is currently processing (marks job.running)."""
+    with get_session() as session:
+        rows = session.exec(
+            select(JobRequest.video_id).where(JobRequest.status == "processing")
+        ).all()
+    return set(rows)
 
 
 def _queue_state() -> list[dict]:
-    _pump()
-    with _QLOCK:
-        out: list[dict] = []
-        if _current is not None:
-            out.append({"video_id": _current["video_id"], "status": "processing"})
-        for i, it in enumerate(_queue):
-            out.append(
-                {"video_id": it["video_id"], "status": "queued", "position": i + 1}
-            )
-        return out
-
-
-# background pump so the next video starts even when nobody is polling the UI
-if not _NO_PIPELINE:
-
-    def _queue_worker() -> None:
-        while True:
-            try:
-                _pump()
-            except Exception:
-                pass
-            time.sleep(2)
-
-    threading.Thread(target=_queue_worker, daemon=True).start()
+    """Pending / processing / errored requests for the queue banner."""
+    with get_session() as session:
+        rows = session.exec(
+            select(JobRequest)
+            .where(JobRequest.status.in_(("pending", "processing", "error")))
+            .order_by(JobRequest.created_at)
+        ).all()
+    out: list[dict] = []
+    for r in rows:
+        if r.status == "processing":
+            out.append({"video_id": r.video_id, "status": "processing"})
+    pos = 0
+    for r in rows:
+        if r.status == "pending":
+            pos += 1
+            out.append({"video_id": r.video_id, "status": "queued", "position": pos})
+    for r in rows:
+        if r.status == "error":
+            out.append({"video_id": r.video_id, "status": "error", "note": r.note})
+    return out
 
 
 class JobCreate(BaseModel):
@@ -364,7 +312,7 @@ def whoami(request: Request) -> dict:
             "is_admin": True,
             "authed": True,
             "auth_on": False,
-            "can_ingest": not _NO_PIPELINE,
+            "can_ingest": True,
         }
     role = _current_role(request)
     return {
@@ -372,19 +320,21 @@ def whoami(request: Request) -> dict:
         "is_admin": role == "admin",
         "authed": bool(role),
         "auth_on": True,
-        # only an admin on a machine that actually has the GPU pipeline can ingest
-        "can_ingest": role == "admin" and not _NO_PIPELINE,
+        # admins can request a video from anywhere (the local worker does the GPU
+        # work); the cloud app just records the request.
+        "can_ingest": role == "admin",
     }
 
 
 @app.post("/api/jobs")
 def create_job(request: Request, body: JobCreate) -> dict:
-    """Kick off the full pipeline for a YouTube URL (background process).
+    """Request subtitles for a YouTube URL.
 
-    Admin-only: this runs the local GPU STT pipeline on the host machine.
+    Admin-only. Records a request in the DB; the `jamak worker` on the local GPU
+    machine picks it up and runs the pipeline (one at a time). Works from the
+    cloud app — no GPU is needed here.
     """
     _require_admin(request)
-    _require_pipeline()
     from ..pipeline.ingest import extract_video_id
 
     try:
@@ -401,12 +351,11 @@ def create_job(request: Request, body: JobCreate) -> dict:
         if existing is not None:
             raise HTTPException(
                 409,
-                "이미 등록된 영상입니다. 재처리하려면 CLI에서 실행하세요: "
-                f"uv run jamak run <url> (검수 내용이 초기화됩니다)",
+                "이미 등록된 영상입니다. 재처리하려면 카드의 '다시 인식'을 쓰세요 "
+                "(검수 내용이 초기화됩니다).",
             )
 
-    # queue it — a single GPU processes videos one at a time (see _pump)
-    status = _enqueue(video_id, body.url)
+    status = _request_job(video_id, body.url)
     return {"video_id": video_id, "status": status}
 
 
@@ -427,7 +376,6 @@ def retranscribe(request: Request, video_id: str) -> dict:
     destroyed; partial review is guarded by a frontend confirm. Admin-only (GPU).
     """
     _require_admin(request)
-    _require_pipeline()
     if video_id in _running_ids():
         return {"video_id": video_id, "status": "running"}
 
@@ -461,8 +409,8 @@ def retranscribe(request: Request, video_id: str) -> dict:
     if not url:
         raise HTTPException(400, "URL 정보가 없어 재인식할 수 없습니다.")
 
-    # --fresh re-roll goes through the same one-at-a-time GPU queue
-    status = _enqueue(video_id, url, fresh=True)
+    # --fresh re-roll goes through the same DB request queue (worker, one-at-a-time)
+    status = _request_job(video_id, url, fresh=True)
     return {"video_id": video_id, "status": status}
 
 

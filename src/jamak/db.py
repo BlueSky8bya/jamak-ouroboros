@@ -168,6 +168,26 @@ class SttBlob(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class JobRequest(SQLModel, table=True):
+    """A pending 'make subtitles for this URL' request (ADR-0008 path B).
+
+    The cloud web app has no GPU, so 'create' from the site only records a
+    request here; a `jamak worker` running on the admin's local GPU machine
+    polls for pending requests and runs the pipeline one at a time. This is the
+    DB-backed queue (source of truth for both the cloud app and the worker).
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    video_id: str = Field(index=True)
+    url: str
+    fresh: bool = False  # True = re-transcribe (ignore cached STT)
+    # pending -> processing -> (row deleted on success) / error
+    status: str = Field(default="pending", index=True)
+    note: str = ""  # error detail when status == "error"
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
 _engine = None
 
 

@@ -8,8 +8,9 @@ export async function fetchJobs(): Promise<JobSummary[]> {
 
 export interface QueueItem {
   video_id: string;
-  status: "processing" | "queued";
+  status: "processing" | "queued" | "error";
   position?: number;
+  note?: string;
 }
 
 export async function fetchQueue(): Promise<QueueItem[]> {

@@ -760,19 +760,33 @@ export function App() {
         </div>
       )}
 
-      {queue.length > 0 && (
-        <div className="queue-bar">
-          <span className="queue-spin" aria-hidden>
-            ⏳
-          </span>
-          <span className="queue-txt">
-            처리 중{" "}
-            <strong>{queue.find((q) => q.status === "processing")?.video_id ?? "—"}</strong>
-            {queue.filter((q) => q.status === "queued").length > 0 &&
-              ` · 대기 ${queue.filter((q) => q.status === "queued").length}개 (한 번에 하나씩 처리)`}
-          </span>
-        </div>
-      )}
+      {queue.length > 0 &&
+        (() => {
+          const proc = queue.find((q) => q.status === "processing");
+          const nQueued = queue.filter((q) => q.status === "queued").length;
+          const nErr = queue.filter((q) => q.status === "error").length;
+          return (
+            <div className="queue-bar">
+              <span className={"queue-spin" + (proc ? "" : " idle")} aria-hidden>
+                ⏳
+              </span>
+              <span className="queue-txt">
+                {proc ? (
+                  <>
+                    처리 중 <strong>{proc.video_id}</strong>
+                    {nQueued > 0 && ` · 대기 ${nQueued}개`}
+                  </>
+                ) : nQueued > 0 ? (
+                  <>
+                    대기 {nQueued}개 · 처리하려면 관리자 PC에서{" "}
+                    <code>jamak worker</code> 실행
+                  </>
+                ) : null}
+                {nErr > 0 && <span className="queue-err"> · 실패 {nErr}개</span>}
+              </span>
+            </div>
+          );
+        })()}
       {error && <div className="error">{error}</div>}
 
       {resume && (

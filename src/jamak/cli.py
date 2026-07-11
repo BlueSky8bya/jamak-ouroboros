@@ -762,5 +762,59 @@ def backup_cloud(
     console.print(f"[bold green]backed up[/] -> {final} ({size_kb:.0f} KB)")
 
 
+@app.command()
+def worker(
+    poll: float = typer.Option(5.0, help="Seconds between DB polls when idle"),
+) -> None:
+    """Process subtitle requests submitted from the web app (local GPU).
+
+    Keep this running on the machine with the GPU (DATABASE_URL -> cloud). It
+    polls the DB for pending requests and runs the pipeline on each, ONE AT A
+    TIME. Admins can then paste YouTube links in the web app (incl. the cloud
+    site) and this picks them up — no need to run `jamak run` by hand.
+    """
+    import subprocess
+    import time
+
+    from sqlmodel import select
+
+    from .db import JobRequest, get_session
+
+    console.print(
+        "[bold]jamak worker[/] - waiting for subtitle requests (Ctrl+C to stop)"
+    )
+    while True:
+        req = None
+        with get_session() as s:
+            req = s.exec(
+                select(JobRequest)
+                .where(JobRequest.status == "pending")
+                .order_by(JobRequest.created_at)
+            ).first()
+            if req is not None:
+                req.status, req.updated_at = "processing", utcnow()
+                s.add(req)
+                s.commit()
+                rid, rurl, rfresh, rvid = req.id, req.url, req.fresh, req.video_id
+        if req is None:
+            time.sleep(poll)
+            continue
+
+        console.print(f"[cyan]processing[/] {rvid} (fresh={rfresh})")
+        cmd = ["uv", "run", "jamak", "run", rurl] + (["--fresh"] if rfresh else [])
+        rc = subprocess.run(cmd, cwd=config.PROJECT_ROOT).returncode
+        with get_session() as s:
+            r = s.get(JobRequest, rid)
+            if r is not None:
+                if rc == 0:
+                    s.delete(r)  # success -> clear from the queue
+                    console.print(f"[green]done[/] {rvid}")
+                else:
+                    r.status, r.note, r.updated_at = "error", f"exit {rc}", utcnow()
+                    s.add(r)
+                    console.print(f"[red]failed[/] {rvid} (exit {rc})")
+                s.commit()
+
+
 if __name__ == "__main__":
     app()

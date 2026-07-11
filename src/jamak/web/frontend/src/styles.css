@@ -182,7 +182,16 @@ button {
   color: var(--text);
 }
 .queue-bar .queue-spin { animation: queue-spin 1.4s linear infinite; display: inline-block; }
+.queue-bar .queue-spin.idle { animation: none; opacity: 0.6; }
 .queue-bar .queue-txt strong { color: var(--blue); }
+.queue-bar .queue-txt code {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+.queue-bar .queue-err { color: var(--danger, #e06c75); font-weight: 600; }
 @keyframes queue-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .queue-bar .queue-spin { animation: none; } }
 

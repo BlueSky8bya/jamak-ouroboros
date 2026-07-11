@@ -157,15 +157,23 @@ uv run jamak migrate-to-cloud --to "postgresql://postgres:<pw>@<host>.proxy.rlwy
 `copied N job/segment/...` 로그 후 `migration complete`. 클라우드 URL 접속 → 3영상·세그먼트·
 번역·timing_done 그대로 보이면 성공.
 
-## 3. 새 영상 만들기 (로컬 GPU, 클라우드 DB에 직접 기록)
-관리자 PC에서 `DATABASE_URL`을 **클라우드 공개 URL**로 지정하고 파이프라인 실행:
+## 3. 새 영상 만들기 (웹에서 요청 → 로컬 워커가 처리)
+클라우드 컨테이너엔 GPU가 없다. 그래서 **웹앱은 요청만 DB에 기록**하고, **관리자 PC의
+`jamak worker`가 요청을 가져가 로컬 GPU로 처리**한다(한 번에 하나씩). 결과는 클라우드 DB로.
+
+**관리자 PC(영상 만들 때 켜두는 그 PC):**
 ```powershell
-$env:DATABASE_URL = "postgresql://postgres:<pw>@<host>.proxy.rlwy.net:<port>/railway"
-uv run jamak run <youtube-url>      # STT는 로컬 GPU, 세그먼트+stt.json은 클라우드 DB로
+setx DATABASE_URL "postgresql://postgres:<pw>@<host>.proxy.rlwy.net:<port>/railway"  # 1회(영구)
+uv run jamak worker      # 켜두면 웹에서 들어온 요청을 순차 처리. Ctrl+C로 종료.
 ```
-- 끝나면 검수자가 클라우드 URL에서 바로 그 영상 검수 가능(PC 꺼도 됨).
-- `audio.wav`는 로컬에만 생겼다가 STT 후 기본 삭제. 클라우드로 안 올라감.
-- 영속 설정하려면 `setx DATABASE_URL "..."`(단, **로컬 SQLite로 돌아가려면 이 변수를 지워야** 함).
+**요청(어디서든, 폰 포함):** hky-jamak.com 로그인(관리자) → 상단 url 박스에 유튜브 링크 붙여넣기
+→ "자막 만들기". 워커가 켜져 있으면 바로 처리, 꺼져 있으면 **대기**했다가 다음에 워커 켜질 때 처리.
+배너에 `처리 중 / 대기 N개 / 실패` 표시.
+
+- `jamak worker` 없이 직접 하려면 여전히 `uv run jamak run <url>` 도 됨(요청 큐 안 거침).
+- `audio.wav`는 로컬에만 생겼다 STT 후 기본 삭제. 클라우드로 안 올라감.
+- **`JAMAK_NO_PIPELINE`는 이제 불필요**(웹앱이 파이프라인을 직접 안 돌리고 요청만 기록) — Railway에서 지워도 됨.
+- `setx DATABASE_URL` 영구 설정 시 로컬 `jamak` 전 명령이 클라우드 사용. 로컬 SQLite로 돌아가려면 이 변수 삭제.
 
 ## 4. 자동배포
 GitHub `main`에 push하면 Railway가 자동 재빌드·재배포. (경로 A의 "코드 고치면 재시작" 수작업 불필요.)
