@@ -188,6 +188,18 @@ class JobRequest(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utcnow)
 
 
+class SrtBackup(SQLModel, table=True):
+    """Pre-import snapshot of a video's Korean segments, so applying a .srt is
+    undoable (in case the wrong file was dropped). One row per job (the last
+    import); `data` is a JSON list of {id, text_final, reviewed}."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    video_id: str = Field(index=True, unique=True)
+    filename: str = ""
+    data: str = ""  # json.dumps([{"id","text_final","reviewed"}, ...])
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 _engine = None
 
 

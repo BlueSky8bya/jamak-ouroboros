@@ -21,6 +21,7 @@ export interface JobSummary {
   created_at: string;
   upload_date: string; // YouTube upload date YYYYMMDD ('' if unknown)
   running: boolean;
+  srt_undo?: boolean; // an applied .srt import can be reverted
 }
 
 export interface Segment {

@@ -34,6 +34,20 @@ export interface SrtPreview {
   sample: { idx: number; old: string; new: string }[];
 }
 
+export async function undoSrt(videoId: string): Promise<{ restored: number }> {
+  const r = await fetch(`/api/jobs/${videoId}/undo-srt`, { method: "POST" });
+  if (!r.ok) {
+    let msg = `undo: ${r.status}`;
+    try {
+      msg = (await r.json()).detail ?? msg;
+    } catch {
+      /* non-JSON */
+    }
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
 export async function importSrt(
   videoId: string,
   content: string,

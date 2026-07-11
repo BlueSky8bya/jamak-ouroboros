@@ -470,7 +470,11 @@ def list_jobs() -> list[dict]:
 
     running = _running_ids()
     with get_session() as session:
+        from ..db import SrtBackup
+
         jobs = session.exec(select(Job).order_by(Job.created_at.desc())).all()
+        # video_ids that have an undoable .srt import snapshot (one query)
+        srt_undo_ids = set(session.exec(select(SrtBackup.video_id)).all())
         out = []
         seen = set()
         for j in jobs:
@@ -568,6 +572,7 @@ def list_jobs() -> list[dict]:
                     "created_at": j.created_at.isoformat(),
                     "upload_date": j.upload_date,
                     "running": j.video_id in running,
+                    "srt_undo": j.video_id in srt_undo_ids,
                 }
             )
         # pipeline just launched, no DB row yet — show a placeholder card
@@ -1947,6 +1952,25 @@ def import_srt(request: Request, video_id: str, body: SrtImport) -> dict:
                 "sample": sample,
             }
 
+        # snapshot the CURRENT state first, so this import can be undone if it
+        # turns out to be the wrong file (must be built before the loop mutates)
+        import json as _json
+
+        from ..db import SrtBackup
+
+        snap = _json.dumps(
+            [{"id": s.id, "text_final": s.text_final, "reviewed": s.reviewed} for s in segs],
+            ensure_ascii=False,
+        )
+        bk = session.exec(
+            select(SrtBackup).where(SrtBackup.video_id == video_id)
+        ).first()
+        if bk is None:
+            session.add(SrtBackup(video_id=video_id, filename=body.filename, data=snap))
+        else:
+            bk.filename, bk.data, bk.created_at = body.filename, snap, utcnow()
+            session.add(bk)
+
         for seg, txt in pairs:
             seg.text_final = txt
             seg.reviewed = True
@@ -1964,6 +1988,34 @@ def import_srt(request: Request, video_id: str, body: SrtImport) -> dict:
     except Exception:
         pass
     return {"applied": matched, "total": total, "absorbed": absorbed}
+
+
+@app.post("/api/jobs/{video_id}/undo-srt")
+def undo_srt(request: Request, video_id: str) -> dict:
+    """Revert the last .srt import — restore each segment's previous text_final /
+    reviewed from the snapshot taken at import time (admin)."""
+    _require_admin(request)
+    import json as _json
+
+    from ..db import SrtBackup
+
+    with get_session() as session:
+        bk = session.exec(
+            select(SrtBackup).where(SrtBackup.video_id == video_id)
+        ).first()
+        if bk is None:
+            raise HTTPException(404, "되돌릴 .srt 적용 내역이 없습니다.")
+        restored = 0
+        for row in _json.loads(bk.data):
+            seg = session.get(Segment, row["id"])
+            if seg is not None and seg.lang == "ko":
+                seg.text_final = row["text_final"]
+                seg.reviewed = row["reviewed"]
+                session.add(seg)
+                restored += 1
+        session.delete(bk)
+        session.commit()
+    return {"restored": restored}
 
 
 @app.get("/api/health")

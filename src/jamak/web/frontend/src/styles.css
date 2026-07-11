@@ -643,6 +643,7 @@ button {
 .srt-cancel { background: transparent; color: var(--muted); }
 .srt-apply { background: linear-gradient(135deg, var(--blue), var(--indigo)); color: #fff; border-color: transparent; }
 .srt-apply:disabled, .srt-cancel:disabled { opacity: 0.5; cursor: default; }
+.qa.qa-undo { color: var(--amber); }
 
 /* ===== view toggle + reset chip ===== */
 .view-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }

@@ -10,6 +10,7 @@ import {
   importSrt,
   logout,
   retranscribe,
+  undoSrt,
   type Me,
   type QueueItem,
   type SrtPreview,
@@ -178,6 +179,7 @@ function JobCard({
   onExport,
   onCopyLink,
   onSrtFile,
+  onUndoSrt,
 }: {
   job: JobSummary;
   query: string;
@@ -190,6 +192,7 @@ function JobCard({
   onExport: (e: ReactMouseEvent, j: JobSummary, lang?: string) => void;
   onCopyLink: (e: ReactMouseEvent, j: JobSummary) => void;
   onSrtFile: (videoId: string, file: File) => void;
+  onUndoSrt: (videoId: string) => void;
 }) {
   const [lang, setLang] = useState("ko");
   const [dragOver, setDragOver] = useState(false);
@@ -335,6 +338,23 @@ function JobCard({
                 }}
               >
                 📄 .srt
+              </span>
+            )}
+            {canIngest && j.srt_undo && (
+              <span
+                className="qa qa-undo"
+                role="button"
+                tabIndex={0}
+                title="방금 올린 .srt 적용을 취소하고 이전 상태로 되돌리기"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUndoSrt(j.video_id);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") onUndoSrt(j.video_id);
+                }}
+              >
+                ↩ .srt 취소
               </span>
             )}
           </span>
@@ -626,6 +646,17 @@ export function App() {
       setError(`.srt 적용 실패: ${e instanceof Error ? e.message : e}`);
     } finally {
       setSrtBusy(false);
+    }
+  }
+
+  async function undoSrtImport(videoId: string) {
+    if (!window.confirm(".srt 적용을 취소하고 이전 상태로 되돌릴까요?")) return;
+    setError("");
+    try {
+      await undoSrt(videoId);
+      await refresh();
+    } catch (e) {
+      setError(`되돌리기 실패: ${e instanceof Error ? e.message : e}`);
     }
   }
 
@@ -1144,6 +1175,7 @@ export function App() {
               canIngest={canIngest}
               proc={queue.find((q) => q.status === "processing" && q.video_id === j.video_id)}
               onSrtFile={onSrtFile}
+              onUndoSrt={undoSrtImport}
               onOpen={(v, l) => {
                 setSelectedLang(l);
                 setSelected(v);
