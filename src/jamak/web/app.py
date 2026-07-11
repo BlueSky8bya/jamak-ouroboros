@@ -208,7 +208,14 @@ async def _session_auth(request: Request, call_next):
         path = request.url.path
         if path.startswith("/api/") and path not in _PUBLIC_API and not role:
             return JSONResponse({"detail": "로그인이 필요합니다"}, status_code=401)
-    return await call_next(request)
+    resp = await call_next(request)
+    # never cache index.html (the SPA shell) — otherwise a new deploy's hashed
+    # JS/CSS aren't picked up until a hard refresh (the version badge, a live
+    # /api call, would show the new build while the running code is stale). The
+    # content-hashed asset files stay cacheable.
+    if "text/html" in resp.headers.get("content-type", ""):
+        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return resp
 
 
 class LoginBody(BaseModel):
