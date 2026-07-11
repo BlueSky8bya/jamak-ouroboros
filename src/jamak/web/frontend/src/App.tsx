@@ -120,8 +120,16 @@ type Chip = { label: string; tone: Tone; icon?: string };
 /** status chips for a card's selected language track.
  *  ko  → two axes: 자막(text review) + 타이밍
  *  lang → one chip: translation progress */
-function chipsFor(j: JobSummary, lang: string): Chip[] {
-  if (j.running) return [{ label: "처리 중", tone: "live" }];
+function chipsFor(j: JobSummary, lang: string, proc?: QueueItem): Chip[] {
+  if (j.running) {
+    const note = proc?.note && proc.note !== "처리 중" ? proc.note : "처리 중";
+    // only flag a stall during STT, where the heartbeat updates every few
+    // seconds — the correction step is a black box that legitimately runs for
+    // minutes without a beat, so a growing age there is not a stall.
+    const stalled =
+      typeof proc?.age === "number" && proc.age > 150 && note.startsWith("음성인식");
+    return [{ label: stalled ? `${note} ⚠` : note, tone: "live" }];
+  }
   if (lang === "ko") {
     if (j.segments === 0) return [{ label: "대기 중", tone: "muted" }];
     const text: Chip = j.ko_complete
@@ -162,6 +170,7 @@ function JobCard({
   isCursor,
   dataIdx,
   canIngest,
+  proc,
   onOpen,
   onReroll,
   onExport,
@@ -172,6 +181,7 @@ function JobCard({
   isCursor: boolean;
   dataIdx: number;
   canIngest: boolean;
+  proc?: QueueItem;
   onOpen: (videoId: string, lang: string) => void;
   onReroll: (e: ReactMouseEvent, j: JobSummary) => void;
   onExport: (e: ReactMouseEvent, j: JobSummary, lang?: string) => void;
@@ -179,7 +189,7 @@ function JobCard({
 }) {
   const [lang, setLang] = useState("ko");
   const openable = j.segments > 0;
-  const chips = chipsFor(j, lang);
+  const chips = chipsFor(j, lang, proc);
   const allDone = chips.length > 0 && chips.every((c) => c.tone === "done");
   const koPct = j.segments ? Math.round((j.reviewed / j.segments) * 100) : 0;
   const selPct =
@@ -788,7 +798,7 @@ export function App() {
                     처리 중 <strong>{proc.video_id}</strong>
                     {proc.note && ` · ${proc.note}`}
                     {typeof proc.age === "number" &&
-                      (proc.age > 150 ? (
+                      (proc.age > 150 && (proc.note ?? "").startsWith("음성인식") ? (
                         <span className="queue-err"> · ⚠ {proc.age}초째 응답 없음</span>
                       ) : (
                         ` · ${proc.age < 5 ? "방금" : `${proc.age}초 전`} 갱신`
@@ -917,14 +927,21 @@ export function App() {
                     : s.key === "done"
                       ? jobs.filter((j) => j.ko_complete && j.timing_done).length
                       : runningCount;
+          // 처리 중 is always 0 or 1 — the number is noise. Show a live dot +
+          // highlight when something is processing instead of a count.
+          const isRunning = s.key === "running";
           return (
             <button
               key={s.key}
-              className={"pill" + (status === s.key ? " on" : "")}
+              className={
+                "pill" +
+                (status === s.key ? " on" : "") +
+                (isRunning && count > 0 ? " pill-live" : "")
+              }
               onClick={() => setStatus(s.key)}
             >
               {s.label}
-              <em>{count}</em>
+              {isRunning ? count > 0 && <span className="pill-dot" /> : <em>{count}</em>}
             </button>
           );
         })}
@@ -1025,6 +1042,7 @@ export function App() {
               isCursor={idx === cursor}
               dataIdx={idx}
               canIngest={canIngest}
+              proc={queue.find((q) => q.status === "processing" && q.video_id === j.video_id)}
               onOpen={(v, l) => {
                 setSelectedLang(l);
                 setSelected(v);

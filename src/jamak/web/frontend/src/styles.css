@@ -542,6 +542,19 @@ button {
   color: #fff;
 }
 .pill.on em { color: rgba(255, 255, 255, 0.82); }
+/* 처리 중 filter when something is processing: teal highlight + pulsing dot */
+.pill.pill-live { border-color: var(--teal); color: var(--teal); }
+.pill.pill-live.on { background: var(--teal); border-color: transparent; color: #fff; }
+.pill .pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--teal);
+  animation: pill-pulse 1.2s ease-in-out infinite;
+}
+.pill.on .pill-dot { background: #fff; }
+@keyframes pill-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .pill .pill-dot { animation: none; } }
 
 /* ===== view toggle + reset chip ===== */
 .view-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
