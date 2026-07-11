@@ -22,9 +22,9 @@ cd src/jamak/web/frontend; npm install; npm run build; cd ../../../..
 
 ```powershell
 setx JAMAK_ADMINS "임상택"                 # 관리자 이름(파이프라인 실행 권한)
-setx JAMAK_ADMIN_PASSWORD "hky2312"        # 관리자 비번
+setx JAMAK_ADMIN_PASSWORD "<관리자-비번>"        # 관리자 비번
 setx JAMAK_NAMES "조기호,다른검수자"        # 검수자 이름들
-setx JAMAK_PASSWORD "hky1004"              # 검수자 공용 비번
+setx JAMAK_PASSWORD "<검수자-비번>"              # 검수자 공용 비번
 setx JAMAK_SECRET "<임의 64자리 hex>"       # 쿠키 서명키(재시작 후에도 로그인 유지)
 uv run jamak serve --port 8711
 ```
@@ -114,8 +114,68 @@ URL이 매번 바뀌고 인증이 `JAMAK_AUTH`뿐 → 임시 확인용만.
 - **비밀**: `ANTHROPIC_API_KEY`·`JAMAK_AUTH`는 호스트 환경변수로만. 프론트 번들에 절대 넣지 않음.
 - **HTTPS**: Cloudflare/Tailscale가 TLS 종단 제공 → 앱은 평문 127.0.0.1로 충분.
 
-## 다음 단계 (규모 커지면)
+---
 
-검수자가 늘거나 항상 켜두기가 부담되면 **경로 B(클라우드 웹앱 + 로컬 GPU)** 로:
-SQLite→Postgres, 파일→오브젝트스토리지(R2/S3), 세션 인증, per-(job,lang) 잠금.
-= ADR-0007의 "future" 절 + `translate-audit` 감사가 남긴 동시성 항목.
+# 경로 B — 클라우드 웹앱 + 로컬 GPU (Railway + 전용 Postgres) — ADR-0008
+
+**검수자는 관리자 PC가 꺼져 있어도 접속.** 검수 웹앱을 Railway에 상시 호스팅하고 데이터는
+Railway Postgres 하나로 통일한다. 유튜브→자막 생성만 로컬 GPU(관리자 PC)에서 돈다.
+
+아키텍처: 로컬 파이프라인과 클라우드 앱이 **같은 Postgres 하나**를 본다. stt.json은
+`SttBlob` 테이블로 DB에 들어가 워드맵·타이밍다듬기가 클라우드에서 동작한다. `audio.wav`는
+로컬에만(안 올림).
+
+## 코드 스위치 (이미 반영됨)
+- `DATABASE_URL` 있으면 Postgres, 없으면 기존 SQLite(로컬·터널 방식 100% 그대로).
+- `Dockerfile`(node로 프론트 빌드 → python serve), `railway.json`(헬스체크 `/api/me`).
+- `jamak migrate-to-cloud` 이관 명령.
+
+## 0. Railway 프로젝트 + Postgres
+1. https://railway.app 가입(GitHub 로그인). 이 저장소를 GitHub에 push 해 둔다.
+2. **New Project → Deploy from GitHub repo** → 이 레포 선택. Railway가 `Dockerfile`을 자동 감지·빌드.
+3. 같은 프로젝트에서 **New → Database → Add PostgreSQL**. 생성되면 Postgres 서비스의
+   **Variables** 탭에 `DATABASE_URL`(내부용)·`DATABASE_PUBLIC_URL`(외부용)이 뜬다.
+
+## 1. 웹앱 서비스 환경변수 (Variables 탭)
+```
+DATABASE_URL           = ${{Postgres.DATABASE_URL}}   # Railway 변수 참조(내부 네트워크)
+JAMAK_ADMINS           = 임상택
+JAMAK_ADMIN_PASSWORD   = <관리자-비번>
+JAMAK_NAMES            = 조기호
+JAMAK_PASSWORD         = <검수자-비번>
+JAMAK_SECRET           = <임의 64자리 hex>            # 쿠키 서명키(재배포에도 로그인 유지)
+ANTHROPIC_API_KEY      = <검수 중 번역 버튼 쓸 거면>   # 검수만이면 불필요
+```
+- `${{Postgres.DATABASE_URL}}` = Railway의 서비스 간 변수 참조(같은 프로젝트 내부망, 무료 트래픽).
+- 앱은 `postgres://`/`postgresql://` 어느 형태든 psycopg용으로 자동 정규화.
+- 저장하면 Railway가 자동 재배포. 도메인은 **Settings → Networking → Generate Domain**.
+
+## 2. 기존 데이터 1회 이관 (로컬에서 실행)
+로컬 SQLite(+ 기존 stt.json)를 클라우드로 복사. **소스는 읽기전용**, PK id 보존.
+Railway Postgres의 **공개 URL**(`DATABASE_PUBLIC_URL`, `...proxy.rlwy.net:port`)을 쓴다:
+```powershell
+uv run jamak migrate-to-cloud --to "postgresql://postgres:<pw>@<host>.proxy.rlwy.net:<port>/railway"
+# 대상에 이미 job이 있으면 중단(중복 방지). 다시 밀어야 하면 --force.
+```
+`copied N job/segment/...` 로그 후 `migration complete`. 클라우드 URL 접속 → 3영상·세그먼트·
+번역·timing_done 그대로 보이면 성공.
+
+## 3. 새 영상 만들기 (로컬 GPU, 클라우드 DB에 직접 기록)
+관리자 PC에서 `DATABASE_URL`을 **클라우드 공개 URL**로 지정하고 파이프라인 실행:
+```powershell
+$env:DATABASE_URL = "postgresql://postgres:<pw>@<host>.proxy.rlwy.net:<port>/railway"
+uv run jamak run <youtube-url>      # STT는 로컬 GPU, 세그먼트+stt.json은 클라우드 DB로
+```
+- 끝나면 검수자가 클라우드 URL에서 바로 그 영상 검수 가능(PC 꺼도 됨).
+- `audio.wav`는 로컬에만 생겼다가 STT 후 기본 삭제. 클라우드로 안 올라감.
+- 영속 설정하려면 `setx DATABASE_URL "..."`(단, **로컬 SQLite로 돌아가려면 이 변수를 지워야** 함).
+
+## 4. 자동배포
+GitHub `main`에 push하면 Railway가 자동 재빌드·재배포. (경로 A의 "코드 고치면 재시작" 수작업 불필요.)
+
+## 주의 / 이연
+- **retranscribe·repair는 클라우드에서 GPU 없음.** 재인식이 필요하면 관리자가 **로컬에서**
+  `DATABASE_URL` 지정 후 `jamak run <url> --fresh`. (클라우드 버튼 가드는 후속 항목.)
+- 클라우드는 `--backup-hours 0`(SQLite 온라인백업은 PG에 무의미) — DB 백업은 Railway가 담당.
+- 동시 편집 잠금(per-(job,lang) idx)은 여전히 이연(translate-audit 항목).
+- 다른 호스트(Neon/Render)로 옮기려면 `DATABASE_URL`만 교체 — 코드 변경 0.

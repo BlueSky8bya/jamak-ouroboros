@@ -8,4 +8,5 @@
 | [ADR-0004](decisions/ADR-0004-whisper-finetune-roadmap.md) | Accepted | stt/ml | 검수 데이터로 Whisper 파인튜닝 로드맵 (hotwords→데이터셋→LoRA) | 검수 오디오 10시간 축적 |
 | [ADR-0005](decisions/ADR-0005-local-correction-model-roadmap.md) | Accepted | correction/ml | 교정을 로컬 파인튜닝 소형 LLM으로 점진 이전(번역은 API 유지); 결정적 층+스킵→데이터 축적→LoRA+CER 게이트 | 교정쌍 2~5천 축적 |
 | [ADR-0006](decisions/ADR-0006-per-language-subtitle-tracks.md) | Accepted | data/editor | 모든 언어=1급 자막 트랙(Segment.lang, 번역=트랙 시드, 에디터 전 언어 재사용); 랜딩 언어 축 | 번역 트랙 divergence 데이터 확인, 다중 사용자 설계 |
-| [ADR-0007](decisions/ADR-0007-deploy-via-tunnel.md) | Accepted | deploy | 1차 배포=터널(Cloudflare Tunnel+Access) 노출 + JAMAK_AUTH 이중화; 로컬 GPU·SQLite·파일 유지 | 검수자 증가/상시가동 부담/동시편집 충돌 → 클라우드 웹앱+로컬 GPU |
+| [ADR-0007](decisions/ADR-0007-deploy-via-tunnel.md) | Accepted | deploy | 1차 배포=터널(Cloudflare Tunnel+Access) 노출 + JAMAK_AUTH 이중화; 로컬 GPU·SQLite·파일 유지 (로컬 전용엔 유효) | ADR-0008로 확장됨 |
+| [ADR-0008](decisions/ADR-0008-cloud-app-local-gpu.md) | Accepted | deploy/data | 경로 B: 검수 웹앱 클라우드 상시(Railway) + 전용 Postgres(단일 DB, stt.json→SttBlob); 로컬 GPU 유지, DATABASE_URL 미설정 시 기존 SQLite 그대로 | 파이프라인 클라우드화(경로 C), stt 블롭이 DB 지배 시 오브젝트스토리지, 동시편집 충돌 시 행잠금 |

@@ -23,10 +23,43 @@ from sqlmodel import delete as sql_delete, select
 
 from ..config import JOBS_DIR, PROJECT_ROOT
 
-from ..db import Job, Segment, Track, Translation, get_session, utcnow
+from ..db import (
+    Job,
+    Segment,
+    Track,
+    Translation,
+    get_session,
+    load_stt_blob,
+    utcnow,
+)
 from ..pipeline.assemble import to_srt
 
 app = FastAPI(title="jamak-ouroboros review")
+
+
+def _load_stt(video_id: str, session=None) -> "list | None":
+    """Parsed per-word STT for a video: DB blob first (works on a cloud host
+    with no job files, ADR-0007 path B), local stt.json file as fallback (local
+    dev / videos stored before the blob existed). None if neither has it."""
+    import json as _json
+
+    def _from_db(sess) -> "list | None":
+        job = sess.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None or job.id is None:
+            return None
+        blob = load_stt_blob(sess, job.id)
+        return _json.loads(blob) if blob else None
+
+    raw = _from_db(session) if session is not None else None
+    if raw is None and session is None:
+        with get_session() as s:
+            raw = _from_db(s)
+    if raw is not None:
+        return raw
+    stt_path = JOBS_DIR / video_id / "stt.json"
+    if stt_path.exists():
+        return _json.loads(stt_path.read_text(encoding="utf-8"))
+    return None
 
 
 # Auth for deployment. A styled in-app login form (not the browser Basic prompt)
@@ -34,8 +67,8 @@ app = FastAPI(title="jamak-ouroboros review")
 # cookie on API calls. Off by default (local single-user).
 #
 # Roles have separate shared passwords:
-#   JAMAK_ADMINS="임상택"            JAMAK_ADMIN_PASSWORD="hky2312"   (run the GPU pipeline)
-#   JAMAK_NAMES="조기호,..."         JAMAK_PASSWORD="hky1004"         (review only)
+#   JAMAK_ADMINS="임상택"            JAMAK_ADMIN_PASSWORD="<관리자-비번>"   (run the GPU pipeline)
+#   JAMAK_NAMES="조기호,..."         JAMAK_PASSWORD="<검수자-비번>"         (review only)
 # A reviewer logs in with THEIR name (must be listed) + the reviewer password;
 # an admin with their name + the admin password. Adding a reviewer = append to
 # JAMAK_NAMES. Legacy per-user JAMAK_AUTH="user:pw,..." still works as a fallback.
@@ -1537,10 +1570,9 @@ def get_words(video_id: str) -> dict:
     """
     import json as _json
 
-    stt_path = JOBS_DIR / video_id / "stt.json"
-    if not stt_path.exists():
+    raw = _load_stt(video_id)
+    if raw is None:
         return {"words": []}
-    raw = _json.loads(stt_path.read_text(encoding="utf-8"))
     words = [
         {"start": float(w["start"]), "end": float(w["end"]), "word": w["word"]}
         for s in raw
@@ -1562,19 +1594,16 @@ def tighten_timing(video_id: str) -> dict:
     the cached per-word timestamps in stt.json, so it costs no GPU/API and is
     safe to run at any time, even on a finished video.
     """
-    import json as _json
-
-    stt_path = JOBS_DIR / video_id / "stt.json"
     with get_session() as session:
         job = session.exec(select(Job).where(Job.video_id == video_id)).first()
         if job is None:
             raise HTTPException(404, f"no job for {video_id}")
-        if not stt_path.exists():
+        raw = _load_stt(video_id, session)
+        if raw is None:
             raise HTTPException(
                 400,
                 "이 영상은 음성인식 원본(stt.json)이 없어 타이밍을 다듬을 수 없습니다.",
             )
-        raw = _json.loads(stt_path.read_text(encoding="utf-8"))
         words: list[tuple[float, float]] = []
         for s in raw:
             for w in s.get("words", []):

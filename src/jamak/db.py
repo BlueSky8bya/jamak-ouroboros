@@ -6,11 +6,12 @@ Markdown exports (e.g. glossary snapshots) are views, never the original.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from sqlmodel import Field, Session, SQLModel, create_engine
+from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 from .config import DB_PATH, ensure_dirs
 
@@ -150,7 +151,38 @@ class GlossaryTerm(SQLModel, table=True):
     approved: bool = True
 
 
+class SttBlob(SQLModel, table=True):
+    """Raw per-word STT output (the contents of the job's stt.json), kept in the
+    DB so the cloud review app can serve the word-map (/words) and tighten
+    timing (/tighten) without the local job files.
+
+    STT runs on the admin's local GPU; when it writes the DB it also stores this
+    blob, so a cloud-hosted app (ADR-0007 path B) with no filesystem copy still
+    has the per-word timestamps. `data` is the same JSON text stt.py caches to
+    disk. One row per job.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    job_id: int = Field(index=True, unique=True, foreign_key="job.id")
+    data: str = ""  # json.dumps of the stt segment list (per-word timestamps)
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 _engine = None
+
+
+def _db_url() -> Optional[str]:
+    """Postgres URL for cloud hosting (path B), normalized for the psycopg
+    driver. None -> fall back to the local SQLite file. Accepts the
+    `postgres://` / `postgresql://` forms Railway/Neon/etc. hand out."""
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if not url:
+        return None
+    if url.startswith("postgres://"):
+        url = "postgresql+psycopg://" + url[len("postgres://") :]
+    elif url.startswith("postgresql://"):
+        url = "postgresql+psycopg://" + url[len("postgresql://") :]
+    return url
 
 
 def _ensure_columns(engine) -> None:
@@ -158,19 +190,23 @@ def _ensure_columns(engine) -> None:
     columns to an existing table). Adds any missing nullable columns."""
     from sqlalchemy import inspect, text
 
+    # Postgres wants BOOLEAN DEFAULT false, not 0. (On a fresh cloud DB every
+    # column is created by create_all, so these ALTERs never fire — this only
+    # migrates an existing SQLite file — but keep the DDL valid for both.)
+    bt = "false" if engine.dialect.name == "postgresql" else "0"
     wanted = {
         "translation": {
-            "reviewed": "BOOLEAN DEFAULT 0",
-            "edited": "BOOLEAN DEFAULT 0",
+            "reviewed": f"BOOLEAN DEFAULT {bt}",
+            "edited": f"BOOLEAN DEFAULT {bt}",
         },
         "job": {
             "upload_date": "VARCHAR DEFAULT ''",
-            "timing_done": "BOOLEAN DEFAULT 0",
+            "timing_done": f"BOOLEAN DEFAULT {bt}",
         },
         "segment": {
             "low_conf": "VARCHAR DEFAULT ''",
             "lang": "VARCHAR DEFAULT 'ko'",
-            "edited": "BOOLEAN DEFAULT 0",
+            "edited": f"BOOLEAN DEFAULT {bt}",
         },
     }
     insp = inspect(engine)
@@ -209,18 +245,41 @@ def _ensure_columns(engine) -> None:
 def get_engine():
     global _engine
     if _engine is None:
-        ensure_dirs()
-        # busy_timeout: the preview server and the user's own browser can share
-        # jamak.db (MEMORY.md). Without it a concurrent writer fails instantly
-        # with 'database is locked'; 30s makes writers wait and serialize.
-        # (Full per-(job,lang) serialization of the idx read-modify-write is the
-        # deferred SQLite->Postgres + locking work in ADR-0006/ACTIVE_PLAN.)
-        _engine = create_engine(
-            f"sqlite:///{DB_PATH}", connect_args={"timeout": 30}
-        )
+        url = _db_url()
+        if url:
+            # Cloud Postgres (ADR-0007 path B). pool_pre_ping recycles
+            # connections a serverless DB may have dropped between requests.
+            _engine = create_engine(url, pool_pre_ping=True)
+        else:
+            ensure_dirs()
+            # busy_timeout: the preview server and the user's own browser can
+            # share jamak.db (MEMORY.md). Without it a concurrent writer fails
+            # instantly with 'database is locked'; 30s makes writers wait and
+            # serialize. (Postgres gives real row locking — this is the local
+            # single-file path only.)
+            _engine = create_engine(
+                f"sqlite:///{DB_PATH}", connect_args={"timeout": 30}
+            )
         SQLModel.metadata.create_all(_engine)
         _ensure_columns(_engine)
     return _engine
+
+
+def save_stt_blob(session: Session, job_id: int, data: str) -> None:
+    """Upsert the raw stt.json text for a job so the cloud app can serve the
+    word-map / tighten timing without local job files. One row per job."""
+    row = session.exec(select(SttBlob).where(SttBlob.job_id == job_id)).first()
+    if row is None:
+        session.add(SttBlob(job_id=job_id, data=data))
+    else:
+        row.data = data
+        session.add(row)
+
+
+def load_stt_blob(session: Session, job_id: int) -> Optional[str]:
+    """Raw stt.json text for a job, or None if STT was never stored."""
+    row = session.exec(select(SttBlob).where(SttBlob.job_id == job_id)).first()
+    return row.data if row else None
 
 
 def get_session() -> Session:

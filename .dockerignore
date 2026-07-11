@@ -1,0 +1,16 @@
+# Keep the image small and secret-free.
+.git
+.gitignore
+data/                       # local SQLite DB, job files, backups — cloud uses Postgres
+**/node_modules
+src/jamak/web/frontend/dist # rebuilt in the Docker frontend stage
+.venv
+**/__pycache__
+**/*.pyc
+*.db
+*.db-journal
+docs/
+deploy/
+.claude/
+.env
+.env.*

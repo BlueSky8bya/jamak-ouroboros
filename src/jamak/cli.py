@@ -213,6 +213,14 @@ def run(
         )
         for i, r in enumerate(rows):
             session.add(Segment(job_id=job_id, lang="ko", idx=i, **r))
+        # Store the raw per-word STT in the DB too, so a cloud-hosted review app
+        # (ADR-0007 path B) with no local job files can serve the word-map /
+        # tighten timing. Local file stays the STT cache; this is the portable copy.
+        _stt_file = res.job_dir / "stt.json"
+        if _stt_file.exists():
+            from .db import save_stt_blob
+
+            save_stt_blob(session, job_id, _stt_file.read_text(encoding="utf-8"))
         job = session.get(Job, job_id)
         job.status, job.updated_at = "transcribed", utcnow()
         session.add(job)
@@ -502,10 +510,17 @@ def serve(
     from .db import backup_db
 
     config.ensure_dirs()
-    if host != "127.0.0.1" and not os.environ.get("JAMAK_AUTH"):
+    # session auth (JAMAK_ADMINS/NAMES + passwords) or legacy JAMAK_AUTH both count
+    _auth_set = any(
+        os.environ.get(v)
+        for v in ("JAMAK_AUTH", "JAMAK_ADMINS", "JAMAK_NAMES")
+    )
+    if host != "127.0.0.1" and not _auth_set:
         console.print(
-            "[bold yellow]warning:[/] binding a non-local host with no JAMAK_AUTH — "
-            "the app is unauthenticated. Set JAMAK_AUTH or front it with a tunnel gate."
+            "[bold yellow]warning:[/] binding a non-local host with no login "
+            "configured — the app is unauthenticated. Set JAMAK_ADMINS + "
+            "JAMAK_ADMIN_PASSWORD (and JAMAK_NAMES + JAMAK_PASSWORD), or front it "
+            "with a tunnel gate."
         )
 
     # keep the year+ of learning data safe: back up on start, then on a timer
@@ -522,6 +537,136 @@ def serve(
 
     console.print(f"[bold green]review app:[/] http://{host}:{port}")
     uvicorn.run("jamak.web.app:app", host=host, port=port)
+
+
+@app.command("migrate-to-cloud")
+def migrate_to_cloud(
+    to: str = typer.Option(
+        "",
+        "--to",
+        help="Target Postgres URL (postgres://... / postgresql://...). "
+        "Defaults to the DATABASE_URL env var.",
+    ),
+    force: bool = typer.Option(
+        False, help="Copy even if the target already has jobs (may duplicate)."
+    ),
+) -> None:
+    """One-time copy of the local SQLite DB (+ stt.json files) into a cloud
+    Postgres (ADR-0007 path B). Source is opened read-only; only the target is
+    written. Preserves primary-key ids (foreign keys stay valid) and resets the
+    Postgres id sequences afterward so new inserts don't collide.
+    """
+    import json as _json
+    import os
+
+    from sqlmodel import Session, SQLModel, create_engine, select
+
+    from . import db as dbmod
+    from .db import (
+        Correction,
+        GlossaryTerm,
+        Job,
+        LlmCache,
+        Segment,
+        SttBlob,
+        Track,
+        Translation,
+        _db_url,
+        _ensure_columns,
+        save_stt_blob,
+    )
+
+    target_url = to.strip() or os.environ.get("DATABASE_URL", "").strip()
+    if not target_url:
+        console.print("[red]no target: pass --to or set DATABASE_URL[/]")
+        raise typer.Exit(1)
+    # normalize via the same rule the app uses
+    os.environ["DATABASE_URL"] = target_url
+    norm = _db_url()
+    if norm is None or not norm.startswith("postgresql"):
+        console.print(f"[red]target must be Postgres, got:[/] {target_url}")
+        raise typer.Exit(1)
+
+    src_path = config.DB_PATH
+    if not Path(src_path).exists():
+        console.print(f"[red]no local DB at {src_path}[/]")
+        raise typer.Exit(1)
+
+    src = create_engine(f"sqlite:///{src_path}", connect_args={"timeout": 30})
+    dst = create_engine(norm, pool_pre_ping=True)
+    SQLModel.metadata.create_all(dst)
+    _ensure_columns(dst)
+
+    # dependency order: parents before children (FKs)
+    order = [
+        Job,
+        Track,
+        Segment,
+        Translation,
+        SttBlob,
+        Correction,
+        LlmCache,
+        GlossaryTerm,
+    ]
+    tables = {
+        Job: "job",
+        Track: "track",
+        Segment: "segment",
+        Translation: "translation",
+        SttBlob: "sttblob",
+        Correction: "correction",
+        LlmCache: "llmcache",
+        GlossaryTerm: "glossaryterm",
+    }
+
+    with Session(dst) as dsession:
+        existing = dsession.exec(select(Job)).first()
+        if existing is not None and not force:
+            console.print(
+                "[yellow]target already has jobs — aborting to avoid duplicates. "
+                "Use --force to copy anyway.[/]"
+            )
+            raise typer.Exit(1)
+
+        with Session(src) as ssession:
+            for model in order:
+                rows = ssession.exec(select(model)).all()
+                for row in rows:
+                    # copy every column incl. id -> FK references stay valid
+                    dsession.add(model(**row.model_dump()))
+                dsession.commit()
+                console.print(f"copied {len(rows):>6} {tables[model]}")
+
+            # jobs whose stt.json only lived on disk -> pull into SttBlob
+            have_blob = {
+                b.job_id for b in dsession.exec(select(SttBlob)).all()
+            }
+            added = 0
+            for job in ssession.exec(select(Job)).all():
+                if job.id in have_blob:
+                    continue
+                f = config.JOBS_DIR / job.video_id / "stt.json"
+                if f.exists():
+                    save_stt_blob(dsession, job.id, f.read_text(encoding="utf-8"))
+                    added += 1
+            if added:
+                dsession.commit()
+                console.print(f"imported {added} stt.json file(s) into SttBlob")
+
+        # reset Postgres id sequences to max(id) so new inserts don't collide
+        from sqlalchemy import text
+
+        for t in tables.values():
+            # table names come from the fixed `tables` map, never user input
+            dsession.execute(
+                text(
+                    f'SELECT setval(pg_get_serial_sequence(\'"{t}"\', \'id\'), '
+                    f'COALESCE((SELECT MAX(id) FROM "{t}"), 1))'
+                )
+            )
+        dsession.commit()
+
+    console.print("[bold green]migration complete[/] -> cloud Postgres")
 
 
 if __name__ == "__main__":

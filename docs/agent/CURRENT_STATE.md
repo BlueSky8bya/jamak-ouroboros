@@ -1,10 +1,27 @@
 # Current State
 
-Last Updated: 2026-07-11 (translate-subsystem 3-agent audit fix batch)
+Last Updated: 2026-07-12 (경로 B: 클라우드 웹앱 + 전용 Postgres — ADR-0008)
 Project Version: 0.1.0
 Harness Protocol: project-initializing_260710.md
 
 ## Current Objective
+
+경로 B 배포(Railway + Postgres)로 검수자가 관리자 PC 꺼져도 접속. 코드 완료, 사용자가 Railway 셋업·이관 실행 대기.
+
+## Recent Additions (2026-07-12 — 경로 B: 클라우드 웹앱 + 전용 Postgres, ADR-0008)
+
+경로 A(터널)는 PC 절전/재부팅 시 Error 1033으로 다운(실측). 검수자가 관리자 PC와 무관하게
+접속하도록 웹앱을 Railway 상시 호스팅 + 데이터는 전용 Postgres 하나로 통일. 호스트=Railway
+(사용자 결정, 코드는 `DATABASE_URL`만 바꾸면 이전 가능). **코드 완료, 사용자 셋업 대기.**
+
+- **DB 엔진 분기** (`db.py`): `DATABASE_URL` 있으면 Postgres(psycopg, `postgres://`/`postgresql://` 자동 정규화, `pool_pre_ping`), 없으면 기존 SQLite. `_ensure_columns` dialect 인지(PG BOOLEAN DEFAULT false). **`DATABASE_URL` 미설정 = 로컬 100% 그대로.** `psycopg[binary]` 의존성 추가. 검증: SQLite 무변화·URL 정규화·SttBlob 생성.
+- **stt.json → DB** (`SttBlob` 테이블 + `save/load_stt_blob`): 워드맵(`/words`)·타이밍다듬기(`/tighten`)가 로컬 파일 없이 클라우드에서 동작. writer=cli `run`(직접)·retranscribe(서브프로세스 경유). reader=`_load_stt`(블롭 우선, 파일 폴백). 검증: 임시 DB에서 파일 없이 블롭으로 워드맵 서빙.
+- **`jamak migrate-to-cloud`**: 로컬 SQLite(+stt.json) → Postgres 1회 복사. 소스 읽기전용, PK id 보존, PG 시퀀스 리셋, 기존 job 있으면 중단(--force). 검증: PK 보존 복사·FK·blob 왕복(두 임시 SQLite). **PG 엔드투엔드는 로컬 Docker/PG 없어 `NOT VERIFIED` — Railway에서 실행됨.**
+- **배포 파일**: `Dockerfile`(node 프론트 빌드 → python serve, base 의존성만·cuda 제외), `.dockerignore`(data/·secrets 제외), `railway.json`(헬스체크 `/api/me`). serve CMD `--host 0.0.0.0 --port $PORT --backup-hours 0`. serve 비-로컬 경고가 세션 인증(JAMAK_ADMINS 등)도 인식. 검증: `uv sync --frozen`(Docker와 동일 단계) 통과·frontend build 통과. **이미지 build는 Docker 없어 `NOT VERIFIED` — Railway 빌드.**
+- **문서**: `deployment.md` 경로 B/Railway 스텝바이스텝(프로젝트·PG·env·이관·새영상·자동배포), ADR-0008 Accepted(0007 확장, supersede 아님), DECISION_INDEX 갱신.
+- **이연**: 클라우드 retranscribe/repair는 GPU 없음 → 관리자 로컬 STT(문서화, 버튼 가드는 후속). per-(job,lang) 잠금 여전히 이연.
+
+## Current Objective (이전)
 
 전체 루프(M0~M4) 완성 + 검수/번역 피로 최소화 보강. 다음: 실제 다회차 검수로 CER 추이, 번역 검수 체감 확인.
 
