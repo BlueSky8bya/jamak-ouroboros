@@ -6,10 +6,31 @@ export async function fetchJobs(): Promise<JobSummary[]> {
   return r.json();
 }
 
-export async function fetchMe(): Promise<{ name: string; is_admin: boolean; auth_on: boolean }> {
+export interface Me {
+  name: string;
+  is_admin: boolean;
+  authed: boolean;
+  auth_on: boolean;
+}
+
+export async function fetchMe(): Promise<Me> {
   const r = await fetch("/api/me");
   if (!r.ok) throw new Error(`me: ${r.status}`);
   return r.json();
+}
+
+export async function login(name: string, password: string): Promise<Me> {
+  const r = await fetch("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, password }),
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? `login: ${r.status}`);
+  return r.json();
+}
+
+export async function logout(): Promise<void> {
+  await fetch("/api/logout", { method: "POST" }).catch(() => {});
 }
 
 export async function fetchSegments(videoId: string, lang = "ko"): Promise<Segment[]> {

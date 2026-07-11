@@ -1,5 +1,6 @@
 import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
-import { createJob, exportUrl, fetchJobs, fetchMe, retranscribe } from "./api";
+import { createJob, exportUrl, fetchJobs, fetchMe, logout, retranscribe, type Me } from "./api";
+import { Login } from "./Login";
 import { Editor } from "./Editor";
 import { ThemeToggle } from "./theme";
 import type { JobSummary } from "./types";
@@ -325,15 +326,15 @@ function JobCard({
 export function App() {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [loaded, setLoaded] = useState(false);
-  // who am I + may I run the pipeline? (create-from-URL / retranscribe are
-  // admin-only because they drive the host's local GPU STT). Default admin=true
-  // so the local single-user case is unrestricted until /api/me says otherwise.
-  const [isAdmin, setIsAdmin] = useState(true);
+  // who am I? drives the login gate + admin-only pipeline UI. Until /api/me
+  // answers we render nothing (avoids a flash of the app before the login form).
+  const [me, setMe] = useState<Me | null>(null);
   useEffect(() => {
     fetchMe()
-      .then((m) => setIsAdmin(m.is_admin))
-      .catch(() => setIsAdmin(true));
+      .then(setMe)
+      .catch(() => setMe({ name: "", is_admin: true, authed: true, auth_on: false }));
   }, []);
+  const isAdmin = me?.is_admin ?? false;
   const [selected, setSelected] = useState<string | null>(null);
   // language track to open the editor on (the track the reviewer was viewing
   // on the card). Falls back to Korean for resume-hero / paste-to-open.
@@ -595,6 +596,10 @@ export function App() {
     document.title = rem > 0 ? `작업대 · 남은 ${rem}` : "자막 검수 작업대";
   }, [jobs]);
 
+  // wait for /api/me, then gate on login
+  if (!me) return null;
+  if (me.auth_on && !me.authed) return <Login onLogin={() => window.location.reload()} />;
+
   if (selected)
     return (
       <Editor
@@ -636,6 +641,22 @@ export function App() {
         <div className="header-top">
           <span className="product-label">Jamak Ouroboros</span>
           <div className="header-actions">
+            {me.auth_on && me.name && (
+              <span className="user-chip" title={me.is_admin ? "관리자" : "검수자"}>
+                {me.is_admin ? "★ " : ""}
+                {me.name}
+                <button
+                  className="logout-btn"
+                  title="로그아웃"
+                  onClick={async () => {
+                    await logout();
+                    window.location.reload();
+                  }}
+                >
+                  로그아웃
+                </button>
+              </span>
+            )}
             <button className="help-btn" title="단축키 (?)" onClick={() => setShowHelp((v) => !v)}>
               ?
             </button>

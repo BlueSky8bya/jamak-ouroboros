@@ -18,21 +18,21 @@ cd src/jamak/web/frontend; npm install; npm run build; cd ../../../..
 # $env:ANTHROPIC_API_KEY = (Get-ItemProperty HKCU:\Environment).ANTHROPIC_API_KEY
 ```
 
-앱 자체 로그인. 두 방식(둘 다 브라우저가 "이름+비번" 창을 띄움):
+앱 자체 로그인 — **스타일된 인앱 로그인 폼**(크롬 기본 팝업 아님) + 서명 세션 쿠키. 이름+비번, 눈모양 토글로 비번 보기. 역할별로 비번이 다름:
 
-**방식 1 — 이름 목록 + 공용 비번 (검수팀 추천):**
 ```powershell
-setx JAMAK_NAMES "홍길동,김철수,이영희"   # 허용할 사람 이름
-setx JAMAK_PASSWORD "1004"               # 공용 비번
+setx JAMAK_ADMINS "임상택"                 # 관리자 이름(파이프라인 실행 권한)
+setx JAMAK_ADMIN_PASSWORD "hky2312"        # 관리자 비번
+setx JAMAK_NAMES "조기호,다른검수자"        # 검수자 이름들
+setx JAMAK_PASSWORD "hky1004"              # 검수자 공용 비번
+setx JAMAK_SECRET "<임의 64자리 hex>"       # 쿠키 서명키(재시작 후에도 로그인 유지)
 uv run jamak serve --port 8711
 ```
-검수자는 URL 열고 **자기 이름 + 공용비번** 입력 → 접속. 이름이 목록에 있어야 함(누가 검수하는지 식별), 비번은 공용.
-검수자 추가 = `setx JAMAK_NAMES "...,새사람"` 후 `deploy\restart-serve.cmd` 실행.
-
-**방식 2 — 사람별 개별 비번:** `setx JAMAK_AUTH "user1:pw1,user2:pw2"`.
-
-- 둘 다 미설정 = 인증 없음(로컬 개발용). **외부 노출 시 반드시 설정.** 둘 다 설정되면 방식 1이 우선.
-- 코드(Python) 수정은 **웹앱 재시작**해야 반영(`restart-serve.cmd`); 프론트 수정은 `npm run build` 후 브라우저 새로고침. (push 자동배포는 경로 B에서.)
+- 관리자는 자기 이름 + 관리자비번, 검수자는 자기 이름 + 검수자비번으로 로그인.
+- **관리자 전용**: 유튜브 링크→자막 만들기, 음성인식 다시/복구(로컬 GPU 파이프라인). 검수자는 검수·번역·내보내기만.
+- 검수자 추가 = `setx JAMAK_NAMES "...,새사람"` → `deploy\restart-serve.cmd`. (새 검수자는 검수자 공용비번 사용)
+- 레거시 개별비번 `JAMAK_AUTH="user:pw,..."`도 폴백으로 동작. 아무것도 미설정 = 무인증(로컬).
+- 코드(Python) 수정은 **웹앱 재시작**해야 반영(`restart-serve.cmd`); 프론트 수정은 `npm run build` 후 새로고침. (push 자동배포는 경로 B에서.)
 
 ---
 

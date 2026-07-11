@@ -29,14 +29,22 @@ from ..pipeline.assemble import to_srt
 app = FastAPI(title="jamak-ouroboros review")
 
 
-# Optional HTTP Basic auth for deployment. Off by default (local single-user).
-# Two modes (browser shows a name + password prompt in both):
-#   1. Name whitelist + shared password (recommended for a review team):
-#        JAMAK_NAMES="홍길동,김철수"   JAMAK_PASSWORD="1004"
-#      → each reviewer types THEIR name (must be in the list) + the shared
-#        password. The name identifies who is reviewing; the password is common.
-#   2. Per-user passwords:  JAMAK_AUTH="user1:pw1,user2:pw2".
-# If neither is set the app is open (local dev). Mode 1 wins if both are set.
+# Auth for deployment. A styled in-app login form (not the browser Basic prompt)
+# posts to /api/login and gets a signed session cookie; the middleware checks the
+# cookie on API calls. Off by default (local single-user).
+#
+# Roles have separate shared passwords:
+#   JAMAK_ADMINS="임상택"            JAMAK_ADMIN_PASSWORD="hky2312"   (run the GPU pipeline)
+#   JAMAK_NAMES="조기호,..."         JAMAK_PASSWORD="hky1004"         (review only)
+# A reviewer logs in with THEIR name (must be listed) + the reviewer password;
+# an admin with their name + the admin password. Adding a reviewer = append to
+# JAMAK_NAMES. Legacy per-user JAMAK_AUTH="user:pw,..." still works as a fallback.
+import hashlib
+import hmac
+
+from fastapi.responses import JSONResponse
+
+
 def _load_auth() -> dict[str, str]:
     raw = os.environ.get("JAMAK_AUTH", "").strip()
     creds: dict[str, str] = {}
@@ -48,26 +56,42 @@ def _load_auth() -> dict[str, str]:
 
 
 _AUTH_CREDS = _load_auth()
-_SHARED_PW = os.environ.get("JAMAK_PASSWORD", "").strip()
-_ALLOWED_NAMES = {
-    n.strip() for n in os.environ.get("JAMAK_NAMES", "").split(",") if n.strip()
-}
-_NAME_MODE = bool(_ALLOWED_NAMES and _SHARED_PW)
-_AUTH_ON = _NAME_MODE or bool(_AUTH_CREDS)
-
-# Admins may trigger the local GPU pipeline (create a job from a YouTube link,
-# retranscribe, repair-stt). Set JAMAK_ADMINS="임상택" to restrict those to named
-# admins; everyone else can review but not start processing. Unset = everyone is
-# an admin (local single-user / dev).
+_REVIEWER_PW = os.environ.get("JAMAK_PASSWORD", "").strip()
+_ADMIN_PW = os.environ.get("JAMAK_ADMIN_PASSWORD", "").strip()
+_ALLOWED_NAMES = {n.strip() for n in os.environ.get("JAMAK_NAMES", "").split(",") if n.strip()}
 _ADMINS = {n.strip() for n in os.environ.get("JAMAK_ADMINS", "").split(",") if n.strip()}
+_AUTH_ON = bool(_ADMINS or _ALLOWED_NAMES or _AUTH_CREDS)
+# session-cookie signing key. Persist JAMAK_SECRET so logins survive a restart.
+_SECRET = (os.environ.get("JAMAK_SECRET") or secrets.token_hex(32)).encode()
+_KNOWN = _ADMINS | _ALLOWED_NAMES | set(_AUTH_CREDS)
 
 
-def _auth_ok(user: str, pw: str) -> bool:
-    user = user.strip()
-    if _NAME_MODE:
-        return user in _ALLOWED_NAMES and secrets.compare_digest(pw, _SHARED_PW)
-    expected = _AUTH_CREDS.get(user)
+def _auth_ok(name: str, pw: str) -> bool:
+    name = name.strip()
+    if name in _ADMINS and _ADMIN_PW and secrets.compare_digest(pw, _ADMIN_PW):
+        return True
+    if name in _ALLOWED_NAMES and _REVIEWER_PW and secrets.compare_digest(pw, _REVIEWER_PW):
+        return True
+    expected = _AUTH_CREDS.get(name)
     return expected is not None and secrets.compare_digest(pw, expected)
+
+
+def _sign(name: str) -> str:
+    b = base64.urlsafe_b64encode(name.encode()).decode()
+    sig = hmac.new(_SECRET, b.encode(), hashlib.sha256).hexdigest()
+    return f"{b}.{sig}"
+
+
+def _verify_cookie(val: str) -> str:
+    try:
+        b, sig = val.split(".", 1)
+        good = hmac.new(_SECRET, b.encode(), hashlib.sha256).hexdigest()
+        if not secrets.compare_digest(sig, good):
+            return ""
+        name = base64.urlsafe_b64decode(b).decode()
+        return name if name in _KNOWN else ""
+    except Exception:
+        return ""
 
 
 def _current_user(request: Request) -> str:
@@ -81,31 +105,53 @@ def _is_admin(user: str) -> bool:
 
 def _require_admin(request: Request) -> None:
     if not _is_admin(_current_user(request)):
-        raise HTTPException(
-            403, "관리자만 자막 생성(파이프라인)을 실행할 수 있습니다"
-        )
+        raise HTTPException(403, "관리자만 자막 생성(파이프라인)을 실행할 수 있습니다")
+
+
+# API paths reachable without a session (so the SPA can show the login form)
+_PUBLIC_API = {"/api/login", "/api/logout", "/api/me"}
 
 
 @app.middleware("http")
-async def _basic_auth(request: Request, call_next):
+async def _session_auth(request: Request, call_next):
+    request.state.user = ""
     if _AUTH_ON:
-        ok = False
-        user = ""
-        hdr = request.headers.get("authorization", "")
-        if hdr.startswith("Basic "):
-            try:
-                user, _, pw = base64.b64decode(hdr[6:]).decode("utf-8", "ignore").partition(":")
-                ok = _auth_ok(user, pw)
-            except Exception:
-                ok = False
-        if not ok:
-            # realm must be latin-1 (HTTP header) — keep it ASCII
-            return Response(
-                status_code=401,
-                headers={"WWW-Authenticate": 'Basic realm="jamak: your name + shared password"'},
-            )
-        request.state.user = user.strip()
+        request.state.user = _verify_cookie(request.cookies.get("jamak_session", ""))
+        path = request.url.path
+        if path.startswith("/api/") and path not in _PUBLIC_API and not request.state.user:
+            return JSONResponse({"detail": "로그인이 필요합니다"}, status_code=401)
     return await call_next(request)
+
+
+class LoginBody(BaseModel):
+    name: str
+    password: str
+
+
+@app.post("/api/login")
+def login(body: LoginBody) -> Response:
+    name = body.name.strip()
+    if not _AUTH_ON:
+        return JSONResponse({"name": name, "is_admin": True, "authed": True})
+    if not name or not _auth_ok(name, body.password):
+        raise HTTPException(401, "이름 또는 비밀번호가 맞지 않습니다")
+    resp = JSONResponse({"name": name, "is_admin": _is_admin(name), "authed": True})
+    resp.set_cookie(
+        "jamak_session",
+        _sign(name),
+        httponly=True,
+        samesite="lax",
+        secure=True,  # served over HTTPS (Cloudflare tunnel)
+        max_age=60 * 60 * 24 * 30,
+    )
+    return resp
+
+
+@app.post("/api/logout")
+def logout() -> Response:
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie("jamak_session")
+    return resp
 
 # video_id -> running pipeline process (started from the web UI)
 _running: dict[str, subprocess.Popen] = {}
@@ -126,7 +172,14 @@ class JobCreate(BaseModel):
 def whoami(request: Request) -> dict:
     """Who is logged in + may they run the pipeline (admin)? Drives the UI."""
     user = _current_user(request)
-    return {"name": user, "is_admin": _is_admin(user), "auth_on": _AUTH_ON}
+    if not _AUTH_ON:
+        return {"name": "", "is_admin": True, "authed": True, "auth_on": False}
+    return {
+        "name": user,
+        "is_admin": _is_admin(user),
+        "authed": bool(user),
+        "auth_on": True,
+    }
 
 
 @app.post("/api/jobs")
