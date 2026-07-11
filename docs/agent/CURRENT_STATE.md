@@ -16,6 +16,10 @@ Harness Protocol: project-initializing_260710.md
 - **인증 = 비번이 역할 결정**(이름은 표시용): 관리자비번→admin, 검수자비번→reviewer, 오답→거부. 검수자 추가 = 비번(1004hky)만 공유. 클라우드에서 역할판정 200/401·admin엔드포인트 차단 검증.
 - **비번 rotate**(공개이력 노출 대응): 관리자 2312hky / 검수자 1004hky. 옛 hky2312/hky1004 무효.
 - **주의**: 로컬 `jamak.hky-jamak.com` 터널(+8711 serve)은 로컬 SQLite(옛 데이터) 서빙 → 이제 잉여. 새 영상은 로컬에서 `$env:DATABASE_URL=<클라우드>; jamak run`으로 클라우드에 씀.
+- **로컬 정리 완료**: cloudflared·8711 serve 종료, 시작프로그램 자동기동 해제(.disabled). `DATABASE_URL` setx 영구 설정(로컬 jamak 전부 클라우드 사용).
+- **백업(경로 B)**: `jamak backup-cloud`(클라우드 PG→로컬 gzip SQLite 스냅샷, pg_dump 불필요, --keep 12). 주간 Windows 태스크 `jamak-backup-cloud`(일 03:00) → `JAMAK_BACKUP_DIR`(=구글드라이브 `G:\내 드라이브\01_TMP\HKY\jamak-backups`)로 오프사이트. 현재 스냅샷 322KB(텍스트 전용이라 수백 영상도 <1GB).
+- **버그수정: 클라우드 "만들기" 유령카드**: 클라우드 컨테이너는 GPU/ffmpeg 없어 ingest에서 크래시(→Job행 전이라 카드 소멸). `JAMAK_NO_PIPELINE=1`(Railway에 설정 필요) → create/retranscribe 거부 + 프론트 url박스·재인식 숨김(`/api/me can_ingest`). repair-stt는 무GPU라 유지. 영상은 로컬(`jamak run` 또는 로컬 `jamak serve` 웹UI).
+- **순차 큐**: 단일 GPU 보호 위해 여러 링크 제출 시 **하나씩 순차 처리**(_queue/_current+백그라운드 펌프). `GET /api/queue` + 프론트 `처리 중 X·대기 N개` 배너. create/retranscribe가 큐로 라우팅. 병렬은 VRAM OOM이라 미채택.
 
 ## Recent Additions (2026-07-12 — 경로 B: 클라우드 웹앱 + 전용 Postgres, ADR-0008)
 
