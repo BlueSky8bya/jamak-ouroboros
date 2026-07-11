@@ -210,6 +210,29 @@ def logout() -> Response:
     resp.delete_cookie("jamak_session")
     return resp
 
+# A cloud host (Railway) has no GPU/ffmpeg, so the STT pipeline can't run there.
+# Set JAMAK_NO_PIPELINE=1 on such a host: the create / re-transcribe endpoints
+# then refuse with a clear message (instead of spawning a job that crashes in
+# ingest and leaves no DB row — the "card appears then vanishes" bug), and the
+# frontend hides the url box / re-roll buttons. Videos are made on the local GPU
+# machine (`jamak run <url>` with DATABASE_URL pointed at the cloud DB).
+_NO_PIPELINE = os.environ.get("JAMAK_NO_PIPELINE", "").strip().lower() not in (
+    "",
+    "0",
+    "false",
+    "no",
+)
+
+
+def _require_pipeline() -> None:
+    if _NO_PIPELINE:
+        raise HTTPException(
+            400,
+            "이 서버에서는 영상 생성·재인식을 실행할 수 없습니다(로컬 GPU 필요). "
+            "관리자 PC에서 실행하세요: uv run jamak run <url>",
+        )
+
+
 # video_id -> running pipeline process (started from the web UI)
 _running: dict[str, subprocess.Popen] = {}
 
@@ -229,13 +252,21 @@ class JobCreate(BaseModel):
 def whoami(request: Request) -> dict:
     """Who is logged in + may they run the pipeline (admin)? Drives the UI."""
     if not _AUTH_ON:
-        return {"name": "", "is_admin": True, "authed": True, "auth_on": False}
+        return {
+            "name": "",
+            "is_admin": True,
+            "authed": True,
+            "auth_on": False,
+            "can_ingest": not _NO_PIPELINE,
+        }
     role = _current_role(request)
     return {
         "name": _current_user(request),
         "is_admin": role == "admin",
         "authed": bool(role),
         "auth_on": True,
+        # only an admin on a machine that actually has the GPU pipeline can ingest
+        "can_ingest": role == "admin" and not _NO_PIPELINE,
     }
 
 
@@ -246,6 +277,7 @@ def create_job(request: Request, body: JobCreate) -> dict:
     Admin-only: this runs the local GPU STT pipeline on the host machine.
     """
     _require_admin(request)
+    _require_pipeline()
     from ..pipeline.ingest import extract_video_id
 
     try:
@@ -288,6 +320,7 @@ def retranscribe(request: Request, video_id: str) -> dict:
     destroyed; partial review is guarded by a frontend confirm. Admin-only (GPU).
     """
     _require_admin(request)
+    _require_pipeline()
     if video_id in _running_ids():
         return {"video_id": video_id, "status": "running"}
 

@@ -11,6 +11,7 @@ export interface Me {
   is_admin: boolean;
   authed: boolean;
   auth_on: boolean;
+  can_ingest?: boolean; // admin AND this host has the GPU pipeline (not a cloud host)
 }
 
 export async function fetchMe(): Promise<Me> {

@@ -143,7 +143,7 @@ function JobCard({
   query,
   isCursor,
   dataIdx,
-  isAdmin,
+  canIngest,
   onOpen,
   onReroll,
   onExport,
@@ -153,7 +153,7 @@ function JobCard({
   query: string;
   isCursor: boolean;
   dataIdx: number;
-  isAdmin: boolean;
+  canIngest: boolean;
   onOpen: (videoId: string, lang: string) => void;
   onReroll: (e: ReactMouseEvent, j: JobSummary) => void;
   onExport: (e: ReactMouseEvent, j: JobSummary, lang?: string) => void;
@@ -310,7 +310,7 @@ function JobCard({
                     ? ` · ${relTime(j.created_at)} 추가`
                     : ""}
               </span>
-              {isAdmin && !j.ko_complete && !j.running && (
+              {canIngest && !j.ko_complete && !j.running && (
                 <span
                   className="reroll"
                   role="button"
@@ -341,9 +341,13 @@ export function App() {
   useEffect(() => {
     fetchMe()
       .then(setMe)
-      .catch(() => setMe({ name: "", is_admin: true, authed: true, auth_on: false }));
+      .catch(() =>
+        setMe({ name: "", is_admin: true, authed: true, auth_on: false, can_ingest: true }),
+      );
   }, []);
-  const isAdmin = me?.is_admin ?? false;
+  // can this host actually run the GPU pipeline? False on the cloud app (no GPU)
+  // -> hide the create box / re-roll so videos are only made on the local machine.
+  const canIngest = me?.can_ingest ?? false;
   const [selected, setSelected] = useState<string | null>(null);
   // language track to open the editor on (the track the reviewer was viewing
   // on the card). Falls back to Korean for resume-hero / paste-to-open.
@@ -708,7 +712,7 @@ export function App() {
         </div>
       )}
 
-      {isAdmin && (
+      {canIngest && (
         <div className="url-box">
           <input
             ref={urlRef}
@@ -935,7 +939,7 @@ export function App() {
               query={query}
               isCursor={idx === cursor}
               dataIdx={idx}
-              isAdmin={isAdmin}
+              canIngest={canIngest}
               onOpen={(v, l) => {
                 setSelectedLang(l);
                 setSelected(v);
