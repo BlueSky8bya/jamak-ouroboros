@@ -1857,6 +1857,102 @@ def absorb(video_id: str) -> dict:
         raise HTTPException(404, str(e))
 
 
+class SrtImport(BaseModel):
+    content: str
+    filename: str = ""
+    dry_run: bool = False
+
+
+@app.post("/api/jobs/{video_id}/import-srt")
+def import_srt(request: Request, video_id: str, body: SrtImport) -> dict:
+    """Apply a human-reviewed .srt onto this video's Korean segments (admin).
+
+    The .srt lines are aligned to the machine segments by time overlap and
+    written as text_final (reviewed=True). This both marks the video done and
+    creates the machine-draft -> human-final pairs the ouroboros learns from
+    (corrections/glossary) and the STT fine-tune uses. dry_run=True returns a
+    preview (which video, how many matched) WITHOUT writing, so a wrong-video
+    drop can be cancelled before anything changes.
+    """
+    _require_admin(request)
+    import srt as _srtlib
+
+    try:
+        subs = [s for s in _srtlib.parse(body.content) if s.content.strip()]
+    except Exception as e:
+        raise HTTPException(400, f".srt 파싱 실패: {e}")
+    if not subs:
+        raise HTTPException(400, ".srt에 자막이 없습니다.")
+
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+        segs = session.exec(
+            select(Segment)
+            .where(Segment.job_id == job.id, Segment.lang == "ko")
+            .order_by(Segment.idx)
+        ).all()
+        if not segs:
+            raise HTTPException(400, "이 영상엔 세그먼트가 없습니다.")
+
+        # align: each machine segment takes the .srt line it overlaps most in time
+        sub_spans = [
+            (s.start.total_seconds(), s.end.total_seconds(), " ".join(s.content.split()))
+            for s in subs
+        ]
+        pairs: list[tuple] = []  # (segment, new_text)
+        for seg in segs:
+            best_text, best_ov = None, 0.0
+            for ss, se, txt in sub_spans:
+                ov = min(seg.end, se) - max(seg.start, ss)
+                if ov > best_ov:
+                    best_ov, best_text = ov, txt
+            if best_text and best_ov > 0:
+                pairs.append((seg, best_text))
+
+        total = len(segs)
+        matched = len(pairs)
+        already_reviewed = sum(1 for s in segs if s.reviewed)
+
+        if body.dry_run:
+            sample = [
+                {
+                    "idx": s.idx,
+                    "old": (s.text_final or s.text_llm or s.text_whisper)[:50],
+                    "new": t[:50],
+                }
+                for s, t in pairs[:6]
+            ]
+            return {
+                "title": job.title,
+                "video_id": video_id,
+                "srt_count": len(subs),
+                "matched": matched,
+                "total": total,
+                "already_reviewed": already_reviewed,
+                "sample": sample,
+            }
+
+        for seg, txt in pairs:
+            seg.text_final = txt
+            seg.reviewed = True
+            session.add(seg)
+        job.status, job.updated_at = "reviewing", utcnow()
+        session.add(job)
+        session.commit()
+
+    # ouroboros: diff the freshly-applied finals against the machine draft
+    absorbed = {}
+    try:
+        from ..feedback import absorb_job
+
+        absorbed = absorb_job(video_id)
+    except Exception:
+        pass
+    return {"applied": matched, "total": total, "absorbed": absorbed}
+
+
 @app.get("/api/health")
 def health() -> PlainTextResponse:
     return PlainTextResponse("ok")

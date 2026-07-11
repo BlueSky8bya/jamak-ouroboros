@@ -24,6 +24,39 @@ export async function cancelRequest(videoId: string): Promise<void> {
   await fetch(`/api/queue/${videoId}`, { method: "DELETE" });
 }
 
+export interface SrtPreview {
+  title: string;
+  video_id: string;
+  srt_count: number;
+  matched: number;
+  total: number;
+  already_reviewed: number;
+  sample: { idx: number; old: string; new: string }[];
+}
+
+export async function importSrt(
+  videoId: string,
+  content: string,
+  filename: string,
+  dryRun: boolean,
+): Promise<SrtPreview & { applied?: number; absorbed?: unknown }> {
+  const r = await fetch(`/api/jobs/${videoId}/import-srt`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content, filename, dry_run: dryRun }),
+  });
+  if (!r.ok) {
+    let msg = `import: ${r.status}`;
+    try {
+      msg = (await r.json()).detail ?? msg;
+    } catch {
+      /* non-JSON */
+    }
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
 export async function fetchVersion(): Promise<string> {
   try {
     const r = await fetch("/api/version");

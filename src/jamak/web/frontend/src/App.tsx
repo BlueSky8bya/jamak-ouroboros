@@ -7,10 +7,12 @@ import {
   fetchMe,
   fetchQueue,
   fetchVersion,
+  importSrt,
   logout,
   retranscribe,
   type Me,
   type QueueItem,
+  type SrtPreview,
 } from "./api";
 import { Login } from "./Login";
 import { Dropdown } from "./Dropdown";
@@ -175,6 +177,7 @@ function JobCard({
   onReroll,
   onExport,
   onCopyLink,
+  onSrtFile,
 }: {
   job: JobSummary;
   query: string;
@@ -186,8 +189,11 @@ function JobCard({
   onReroll: (e: ReactMouseEvent, j: JobSummary) => void;
   onExport: (e: ReactMouseEvent, j: JobSummary, lang?: string) => void;
   onCopyLink: (e: ReactMouseEvent, j: JobSummary) => void;
+  onSrtFile: (videoId: string, file: File) => void;
 }) {
   const [lang, setLang] = useState("ko");
+  const [dragOver, setDragOver] = useState(false);
+  const srtInputRef = useRef<HTMLInputElement>(null);
   const openable = j.segments > 0;
   const chips = chipsFor(j, lang, proc);
   const allDone = chips.length > 0 && chips.every((c) => c.tone === "done");
@@ -216,10 +222,32 @@ function JobCard({
         "job-card" +
         (j.running ? " running" : "") +
         (openable ? "" : " disabled") +
-        (isCursor ? " cursor" : "")
+        (isCursor ? " cursor" : "") +
+        (dragOver ? " drag-over" : "")
       }
       role="button"
       tabIndex={openable ? 0 : -1}
+      onDragOver={
+        canIngest
+          ? (e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }
+          : undefined
+      }
+      onDragLeave={canIngest ? () => setDragOver(false) : undefined}
+      onDrop={
+        canIngest
+          ? (e) => {
+              e.preventDefault();
+              setDragOver(false);
+              const f = Array.from(e.dataTransfer.files).find((x) =>
+                x.name.toLowerCase().endsWith(".srt"),
+              );
+              if (f) onSrtFile(j.video_id, f);
+            }
+          : undefined
+      }
       onClick={() => openable && onOpen(j.video_id, lang)}
       onKeyDown={(e) => {
         if (openable && (e.key === "Enter" || e.key === " ")) {
@@ -291,9 +319,40 @@ function JobCard({
             >
               🔗 링크
             </span>
+            {canIngest && (
+              <span
+                className="qa"
+                role="button"
+                tabIndex={0}
+                title="검수 완료한 .srt를 올려 DB에 적용 (드래그도 됨)"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  srtInputRef.current?.click();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") srtInputRef.current?.click();
+                }}
+              >
+                📄 .srt
+              </span>
+            )}
           </span>
         )}
       </span>
+      {canIngest && (
+        <input
+          ref={srtInputRef}
+          type="file"
+          accept=".srt"
+          hidden
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onSrtFile(j.video_id, f);
+            e.target.value = "";
+          }}
+        />
+      )}
       <div className="job-info">
         <div className="job-head">
           <span className="stages">
@@ -365,6 +424,13 @@ function JobCard({
 export function App() {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [srtModal, setSrtModal] = useState<{
+    videoId: string;
+    filename: string;
+    content: string;
+    preview: SrtPreview;
+  } | null>(null);
+  const [srtBusy, setSrtBusy] = useState(false);
   const [version, setVersion] = useState("");
   useEffect(() => {
     fetchVersion().then(setVersion);
@@ -528,6 +594,33 @@ export function App() {
       setError(String(e));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // read the dropped/selected .srt and open the preview modal (a dry run — no
+  // DB write yet, so a wrong-video drop is cancelled before anything changes)
+  async function onSrtFile(videoId: string, file: File) {
+    setError("");
+    try {
+      const content = await file.text();
+      const preview = await importSrt(videoId, content, file.name, true);
+      setSrtModal({ videoId, filename: file.name, content, preview });
+    } catch (e) {
+      setError(`.srt 미리보기 실패: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
+  async function applySrt() {
+    if (!srtModal || srtBusy) return;
+    setSrtBusy(true);
+    try {
+      await importSrt(srtModal.videoId, srtModal.content, srtModal.filename, false);
+      setSrtModal(null);
+      await refresh();
+    } catch (e) {
+      setError(`.srt 적용 실패: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setSrtBusy(false);
     }
   }
 
@@ -1045,6 +1138,7 @@ export function App() {
               dataIdx={idx}
               canIngest={canIngest}
               proc={queue.find((q) => q.status === "processing" && q.video_id === j.video_id)}
+              onSrtFile={onSrtFile}
               onOpen={(v, l) => {
                 setSelectedLang(l);
                 setSelected(v);
@@ -1072,6 +1166,50 @@ export function App() {
           </div>
         )}
       </div>
+
+      {srtModal && (
+        <div className="srt-modal-back" onClick={() => !srtBusy && setSrtModal(null)}>
+          <div className="srt-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>📄 .srt 적용</h3>
+            <p className="srt-target">
+              <code>{srtModal.filename}</code> →{" "}
+              <strong>{srtModal.preview.title || srtModal.videoId}</strong>
+            </p>
+            <p className="srt-stat">
+              매칭 <strong>{srtModal.preview.matched}</strong>/{srtModal.preview.total}개
+              세그먼트 · .srt {srtModal.preview.srt_count}줄
+            </p>
+            {srtModal.preview.already_reviewed > 0 && (
+              <p className="srt-warn">
+                ⚠ 이미 검수된 세그먼트 {srtModal.preview.already_reviewed}개가 덮어써집니다
+              </p>
+            )}
+            {srtModal.preview.sample.length > 0 && (
+              <div className="srt-sample">
+                {srtModal.preview.sample.map((s) => (
+                  <div key={s.idx} className="srt-row">
+                    <span className="srt-old">{s.old}</span>
+                    <span className="srt-arrow">→</span>
+                    <span className="srt-new">{s.new}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="srt-actions">
+              <button className="srt-cancel" onClick={() => setSrtModal(null)} disabled={srtBusy}>
+                취소
+              </button>
+              <button
+                className="srt-apply"
+                onClick={applySrt}
+                disabled={srtBusy || srtModal.preview.matched === 0}
+              >
+                {srtBusy ? "적용 중..." : "적용"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
