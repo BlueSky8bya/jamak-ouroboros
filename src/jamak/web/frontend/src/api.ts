@@ -19,6 +19,10 @@ export async function fetchQueue(): Promise<QueueItem[]> {
   return r.json();
 }
 
+export async function cancelRequest(videoId: string): Promise<void> {
+  await fetch(`/api/queue/${videoId}`, { method: "DELETE" });
+}
+
 export async function fetchVersion(): Promise<string> {
   try {
     const r = await fetch("/api/version");

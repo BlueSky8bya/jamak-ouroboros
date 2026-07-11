@@ -192,6 +192,18 @@ button {
   font-size: 12px;
 }
 .queue-bar .queue-err { color: var(--danger, #e06c75); font-weight: 600; }
+.queue-bar .queue-cancels { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+.queue-bar .queue-cancel {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  cursor: pointer;
+}
+.queue-bar .queue-cancel:hover { color: var(--danger, #e06c75); border-color: var(--danger, #e06c75); }
 @keyframes queue-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .queue-bar .queue-spin { animation: none; } }
 

@@ -1,5 +1,6 @@
 import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
+  cancelRequest,
   createJob,
   exportUrl,
   fetchJobs,
@@ -125,7 +126,10 @@ function chipsFor(j: JobSummary, lang: string): Chip[] {
     if (j.segments === 0) return [{ label: "대기 중", tone: "muted" }];
     const text: Chip = j.ko_complete
       ? { label: "자막 ✓", tone: "done" }
-      : { label: `자막 ${j.reviewed}/${j.segments}`, tone: "progress" };
+      : {
+          label: `자막 ${j.reviewed}/${j.segments} (${Math.round((j.reviewed / j.segments) * 100)}%)`,
+          tone: "progress",
+        };
     const timing: Chip = !j.ko_complete
       ? { label: "타이밍", tone: "muted", icon: "⏱" }
       : j.timing_done
@@ -139,7 +143,10 @@ function chipsFor(j: JobSummary, lang: string): Chip[] {
   const text: Chip = l.complete
     ? { label: "번역 ✓", tone: "done" }
     : l.reviewed > 0
-      ? { label: `번역 ${l.reviewed}/${denom}`, tone: "progress" }
+      ? {
+          label: `번역 ${l.reviewed}/${denom} (${Math.round((l.reviewed / denom) * 100)}%)`,
+          tone: "progress",
+        }
       : { label: "번역됨 · 검수 전", tone: "muted" };
   // a forked track is retimed independently — surface its own timing axis
   if (!l.forked) return [text];
@@ -688,12 +695,12 @@ export function App() {
             {version ? `배포 ${version}` : ""}
           </span>
           <div className="header-actions">
-            {me.auth_on && me.name && (
+            {me.auth_on && me.authed && (
               <span className="user-chip">
                 <span className={"role-badge" + (me.is_admin ? " admin" : "")}>
                   {me.is_admin ? "관리자" : "검수자"}
                 </span>
-                <span className="user-name">{me.name}</span>
+                {me.name && <span className="user-name">{me.name}</span>}
                 <button
                   className="switch-btn"
                   title="다른 이름·비밀번호로 다시 로그인"
@@ -760,11 +767,16 @@ export function App() {
         </div>
       )}
 
-      {queue.length > 0 &&
+      {canIngest &&
+        queue.length > 0 &&
         (() => {
           const proc = queue.find((q) => q.status === "processing");
-          const nQueued = queue.filter((q) => q.status === "queued").length;
-          const nErr = queue.filter((q) => q.status === "error").length;
+          const queued = queue.filter((q) => q.status === "queued");
+          const errored = queue.filter((q) => q.status === "error");
+          const cancel = async (vid: string) => {
+            await cancelRequest(vid);
+            await refresh();
+          };
           return (
             <div className="queue-bar">
               <span className={"queue-spin" + (proc ? "" : " idle")} aria-hidden>
@@ -774,16 +786,34 @@ export function App() {
                 {proc ? (
                   <>
                     처리 중 <strong>{proc.video_id}</strong>
-                    {nQueued > 0 && ` · 대기 ${nQueued}개`}
+                    {queued.length > 0 && ` · 대기 ${queued.length}개`}
                   </>
-                ) : nQueued > 0 ? (
+                ) : queued.length > 0 ? (
                   <>
-                    대기 {nQueued}개 · 처리하려면 관리자 PC에서{" "}
-                    <code>jamak worker</code> 실행
+                    대기 {queued.length}개 — 처리하려면 이 PC에서{" "}
+                    <code>uv run jamak worker</code> 를 켜두세요
                   </>
-                ) : null}
-                {nErr > 0 && <span className="queue-err"> · 실패 {nErr}개</span>}
+                ) : (
+                  errored.length > 0 && <>대기 없음</>
+                )}
+                {errored.length > 0 && (
+                  <span className="queue-err"> · 실패 {errored.length}개</span>
+                )}
               </span>
+              {(queued.length > 0 || errored.length > 0) && (
+                <span className="queue-cancels">
+                  {[...queued, ...errored].map((q) => (
+                    <button
+                      key={q.video_id}
+                      className="queue-cancel"
+                      title={`${q.video_id} 요청 취소`}
+                      onClick={() => cancel(q.video_id)}
+                    >
+                      ✕ {q.video_id}
+                    </button>
+                  ))}
+                </span>
+              )}
             </div>
           );
         })()}

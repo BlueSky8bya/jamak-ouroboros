@@ -365,6 +365,24 @@ def queue_state() -> list[dict]:
     return _queue_state()
 
 
+@app.delete("/api/queue/{video_id}")
+def cancel_request(request: Request, video_id: str) -> dict:
+    """Drop a pending / errored request (admin). A request already being
+    processed by the worker is left alone."""
+    _require_admin(request)
+    with get_session() as session:
+        rows = session.exec(
+            select(JobRequest).where(
+                JobRequest.video_id == video_id,
+                JobRequest.status.in_(("pending", "error")),
+            )
+        ).all()
+        for r in rows:
+            session.delete(r)
+        session.commit()
+    return {"cancelled": len(rows)}
+
+
 @app.post("/api/jobs/{video_id}/retranscribe")
 def retranscribe(request: Request, video_id: str) -> dict:
     """Re-roll STT for an existing video with the *current* glossary/hotwords.
