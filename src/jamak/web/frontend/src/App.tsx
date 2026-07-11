@@ -64,23 +64,32 @@ function highlight(text: string, q: string) {
 }
 
 /** overall completion donut */
-function Ring({ pct }: { pct: number }) {
-  const r = 17;
-  const c = 2 * Math.PI * r;
+/** Three overlaid progress rings: text review, timing, translation. Text at
+ *  100% no longer reads as "done" while timing/translation lag behind. */
+function MultiRing({ text, timing, trans }: { text: number; timing: number; trans: number }) {
+  const rings = [
+    { pct: text, r: 25, cls: "text" },
+    { pct: timing, r: 19, cls: "timing" },
+    { pct: trans, r: 13, cls: "trans" },
+  ];
   return (
-    <svg className="ring" viewBox="0 0 44 44" width="46" height="46" aria-hidden>
-      <circle className="ring-bg" cx="22" cy="22" r={r} />
-      <circle
-        className="ring-fg"
-        cx="22"
-        cy="22"
-        r={r}
-        strokeDasharray={`${(c * pct) / 100} ${c}`}
-        transform="rotate(-90 22 22)"
-      />
-      <text className="ring-label" x="22" y="23">
-        {pct}%
-      </text>
+    <svg className="mring" viewBox="0 0 60 60" width="72" height="72" aria-hidden>
+      {rings.map((ring) => {
+        const c = 2 * Math.PI * ring.r;
+        return (
+          <g key={ring.cls}>
+            <circle className="mring-bg" cx="30" cy="30" r={ring.r} />
+            <circle
+              className={"mring-fg " + ring.cls}
+              cx="30"
+              cy="30"
+              r={ring.r}
+              strokeDasharray={`${(c * ring.pct) / 100} ${c}`}
+              transform="rotate(-90 30 30)"
+            />
+          </g>
+        );
+      })}
     </svg>
   );
 }
@@ -622,7 +631,20 @@ export function App() {
   const totalSegments = jobs.reduce((a, j) => a + j.segments, 0);
   const totalReviewed = jobs.reduce((a, j) => a + j.reviewed, 0);
   const totalRemaining = Math.max(0, totalSegments - totalReviewed);
-  const overallPct = totalSegments ? Math.round((totalReviewed / totalSegments) * 100) : 0;
+  // three progress axes (text review is NOT the whole job): text ko review,
+  // timing pass, and translation review — shown as overlaid rings so text
+  // hitting 100% doesn't hide that timing/translation are still outstanding.
+  const textPct = totalSegments ? Math.round((totalReviewed / totalSegments) * 100) : 0;
+  const timingDoneSegs = jobs.reduce((a, j) => a + (j.timing_done ? j.segments : 0), 0);
+  const timingPct = totalSegments ? Math.round((timingDoneSegs / totalSegments) * 100) : 0;
+  let transReviewed = 0;
+  let transTotal = 0;
+  for (const j of jobs)
+    for (const l of j.languages) {
+      transReviewed += l.reviewed;
+      transTotal += l.forked ? l.translated : j.segments;
+    }
+  const transPct = transTotal ? Math.round((transReviewed / transTotal) * 100) : 0;
   const resumePct = resume ? Math.round((resume.reviewed / resume.segments) * 100) : 0;
   const previewId = parseVideoId(url);
   const filtersActive =
@@ -639,21 +661,25 @@ export function App() {
     <div className="landing">
       <header className="landing-header">
         <div className="header-top">
-          <span className="product-label">Jamak Ouroboros</span>
+          <span className="product-label">
+            자막<span className="brand-inf">♾️</span>
+          </span>
           <div className="header-actions">
             {me.auth_on && me.name && (
-              <span className="user-chip" title={me.is_admin ? "관리자" : "검수자"}>
-                {me.is_admin ? "★ " : ""}
-                {me.name}
+              <span className="user-chip">
+                <span className={"role-badge" + (me.is_admin ? " admin" : "")}>
+                  {me.is_admin ? "관리자" : "검수자"}
+                </span>
+                <span className="user-name">{me.name}</span>
                 <button
-                  className="logout-btn"
-                  title="로그아웃"
+                  className="switch-btn"
+                  title="다른 이름·비밀번호로 다시 로그인"
                   onClick={async () => {
                     await logout();
                     window.location.reload();
                   }}
                 >
-                  로그아웃
+                  계정 변경
                 </button>
               </span>
             )}
@@ -664,7 +690,6 @@ export function App() {
           </div>
         </div>
         <h1>자막 검수 작업대</h1>
-        <p>유튜브 강연 자막을 만들고, 검수하고, 고친 내용을 다음 작업에 되먹임합니다.</p>
       </header>
 
       {showHelp && (
@@ -743,8 +768,12 @@ export function App() {
 
       <div className="workbench-stats">
         <div className="ws-ring">
-          <Ring pct={overallPct} />
-          <span>전체 검수</span>
+          <MultiRing text={textPct} timing={timingPct} trans={transPct} />
+          <div className="ws-ring-legend">
+            <span className="rleg text"><i />텍스트 {textPct}%</span>
+            <span className="rleg timing"><i />타이밍 {timingPct}%</span>
+            <span className="rleg trans"><i />번역 {transPct}%</span>
+          </div>
         </div>
         <div className="ws-nums">
           <div className="wstat">

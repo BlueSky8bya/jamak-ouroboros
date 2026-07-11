@@ -422,23 +422,32 @@ button {
   padding-right: 16px;
   border-right: 1px solid var(--line);
 }
-.ws-ring > span { font-size: 12px; font-weight: 800; color: var(--muted); }
-.ring { flex: 0 0 auto; }
-.ring-bg { fill: none; stroke: var(--surface-strong); stroke-width: 5; }
-.ring-fg {
+/* three overlaid progress rings (text / timing / translation) + legend */
+.mring { flex: 0 0 auto; }
+.mring-bg { fill: none; stroke: var(--surface-strong); stroke-width: 4; }
+.mring-fg {
   fill: none;
-  stroke: var(--teal);
-  stroke-width: 5;
+  stroke-width: 4;
   stroke-linecap: round;
   transition: stroke-dasharray var(--dur-slow) var(--ease);
 }
-.ring-label {
-  fill: var(--text);
-  font-size: 12px;
-  font-weight: 900;
-  text-anchor: middle;
-  dominant-baseline: middle;
+.mring-fg.text { stroke: var(--blue); }
+.mring-fg.timing { stroke: var(--teal, #0d9488); }
+.mring-fg.trans { stroke: #8b5cf6; }
+.ws-ring-legend { display: flex; flex-direction: column; gap: 3px; }
+.rleg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--muted);
+  white-space: nowrap;
 }
+.rleg i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.rleg.text i { background: var(--blue); }
+.rleg.timing i { background: var(--teal, #0d9488); }
+.rleg.trans i { background: #8b5cf6; }
 .ws-nums {
   display: flex;
   align-items: center;
@@ -2473,25 +2482,37 @@ kbd {
 .user-chip {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   font-size: 12px;
-  font-weight: 700;
   color: var(--text);
-  padding: 4px 4px 4px 10px;
+  padding: 3px 3px 3px 4px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--surface);
 }
-.logout-btn {
+.role-badge {
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--muted);
+}
+.role-badge.admin { background: var(--blue); }
+.user-name { font-weight: 800; padding: 0 2px; }
+.switch-btn {
   border: 0;
-  background: color-mix(in srgb, var(--line) 60%, transparent);
+  background: color-mix(in srgb, var(--line) 55%, transparent);
   color: var(--muted);
   font-size: 11px;
+  font-weight: 700;
   padding: 4px 9px;
   border-radius: 999px;
   cursor: pointer;
+  transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
 }
-.logout-btn:hover { color: var(--text); }
+.switch-btn:hover { color: var(--text); background: color-mix(in srgb, var(--blue) 14%, transparent); }
+.brand-inf { font-size: 0.95em; margin-left: 1px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
