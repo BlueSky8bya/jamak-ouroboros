@@ -50,7 +50,12 @@ export function usePlayer(videoId: string) {
 
     const timer = setInterval(() => {
       const p = playerRef.current;
-      if (p?.getCurrentTime) setCurrentTime(p.getCurrentTime());
+      if (!p?.getCurrentTime) return;
+      const t = p.getCurrentTime();
+      // only re-render when the clock actually moved — a paused player would
+      // otherwise fire a needless re-render every tick (returning prev makes
+      // React bail out), which is what let the timeline handles jitter.
+      setCurrentTime((prev) => (Math.abs(t - prev) > 0.02 ? t : prev));
     }, 250);
 
     return () => {

@@ -86,6 +86,7 @@ function TimingStrip({
     segId: number;
     which: "start" | "end";
     el: HTMLElement;
+    startX: number;
   } | null>(null);
   const [dragging, setDragging] = useState(false); // only to freeze the window
 
@@ -129,19 +130,21 @@ function TimingStrip({
     const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
     return w.start + ratio * w.span;
   }
-  // move the grabbed handle + time label straight on the DOM — no React state,
-  // so the pointer is tracked frame-for-frame instead of one reconcile behind
+  // Move the grabbed handle with `transform` (a GPU-composited pixel offset from
+  // the pointer), NOT `left`. React owns the handle's `left` (its stable seg
+  // position) and re-renders it every 250ms when the player clock ticks — if we
+  // also drove `left` those two would fight and the handle would jump 4×/sec.
+  // React never touches `transform`, so the drag offset survives every re-render.
   function paint(clientX: number) {
     const d = dragRef.current;
     const w = winRef.current;
     if (!d || !w) return;
+    const deltaPx = clientX - d.startX;
+    d.el.style.transform = `translateX(${-8 + deltaPx}px)`;
     const t = timeAtClientX(clientX);
-    const pct = clamp(((t - w.start) / w.span) * 100, 0, 100);
-    d.el.style.left = `${pct}%`;
     const lbl = labelRef.current;
     if (lbl) {
-      lbl.style.display = "block";
-      lbl.style.left = `${pct}%`;
+      lbl.style.left = `${clamp(((t - w.start) / w.span) * 100, 0, 100)}%`;
       lbl.textContent = fmt(t);
     }
   }
@@ -152,13 +155,13 @@ function TimingStrip({
     winRef.current = { start, span }; // freeze window for the whole drag
     const el = e.currentTarget as HTMLElement;
     el.classList.add("dragging");
-    dragRef.current = { segId: seg.id, which, el };
+    dragRef.current = { segId: seg.id, which, el, startX: e.clientX };
     try {
       el.setPointerCapture(e.pointerId);
     } catch {
       /* capture unavailable (e.g. synthetic pointer) — drag still works */
     }
-    setDragging(true); // only freezes the window; the handle moves imperatively
+    setDragging(true); // shows the label + freezes the window
     paint(e.clientX);
   }
   function moveDrag(e: React.PointerEvent) {
@@ -169,7 +172,7 @@ function TimingStrip({
     if (!d) return;
     const t = timeAtClientX(e.clientX);
     d.el.classList.remove("dragging");
-    if (labelRef.current) labelRef.current.style.display = "none";
+    d.el.style.transform = ""; // revert to the CSS centering; React re-renders left
     dragRef.current = null;
     winRef.current = null;
     setDragging(false);
@@ -216,7 +219,9 @@ function TimingStrip({
           );
         })}
         <span className="strip-marker" style={{ left: `${marker}%` }} />
-        <span ref={labelRef} className="strip-drag-time" style={{ display: "none" }} />
+        {/* left + text are set imperatively during drag; React only owns display
+            (via `dragging`) so it can't reset our imperative position each tick */}
+        <span ref={labelRef} className="strip-drag-time" style={{ display: dragging ? "block" : "none" }} />
       </div>
       <div className="strip-meta">
         <span>{fmt(start)}</span>
@@ -247,10 +252,13 @@ function WordMap({
   const PAD = 1.0;
   const SNAP = 0.12; // magnetic snap radius to a word edge (seconds)
   const trackRef = useRef<HTMLDivElement>(null);
-  const bandRef = useRef<HTMLSpanElement>(null);
-  // imperative drag (no per-move setState). Snap to a word edge only on RELEASE,
-  // so the handle glides with the pointer instead of teleporting between words.
-  const dragRef = useRef<{ which: "start" | "end"; el: HTMLElement } | null>(null);
+  // imperative drag via `transform` (see TimingStrip): React owns the handle's
+  // `left` and re-renders it on every 250ms clock tick, so we offset with a
+  // GPU transform it never touches. Snap to a word edge only on RELEASE, so the
+  // handle glides with the pointer instead of teleporting between words.
+  const dragRef = useRef<{ which: "start" | "end"; el: HTMLElement; startX: number } | null>(
+    null,
+  );
   const [dragging, setDragging] = useState(false);
 
   const winStart = Math.max(0, seg.start - PAD);
@@ -279,25 +287,18 @@ function WordMap({
     }
     return best ?? t;
   }
-  // move the grabbed handle + resize the band on the DOM (no snap, no setState),
-  // so the pointer is tracked smoothly; snapping happens on release in up()
+  // move the grabbed handle with a GPU transform (no snap, no setState) so the
+  // pointer is tracked smoothly; snapping happens on release in up()
   function paint(clientX: number) {
     const d = dragRef.current;
     if (!d) return;
-    const t = timeAt(clientX);
-    d.el.style.left = `${pct(t)}%`;
-    const s = d.which === "start" ? t : seg.start;
-    const e = d.which === "end" ? t : seg.end;
-    if (bandRef.current) {
-      bandRef.current.style.left = `${pct(s)}%`;
-      bandRef.current.style.width = `${Math.max(0, pct(e) - pct(s))}%`;
-    }
+    d.el.style.transform = `translateX(${-7 + (clientX - d.startX)}px)`;
   }
   function down(e: React.PointerEvent, which: "start" | "end") {
     e.stopPropagation();
     e.preventDefault();
     const el = e.currentTarget as HTMLElement;
-    dragRef.current = { which, el };
+    dragRef.current = { which, el, startX: e.clientX };
     try {
       el.setPointerCapture(e.pointerId);
     } catch {
@@ -315,6 +316,7 @@ function WordMap({
     const t = snap(timeAt(e.clientX)); // magnetic snap on release only
     const ns = d.which === "start" ? Math.min(t, seg.end - 0.1) : seg.start;
     const ne = d.which === "end" ? Math.max(t, seg.start + 0.1) : seg.end;
+    d.el.style.transform = ""; // revert to CSS centering; React re-renders left
     dragRef.current = null;
     setDragging(false);
     onCommit(Math.round(ns * 1000) / 1000, Math.round(ne * 1000) / 1000);
@@ -335,7 +337,6 @@ function WordMap({
       >
         {/* selected span (current subtitle bounds) */}
         <span
-          ref={bandRef}
           className="wm-band"
           style={{ left: `${pct(start)}%`, width: `${Math.max(0, pct(end) - pct(start))}%` }}
         />
