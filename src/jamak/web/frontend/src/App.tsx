@@ -1207,31 +1207,57 @@ export function App() {
       {srtModal && (
         <div className="srt-modal-back" onClick={() => !srtBusy && setSrtModal(null)}>
           <div className="srt-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>📄 .srt 적용</h3>
-            <p className="srt-target">
-              <code>{srtModal.filename}</code> →{" "}
-              <strong>{srtModal.preview.title || srtModal.videoId}</strong>
+            <h3>📄 이 .srt를 적용할까요?</h3>
+
+            <div className="srt-kv">
+              <span className="srt-k">파일</span>
+              <span className="srt-v" title={srtModal.filename}>
+                {srtModal.filename}
+              </span>
+              <span className="srt-k">적용 대상</span>
+              <span className="srt-v strong" title={srtModal.preview.title}>
+                {srtModal.preview.title || srtModal.videoId}
+              </span>
+            </div>
+
+            <p className="srt-summary">
+              이 영상의 자막 <strong>{srtModal.preview.total}개</strong> 중{" "}
+              <strong>{srtModal.preview.matched}개</strong>에 이 .srt 내용이 채워집니다.
             </p>
-            <p className="srt-stat">
-              매칭 <strong>{srtModal.preview.matched}</strong>/{srtModal.preview.total}개
-              세그먼트 · .srt {srtModal.preview.srt_count}줄
-            </p>
+
+            {srtModal.preview.total > 0 &&
+              srtModal.preview.matched / srtModal.preview.total < 0.8 && (
+                <p className="srt-warn">
+                  ⚠ 매칭 {Math.round((srtModal.preview.matched / srtModal.preview.total) * 100)}%
+                  — 이 .srt의 자막 나눔·시간이 영상과 달라 일부만 채워져요. 확인 후 적용하세요.
+                </p>
+              )}
             {srtModal.preview.already_reviewed > 0 && (
               <p className="srt-warn">
-                ⚠ 이미 검수된 세그먼트 {srtModal.preview.already_reviewed}개가 덮어써집니다
+                ⚠ 이미 검수한 {srtModal.preview.already_reviewed}개 자막을 덮어씁니다. (적용 후
+                ↩ 취소로 되돌릴 수 있어요)
               </p>
             )}
+
             {srtModal.preview.sample.length > 0 && (
               <div className="srt-sample">
+                <div className="srt-sample-head">
+                  <span>지금 자막</span>
+                  <span>→ 바뀔 자막</span>
+                </div>
                 {srtModal.preview.sample.map((s) => (
                   <div key={s.idx} className="srt-row">
-                    <span className="srt-old">{s.old}</span>
-                    <span className="srt-arrow">→</span>
-                    <span className="srt-new">{s.new}</span>
+                    <span className="srt-old" title={s.old}>
+                      {s.old || "(비어 있음)"}
+                    </span>
+                    <span className="srt-new" title={s.new}>
+                      {s.new}
+                    </span>
                   </div>
                 ))}
               </div>
             )}
+
             <div className="srt-actions">
               <button className="srt-cancel" onClick={() => setSrtModal(null)} disabled={srtBusy}>
                 취소
@@ -1241,7 +1267,7 @@ export function App() {
                 onClick={applySrt}
                 disabled={srtBusy || srtModal.preview.matched === 0}
               >
-                {srtBusy ? "적용 중..." : "적용"}
+                {srtBusy ? "적용 중..." : `${srtModal.preview.matched}개 적용`}
               </button>
             </div>
           </div>
