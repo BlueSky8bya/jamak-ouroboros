@@ -87,6 +87,14 @@ cp949 콘솔에서 유니코드 특수문자 크래시 → CLI 문자열에서 e
 4. 관찰 항목: LLM 자동자막 문맥 보충([1] "지혜로우니까"), 사투리 정규화(내한테→나한테) — 과교정 패턴이면 correct.py 프롬프트 조정
 5. ISSUE-002 (긴 세그먼트 분할) — 검수 불편하면 착수
 
+## Recent Additions (2026-07-11 — 배포: 터널 방식 (ADR-0007))
+
+사용자 결정: 터널 노출 + 검수자 몇 명. 1차 배포 = 로컬 구조 그대로, URL만 노출.
+- **앱 옵션 인증**: `JAMAK_AUTH="user:pw,..."` 환경변수 → HTTP Basic 미들웨어(web/app.py). 미설정=무인증(로컬). 검증: no-creds/bad→401, good→200, 미설정→open.
+- **`serve --host`** 옵션(기본 127.0.0.1; 비-로컬+JAMAK_AUTH 미설정 시 경고).
+- **가이드**: `docs/agent/deployment.md` — Cloudflare Tunnel+Access(권장)/Tailscale/임시 데모, 운영(상시가동·백업·동시성·비밀).
+- **ADR-0007** Accepted + DECISION_INDEX. 동시성 완전잠금·SQLite→PG는 이연(경로 B 트리거).
+
 ## Recent Additions (2026-07-11 — 몰입·편의 애니메이션/기능 벤치마킹 추가)
 
 기존 모션 토큰(--dur*/--ease)·prefers-reduced-motion 시스템에 맞춰 추가:

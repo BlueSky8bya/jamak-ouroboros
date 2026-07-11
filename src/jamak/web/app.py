@@ -7,13 +7,16 @@ diffs text_final against the machine draft to grow corrections/glossary.
 
 from __future__ import annotations
 
+import base64
+import os
+import secrets
 import subprocess
 import sys
 import re
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlmodel import delete as sql_delete, select
@@ -24,6 +27,45 @@ from ..db import Job, Segment, Track, Translation, get_session, utcnow
 from ..pipeline.assemble import to_srt
 
 app = FastAPI(title="jamak-ouroboros review")
+
+
+# Optional HTTP Basic auth for deployment. Off by default (local single-user).
+# Set JAMAK_AUTH="reviewer1:pw1,reviewer2:pw2" to gate the whole app when it is
+# exposed to reviewers over a tunnel. This is defense-in-depth; a named-email
+# gate at the tunnel edge (e.g. Cloudflare Access) is the recommended primary.
+def _load_auth() -> dict[str, str]:
+    raw = os.environ.get("JAMAK_AUTH", "").strip()
+    creds: dict[str, str] = {}
+    for pair in raw.split(","):
+        user, sep, pw = pair.partition(":")
+        if sep and user.strip():
+            creds[user.strip()] = pw.strip()
+    return creds
+
+
+_AUTH_CREDS = _load_auth()
+
+
+@app.middleware("http")
+async def _basic_auth(request: Request, call_next):
+    if _AUTH_CREDS:
+        ok = False
+        hdr = request.headers.get("authorization", "")
+        if hdr.startswith("Basic "):
+            try:
+                user, _, pw = base64.b64decode(hdr[6:]).decode("utf-8", "ignore").partition(":")
+                expected = _AUTH_CREDS.get(user)
+                # constant-time compare; check user membership without leaking timing
+                if expected is not None and secrets.compare_digest(pw, expected):
+                    ok = True
+            except Exception:
+                ok = False
+        if not ok:
+            return Response(
+                status_code=401,
+                headers={"WWW-Authenticate": 'Basic realm="jamak"'},
+            )
+    return await call_next(request)
 
 # video_id -> running pipeline process (started from the web UI)
 _running: dict[str, subprocess.Popen] = {}

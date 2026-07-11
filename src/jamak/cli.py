@@ -443,13 +443,30 @@ def backfill_dates() -> None:
 @app.command()
 def serve(
     port: int = typer.Option(8710, help="Port for the review web app"),
+    host: str = typer.Option(
+        "127.0.0.1",
+        help="Bind address. Keep 127.0.0.1 behind a tunnel (Cloudflare/Tailscale); "
+        "use 0.0.0.0 only to expose on the LAN. Set JAMAK_AUTH before exposing.",
+    ),
 ) -> None:
-    """Start the review web app (http://localhost:8710)."""
+    """Start the review web app (http://localhost:8710).
+
+    Deployment: keep host=127.0.0.1 and put a tunnel (Cloudflare Tunnel +
+    Access, or Tailscale) in front — see docs/agent/deployment.md. Set
+    JAMAK_AUTH="user:pw,..." to require a login on the app itself.
+    """
+    import os
+
     import uvicorn
 
     config.ensure_dirs()
-    console.print(f"[bold green]review app:[/] http://localhost:{port}")
-    uvicorn.run("jamak.web.app:app", host="127.0.0.1", port=port)
+    if host != "127.0.0.1" and not os.environ.get("JAMAK_AUTH"):
+        console.print(
+            "[bold yellow]warning:[/] binding a non-local host with no JAMAK_AUTH — "
+            "the app is unauthenticated. Set JAMAK_AUTH or front it with a tunnel gate."
+        )
+    console.print(f"[bold green]review app:[/] http://{host}:{port}")
+    uvicorn.run("jamak.web.app:app", host=host, port=port)
 
 
 if __name__ == "__main__":
