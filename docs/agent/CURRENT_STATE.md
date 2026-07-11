@@ -6,7 +6,16 @@ Harness Protocol: project-initializing_260710.md
 
 ## Current Objective
 
-경로 B 배포(Railway + Postgres)로 검수자가 관리자 PC 꺼져도 접속. 코드 완료, 사용자가 Railway 셋업·이관 실행 대기.
+경로 B **배포 완료 · 라이브**: https://hky-jamak.com (Railway + Postgres). 검수자는 관리자 PC 꺼져도 접속. 다음: 실사용 검수, 로컬 터널(8711)·cloudflared 정리 여부.
+
+## Deployed (2026-07-12 — 경로 B 라이브)
+
+- **URL**: https://hky-jamak.com (커스텀 apex, Cloudflare CNAME→Railway, 회색구름/DNS only, Railway TLS). 백업 URL jamak-ouroboros-production.up.railway.app.
+- **Railway**: 프로젝트 dynamic-courage/production, `jamak-ouroboros` 서비스(Dockerfile 빌드) + Postgres. env: DATABASE_URL(참조), JAMAK_ADMIN_PASSWORD, JAMAK_PASSWORD, JAMAK_SECRET. GitHub push→자동 재배포.
+- **이관 완료**: migrate-to-cloud로 job 4·segment 1067·translation 257·glossary 547·llmcache 748·correction 28 + stt.json 4블롭. 클라우드에서 4영상 로드 확인.
+- **인증 = 비번이 역할 결정**(이름은 표시용): 관리자비번→admin, 검수자비번→reviewer, 오답→거부. 검수자 추가 = 비번(1004hky)만 공유. 클라우드에서 역할판정 200/401·admin엔드포인트 차단 검증.
+- **비번 rotate**(공개이력 노출 대응): 관리자 2312hky / 검수자 1004hky. 옛 hky2312/hky1004 무효.
+- **주의**: 로컬 `jamak.hky-jamak.com` 터널(+8711 serve)은 로컬 SQLite(옛 데이터) 서빙 → 이제 잉여. 새 영상은 로컬에서 `$env:DATABASE_URL=<클라우드>; jamak run`으로 클라우드에 씀.
 
 ## Recent Additions (2026-07-12 — 경로 B: 클라우드 웹앱 + 전용 Postgres, ADR-0008)
 
