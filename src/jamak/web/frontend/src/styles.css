@@ -2142,7 +2142,8 @@ kbd {
 .header-top {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 2px;
 }
 .left-top {
@@ -2530,16 +2531,11 @@ kbd {
 .switch-btn:hover { color: var(--text); background: color-mix(in srgb, var(--blue) 14%, transparent); }
 .brand-inf { font-size: 0.78em; vertical-align: 0.06em; margin-left: 2px; }
 .deploy-tag {
-  display: inline-block;
-  margin-top: 4px;
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface);
   color: var(--muted);
   font-size: 11px;
   font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
   letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 /* ===== custom dropdown (replaces native <select> so the menu is styled) ===== */

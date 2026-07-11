@@ -298,7 +298,9 @@ function JobCard({
               options={langOpts.map((o) => ({
                 value: o.code,
                 label: o.label,
-                note: o.done ? "✓" : undefined,
+                // "완료" text (not ✓) so it doesn't collide with the dropdown's
+                // own selection check on the selected+done language
+                note: o.done ? "완료" : undefined,
               }))}
             />
           )}
@@ -682,6 +684,9 @@ export function App() {
     <div className="landing">
       <header className="landing-header">
         <div className="header-top">
+          <span className="deploy-tag" title="현재 배포된 버전(커밋)">
+            {version ? `배포 ${version}` : ""}
+          </span>
           <div className="header-actions">
             {me.auth_on && me.name && (
               <span className="user-chip">
@@ -710,11 +715,6 @@ export function App() {
         <h1>
           자막 검수 작업대 <span className="brand-inf">♾️</span>
         </h1>
-        {version && (
-          <span className="deploy-tag" title="현재 배포된 버전(커밋)">
-            배포 {version}
-          </span>
-        )}
       </header>
 
       {showHelp && (
