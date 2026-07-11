@@ -65,6 +65,7 @@ function TimingStrip({
   playing,
   onSeek,
   onBoundaryDrag,
+  onDragActive,
 }: {
   segments: Segment[];
   currentTime: number;
@@ -73,6 +74,7 @@ function TimingStrip({
   playing: boolean;
   onSeek: (t: number) => void;
   onBoundaryDrag: (segId: number, time: number, which: "start" | "end") => void;
+  onDragActive?: (active: boolean) => void;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLSpanElement>(null);
@@ -161,6 +163,7 @@ function TimingStrip({
     } catch {
       /* capture unavailable (e.g. synthetic pointer) — drag still works */
     }
+    onDragActive?.(true); // freeze the player poll so re-renders don't stutter us
     setDragging(true); // shows the label + freezes the window
     paint(e.clientX);
   }
@@ -176,6 +179,7 @@ function TimingStrip({
     dragRef.current = null;
     winRef.current = null;
     setDragging(false);
+    onDragActive?.(false);
     onBoundaryDrag(d.segId, t, d.which);
   }
 
@@ -242,12 +246,14 @@ function WordMap({
   currentTime,
   onSeek,
   onCommit,
+  onDragActive,
 }: {
   seg: Segment;
   words: WordTime[];
   currentTime: number;
   onSeek: (t: number) => void;
   onCommit: (start: number, end: number) => void;
+  onDragActive?: (active: boolean) => void;
 }) {
   const PAD = 1.0;
   const SNAP = 0.12; // magnetic snap radius to a word edge (seconds)
@@ -304,6 +310,7 @@ function WordMap({
     } catch {
       /* no capture — drag still works */
     }
+    onDragActive?.(true); // freeze player poll so re-renders don't stutter us
     setDragging(true);
     paint(e.clientX);
   }
@@ -319,6 +326,7 @@ function WordMap({
     d.el.style.transform = ""; // revert to CSS centering; React re-renders left
     dragRef.current = null;
     setDragging(false);
+    onDragActive?.(false);
     onCommit(Math.round(ns * 1000) / 1000, Math.round(ne * 1000) / 1000);
   }
 
@@ -458,6 +466,7 @@ function Row({
   onTyping,
   onFocusRow,
   onOpenRow,
+  onDragActive,
 }: {
   seg: Segment;
   active: boolean;
@@ -467,6 +476,7 @@ function Row({
   hasNext: boolean;
   koRef?: string;
   words: WordTime[];
+  onDragActive?: (active: boolean) => void;
   register: (h: RowHandle | null) => void;
   onSeek: (t: number) => void;
   onSave: (id: number, text: string, reviewed: boolean | null, next: boolean) => Promise<void>;
@@ -711,6 +721,7 @@ function Row({
           currentTime={currentTime}
           onSeek={onSeek}
           onCommit={(s, e) => onSetTimes(seg, s, e)}
+          onDragActive={onDragActive}
         />
       )}
       {seg.suspect && !seg.reviewed && focused && (
@@ -955,7 +966,14 @@ export function Editor({
   // bumped when TranslateReview generates/saves translations, so the transMap
   // effect refetches and the fork button / overlay appear without a track switch
   const [transRefresh, setTransRefresh] = useState(0);
-  const { currentTime, playing, seekTo, seekBy, play, pause, playPause } = usePlayer(videoId);
+  // set true while a timeline handle is being dragged → freezes the player's
+  // 250ms clock poll so the editor stops re-rendering and the main thread stays
+  // free, letting the dragged handle track the pointer without stutter
+  const dragFreezeRef = useRef(false);
+  const { currentTime, playing, seekTo, seekBy, play, pause, playPause } = usePlayer(
+    videoId,
+    dragFreezeRef,
+  );
 
   const rowsRef = useRef(new Map<number, RowHandle>());
   const focusedIdRef = useRef<number | null>(null);
@@ -1752,6 +1770,9 @@ export function Editor({
             // end follows; drag an end past the next start → that start follows)
             if (seg) void edgeDragCommit(seg, which, time);
           }}
+          onDragActive={(a) => {
+            dragFreezeRef.current = a;
+          }}
         />
         {/* subtle, non-interruptive status (autosave-style) */}
         <div className="statusbar" aria-live="polite">
@@ -2050,6 +2071,9 @@ export function Editor({
               }}
               onFocusRow={markFocused}
               onOpenRow={focusSegment}
+              onDragActive={(a) => {
+                dragFreezeRef.current = a;
+              }}
             />
             ))}
           </>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 
 declare global {
   interface Window {
@@ -7,8 +7,11 @@ declare global {
   }
 }
 
-/** YouTube IFrame player bound to #yt-player; polls current time. */
-export function usePlayer(videoId: string) {
+/** YouTube IFrame player bound to #yt-player; polls current time.
+ *  `freezeRef` (optional): while true, the clock poll is skipped so the editor
+ *  stops re-rendering — used during a timeline drag so the main thread stays
+ *  free and the dragged handle tracks the pointer without stutter. */
+export function usePlayer(videoId: string, freezeRef?: RefObject<boolean>) {
   const playerRef = useRef<any>(null);
   const [ready, setReady] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -49,6 +52,7 @@ export function usePlayer(videoId: string) {
     }
 
     const timer = setInterval(() => {
+      if (freezeRef?.current) return; // a timeline drag is in progress
       const p = playerRef.current;
       if (!p?.getCurrentTime) return;
       const t = p.getCurrentTime();
