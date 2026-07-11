@@ -780,20 +780,29 @@ button {
 .job-grid.list { display: flex; flex-direction: column; gap: 10px; }
 .job-grid.list .job-card {
   grid-template-rows: none;
-  grid-template-columns: 200px 1fr;
-  min-height: 96px;
+  /* fixed row height + an auto thumb column: the 16:9 thumbnail fills the height
+     and its width follows (no dead space below AND no left/right crop). Info is
+     centered and kept to this height (title clamped to one line). */
+  grid-template-columns: auto 1fr;
+  height: 108px;
+  min-height: 0;
   align-items: stretch;
 }
-/* fill the full row height (info column is taller than a 16:9 thumb, which left
-   dead space below the thumbnail); the img already covers */
 .job-grid.list .thumb {
   border-radius: 0;
-  aspect-ratio: auto;
   height: 100%;
+  aspect-ratio: 16 / 9;
 }
 .job-grid.list .job-info {
-  padding: 12px 16px;
+  padding: 10px 16px;
   align-self: center;
+  overflow: hidden;
+}
+.job-grid.list .job-info > strong {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ===== overflow-safe language badges (+N fold) ===== */
