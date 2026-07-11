@@ -3,6 +3,7 @@ import {
   absorbFeedback,
   boundaryNext,
   boundaryPrev,
+  edgeDrag,
   confirmSafe,
   deleteSegment,
   exportUrl,
@@ -137,19 +138,39 @@ function TimingStrip({
     }
     setDragState({ segId: seg.id, which, time: which === "start" ? seg.start : seg.end });
   }
-  function moveDrag(e: React.PointerEvent) {
+  // coalesce pointermove → at most one state update per animation frame, so a
+  // fast drag doesn't queue a backlog of renders (the "툭툭" choppiness)
+  const rafRef = useRef<number | null>(null);
+  const pendingXRef = useRef<number | null>(null);
+  function flushDrag() {
+    rafRef.current = null;
     const d = dragRef.current;
-    if (!d) return;
-    setDragState({ segId: d.segId, which: d.which, time: timeAtClientX(e.clientX) });
+    const x = pendingXRef.current;
+    if (!d || x == null) return;
+    setDragState({ segId: d.segId, which: d.which, time: timeAtClientX(x) });
+  }
+  function moveDrag(e: React.PointerEvent) {
+    if (!dragRef.current) return;
+    pendingXRef.current = e.clientX;
+    if (rafRef.current == null) rafRef.current = requestAnimationFrame(flushDrag);
   }
   function endDrag(e: React.PointerEvent) {
     const d = dragRef.current;
     if (!d) return;
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
     const t = timeAtClientX(e.clientX);
     onBoundaryDrag(d.segId, t, d.which);
     setDragState(null);
     winRef.current = null;
   }
+  useEffect(() => {
+    return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
 
   return (
     <div className="timing-strip">
@@ -1364,6 +1385,20 @@ export function Editor({
     }
   }
 
+  // timeline-strip edge drag: hybrid neighbour push (see edge_drag endpoint)
+  async function edgeDragCommit(seg: Segment, which: "start" | "end", time: number) {
+    try {
+      pushUndo("시간 조정");
+      await edgeDrag(seg.id, which, Math.max(0, Math.round(time * 1000) / 1000));
+      const nextSegments = await fetchSegments(videoId, lang);
+      segmentsRef.current = nextSegments;
+      setSegments(nextSegments);
+      setStatusMsg("시간 조정됨 - Ctrl+Z로 되돌릴 수 있습니다");
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   // set both bounds at once (speech-map drag / 발화 맞춤) — one undo step
   async function setTimes(seg: Segment, start: number, end: number) {
     try {
@@ -1706,9 +1741,10 @@ export function Editor({
           onSeek={seekTo}
           onBoundaryDrag={(segId, time, which) => {
             const seg = segmentsRef.current.find((s) => s.id === segId);
-            // independent resize (clamped at the neighbour); the linked
-            // "move the shared wall" stays on the 여기서 시작/넘김 buttons
-            if (seg) void timeChange(seg, which === "start" ? "start" : "end", time);
+            // hybrid: free in a gap, pushes the neighbour once it crosses the
+            // shared wall (pull a start earlier than the prev cue's end → that
+            // end follows; drag an end past the next start → that start follows)
+            if (seg) void edgeDragCommit(seg, which, time);
           }}
         />
         {/* subtle, non-interruptive status (autosave-style) */}

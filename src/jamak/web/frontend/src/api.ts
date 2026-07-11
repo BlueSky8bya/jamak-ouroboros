@@ -153,6 +153,21 @@ export async function boundaryPrev(id: number, time: number): Promise<void> {
   if (!r.ok) throw new Error((await r.json()).detail ?? `boundary: ${r.status}`);
 }
 
+// hybrid timeline-strip edge drag: free in a gap, pushes the neighbour once it
+// crosses the shared wall
+export async function edgeDrag(
+  id: number,
+  which: "start" | "end",
+  time: number,
+): Promise<void> {
+  const r = await fetch(`/api/segments/${id}/edge-drag?which=${which}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ time }),
+  });
+  if (!r.ok) throw new Error((await r.json()).detail ?? `edge-drag: ${r.status}`);
+}
+
 export async function redistributeNext(id: number): Promise<void> {
   const r = await fetch(`/api/segments/${id}/redistribute-next`, { method: "POST" });
   if (!r.ok) throw new Error((await r.json()).detail ?? `redistribute: ${r.status}`);

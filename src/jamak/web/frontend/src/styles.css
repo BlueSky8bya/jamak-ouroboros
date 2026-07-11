@@ -1301,7 +1301,15 @@ img.broken { opacity: 0; }
   transform: translateX(-8px);
   cursor: ew-resize;
   z-index: 3;
+  /* stop the browser claiming the pointer for scroll/zoom gestures mid-drag —
+     that hand-off is what makes a pointer drag stutter */
+  touch-action: none;
+  will-change: left;
 }
+/* the cue you're editing (emphasised = not faint) wins the grab where two
+   handles stack at a contiguous boundary; neighbours sit below */
+.strip-handle:not(.faint) { z-index: 4; }
+.strip-handle.faint { z-index: 2; }
 .strip-handle::after {
   content: "";
   position: absolute;

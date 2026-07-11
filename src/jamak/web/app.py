@@ -957,6 +957,57 @@ def boundary_next(segment_id: int, body: BoundaryBody) -> dict:
     return {"ok": True}
 
 
+@app.post("/api/segments/{segment_id}/edge-drag")
+def edge_drag(segment_id: int, which: str, body: BoundaryBody) -> dict:
+    """Drag one edge of a cue with hybrid neighbour behaviour.
+
+    Moves the edge freely while it sits in a gap, but once it crosses the
+    neighbour's wall the neighbour is PUSHED along (dragging a start earlier than
+    the previous cue's end drags that end back too; dragging an end past the next
+    cue's start drags that start forward). This is the timeline-strip drag: it
+    unifies the independent-resize and the linked "여기서 시작/넘김" behaviours so a
+    contiguous boundary is always adjustable.
+    """
+    if which not in ("start", "end"):
+        raise HTTPException(400, "which must be 'start' or 'end'")
+    with get_session() as session:
+        seg = session.get(Segment, segment_id)
+        if seg is None:
+            raise HTTPException(404, "segment not found")
+
+        if which == "start":
+            hi = seg.end - 0.1  # can't cross this cue's own end
+            t = min(body.time, hi)
+            prev = _previous_segment(session, seg)
+            if prev is not None and t < prev.end:
+                # crossed into the previous cue — push its end back with us
+                t = round(min(max(t, prev.start + 0.1), hi), 3)
+                prev.end = t
+                session.add(prev)
+            else:
+                t = round(max(t, 0.0), 3)  # free in the gap before prev.end
+            seg.start = t
+        else:  # end
+            lo = seg.start + 0.1
+            t = max(body.time, lo)
+            nxt = _next_segment(session, seg)
+            if nxt is not None and t > nxt.start:
+                # crossed into the next cue — push its start forward with us
+                t = round(min(max(t, lo), nxt.end - 0.1), 3)
+                nxt.start = t
+                session.add(nxt)
+            else:
+                t = round(t, 3)  # free in the gap after this end
+            seg.end = t
+
+        session.add(seg)
+        job = session.get(Job, seg.job_id)
+        job.status, job.updated_at = "reviewing", utcnow()
+        session.add(job)
+        session.commit()
+    return {"ok": True}
+
+
 @app.post("/api/segments/{segment_id}/redistribute-next")
 def redistribute_next(segment_id: int) -> dict:
     """Split this+next combined time span by current text lengths."""
