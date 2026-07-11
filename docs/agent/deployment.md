@@ -98,7 +98,9 @@ URL이 매번 바뀌고 인증이 `JAMAK_AUTH`뿐 → 임시 확인용만.
 
 ## 운영 메모
 
-- **항상 켜두기**: `serve`+터널을 Windows 서비스로. `nssm`(권장) 또는 작업 스케줄러 "로그온 시 실행". 재부팅 후 자동 기동.
+- **항상 켜두기 (관리자 없이)**: `deploy\start-serve.cmd`(웹앱)·`deploy\start-tunnel.cmd`(터널)를 실행하는 런처를 **시작프로그램 폴더**(`shell:startup` = `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\`)에 두면 로그인 시 자동 기동. `JAMAK_AUTH`는 `setx JAMAK_AUTH "user:pw"`로 사용자 환경변수에 영구 저장(새 프로세스가 읽음). → 이게 이 인스턴스 세팅 방식.
+- **더 견고하게 (관리자, 로그인 없이도)**: 관리자 PowerShell에서 `& "C:\Program Files (x86)\cloudflared\cloudflared.exe" service install` → 터널이 부팅 시(로그인 전에도) 자동. 웹앱은 nssm으로 서비스화.
+- **비번 바꾸기**: `setx JAMAK_AUTH "reviewer1:새비번,reviewer2:다른비번"` 후 웹앱 재시작.
 - **동시성**: SQLite `busy_timeout=30s`로 소수 검수자(서로 다른 영상)는 안전. **같은 영상 구조(나누기·합치기)를 두 명이 동시 편집하면 idx 경합 위험** — 영상별로 나눠 맡기. 완전한 잠금은 이연(ADR-0007 후속, SQLite→PG 시).
 - **백업(내장)**: `serve`가 시작 시 + `--backup-hours`(기본 24h)마다 `data/backups/jamak-<시각>.db`로 자동 백업(최근 30개 유지, SQLite 온라인 백업 = 라이브 중 안전). 수동은 `uv run jamak backup`. `data/seeds/`도 보존. 더 안전하게: `data/backups/`를 OneDrive/구글드라이브 폴더로 두면 오프사이트.
 - **디스크(audio)**: `jamak run`은 기본으로 STT 후 `audio.wav`(~112MB/시간)를 지움(검수·단어맵·다듬기는 stt.json만 필요, 재전사 시 재다운로드). 원본 오디오를 남기려면 `--keep-audio`. → 몇백 개 1~2시간 영상도 디스크 안 참.
