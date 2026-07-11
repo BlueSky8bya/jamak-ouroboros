@@ -185,7 +185,16 @@ function TimingStrip({
 
   return (
     <div className="timing-strip">
-      <div className="strip-track" ref={trackRef} onPointerMove={moveDrag} onPointerUp={endDrag}>
+      {/* `smooth`: while the video plays the window scrolls to follow the
+          playhead, but currentTime only ticks 4×/sec — a CSS transition
+          interpolates each 250ms jump into continuous motion. OFF while dragging
+          (the handle must track the pointer, not glide) or paused. */}
+      <div
+        className={"strip-track" + (playing && !dragging ? " smooth" : "")}
+        ref={trackRef}
+        onPointerMove={moveDrag}
+        onPointerUp={endDrag}
+      >
         {local.map((s) => {
           const left = clamp(((s.start - start) / span) * 100, 0, 100);
           const right = clamp(((s.end - start) / span) * 100, 0, 100);

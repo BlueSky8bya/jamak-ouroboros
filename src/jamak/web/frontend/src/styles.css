@@ -1292,6 +1292,15 @@ img.broken { opacity: 0; }
   background: var(--surface-soft);
   touch-action: none;
 }
+/* smooth playback scroll: the window position is only recomputed 4×/sec, so
+   linearly interpolate each jump (duration >= the 250ms poll so it never
+   finishes-and-waits = continuous motion). Only while playing; drag/pause have
+   no transition so handles stay snappy. */
+.strip-track.smooth .strip-seg,
+.strip-track.smooth .strip-handle,
+.strip-track.smooth .strip-marker {
+  transition: left 280ms linear;
+}
 
 .strip-handle {
   position: absolute;
