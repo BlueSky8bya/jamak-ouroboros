@@ -183,11 +183,30 @@ def run(
 
     # persist segments (replace any previous run of this job)
     with get_session() as session:
-        from sqlmodel import delete
+        from sqlmodel import delete, select
 
-        session.exec(delete(Segment).where(Segment.job_id == job_id))
+        from .db import Segment as _Seg, Translation as _Tr
+
+        # ONLY replace the Korean source track. Forked translation tracks
+        # (lang != "ko", ADR-0006) hold independent human review work and must
+        # survive a re-run/retranscribe — an unscoped delete here would wipe
+        # them ('기존 검수 데이터 파괴 금지').
+        # Delete the ko segments' Translation rows first: Segment.id is a reused
+        # rowid, so orphaned translations would (a) accumulate every re-run and
+        # (b) reattach to an unrelated re-inserted cue (mirrors app.py's
+        # merge/delete/restore protection — this CLI path was the sole omission).
+        ko_ids = list(
+            session.exec(
+                select(_Seg.id).where(_Seg.job_id == job_id, _Seg.lang == "ko")
+            ).all()
+        )
+        if ko_ids:
+            session.exec(delete(_Tr).where(_Tr.segment_id.in_(ko_ids)))
+        session.exec(
+            delete(Segment).where(Segment.job_id == job_id, Segment.lang == "ko")
+        )
         for i, r in enumerate(rows):
-            session.add(Segment(job_id=job_id, idx=i, **r))
+            session.add(Segment(job_id=job_id, lang="ko", idx=i, **r))
         job = session.get(Job, job_id)
         job.status, job.updated_at = "transcribed", utcnow()
         session.add(job)

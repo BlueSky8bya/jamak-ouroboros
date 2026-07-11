@@ -4,6 +4,8 @@ export interface JobLang {
   translated: number;
   reviewed: number;
   complete: boolean;
+  forked: boolean; // has its own Segment rows (independent structure/timing)
+  timing_done: boolean; // per-track timing pass (forked tracks only)
 }
 
 export interface JobSummary {

@@ -50,8 +50,12 @@ class Segment(SQLModel, table=True):
     # subtitle track this segment belongs to: "ko" = source, or a target
     # language ("en", "ja", ...) that has its own independent structure/timing
     # (ADR-0006). Existing rows migrate to "ko".
-    lang: str = Field(default="ko", index=True)
-    idx: int = Field(index=True)  # order within the job (per lang track)
+    # per-job lookups use ix_segment_job_id; the few cross-job lang-scoped scans
+    # (translation_examples forked branch, split budget) are served by the
+    # composite ix_segment_lang_reviewed created in _ensure_columns. idx is never
+    # queried without job_id and is renumbered often, so it carries no index.
+    lang: str = Field(default="ko")
+    idx: int  # order within the job (per lang track)
     start: float
     end: float
     text_whisper: str = ""  # raw faster-whisper output
@@ -62,6 +66,10 @@ class Segment(SQLModel, table=True):
     flagged: bool = False
     llm_uncertain: bool = False  # Claude marked this segment as uncertain
     reviewed: bool = False
+    # human authored/changed this segment's text (used on a forked translation
+    # track to tell hand-edited text from copied machine text — ADR-0006). ko
+    # segments track edits via text_final vs stage text, so this is translation-side.
+    edited: bool = False
     low_conf: str = ""  # whisper's least-confident words here (comma-sep) — review hint
 
 
@@ -161,6 +169,7 @@ def _ensure_columns(engine) -> None:
         "segment": {
             "low_conf": "VARCHAR DEFAULT ''",
             "lang": "VARCHAR DEFAULT 'ko'",
+            "edited": "BOOLEAN DEFAULT 0",
         },
     }
     insp = inspect(engine)
@@ -173,13 +182,41 @@ def _ensure_columns(engine) -> None:
             for name, ddl in cols.items():
                 if name not in have:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+        # Fork idempotency is enforced in fork_track by an application-level
+        # existence check, NOT a DB unique index: a UNIQUE(job_id,lang,idx)
+        # collides with the transient duplicate idx values that split/merge/
+        # repair legitimately hold mid-transaction (SQLite checks unique
+        # indexes per-row, non-deferred), so it 500s those flows. Drop it if a
+        # prior version created it. Drop ix_segment_idx too (idx is renumbered
+        # in split/merge and never queried without job_id — pure write cost).
+        if "segment" in existing_tables:
+            for idx_name in ("uq_segment_job_lang_idx", "ix_segment_idx"):
+                conn.execute(text(f"DROP INDEX IF EXISTS {idx_name}"))
+            # a few cross-job lang-scoped scans DO exist (translation_examples'
+            # forked branch, split.learned_line_budget) — WHERE lang=? AND
+            # reviewed=?. lang is very low-cardinality (nearly all rows "ko"),
+            # so a composite (lang, reviewed) index lets a target-lang lookup
+            # skip the bulk of the table instead of full-scanning.
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_segment_lang_reviewed "
+                    "ON segment (lang, reviewed)"
+                )
+            )
 
 
 def get_engine():
     global _engine
     if _engine is None:
         ensure_dirs()
-        _engine = create_engine(f"sqlite:///{DB_PATH}")
+        # busy_timeout: the preview server and the user's own browser can share
+        # jamak.db (MEMORY.md). Without it a concurrent writer fails instantly
+        # with 'database is locked'; 30s makes writers wait and serialize.
+        # (Full per-(job,lang) serialization of the idx read-modify-write is the
+        # deferred SQLite->Postgres + locking work in ADR-0006/ACTIVE_PLAN.)
+        _engine = create_engine(
+            f"sqlite:///{DB_PATH}", connect_args={"timeout": 30}
+        )
         SQLModel.metadata.create_all(_engine)
         _ensure_columns(_engine)
     return _engine

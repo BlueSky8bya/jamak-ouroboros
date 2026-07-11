@@ -21,6 +21,15 @@ export async function forkTrack(
   return r.json();
 }
 
+export async function unforkTrack(
+  videoId: string,
+  lang: string,
+): Promise<{ video_id: string; lang: string; forked: boolean; restored: number }> {
+  const r = await fetch(`/api/jobs/${videoId}/unfork-track?lang=${lang}`, { method: "POST" });
+  if (!r.ok) throw new Error((await r.json()).detail ?? `unfork: ${r.status}`);
+  return r.json();
+}
+
 export async function restoreSegments(
   videoId: string,
   segments: Segment[],
@@ -87,8 +96,9 @@ export async function replaceText(
 export async function setTimingDone(
   videoId: string,
   done: boolean,
-): Promise<{ video_id: string; timing_done: boolean }> {
-  const r = await fetch(`/api/jobs/${videoId}/timing-done`, {
+  lang = "ko",
+): Promise<{ video_id: string; lang: string; timing_done: boolean }> {
+  const r = await fetch(`/api/jobs/${videoId}/timing-done?lang=${lang}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ done }),

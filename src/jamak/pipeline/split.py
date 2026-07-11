@@ -39,7 +39,11 @@ def learned_line_budget() -> tuple[int, int] | None:
     with get_session() as session:
         rows = session.exec(
             select(Segment.text_final).where(
-                Segment.reviewed == True  # noqa: E712
+                # ko only: this is the Korean line-length budget. Forked
+                # translation segments (non-ko text_final, ADR-0006) run longer
+                # per cue and would inflate the budget, over-splitting Korean.
+                Segment.lang == "ko",
+                Segment.reviewed == True,  # noqa: E712
             )
         ).all()
     lengths = sorted(len(t.strip()) for t in rows if t and t.strip())

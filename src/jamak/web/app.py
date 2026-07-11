@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from sqlmodel import delete as sql_delete, select
 
 from ..config import JOBS_DIR, PROJECT_ROOT
+
 from ..db import Job, Segment, Track, Translation, get_session, utcnow
 from ..pipeline.assemble import to_srt
 
@@ -162,25 +163,61 @@ def list_jobs() -> list[dict]:
             )
             ko_complete = n_total > 0 and n_reviewed == n_total
 
-            # per-language completion: a language is "done" when every segment
-            # has a human-reviewed translation
+            # per-language completion (ADR-0006). A forked language has its own
+            # segments (own reviewed state); a non-forked one inherits Korean and
+            # is tracked via Translation rows keyed to the ko segments.
             langs: list[dict] = []
             if seg_ids:
-                trs = session.exec(
-                    select(Translation).where(Translation.segment_id.in_(seg_ids))
-                ).all()
-                by_lang: dict[str, list] = defaultdict(list)
-                for t in trs:
-                    by_lang[t.lang].append(t)
-                for code, rows in by_lang.items():
-                    reviewed = sum(1 for r in rows if r.reviewed)
+                # per-(job,lang) timing-done lives on Track (forked tracks are
+                # retimed independently of the Korean timing_done)
+                track_timing = {
+                    t.lang: bool(t.timing_done)
+                    for t in session.exec(
+                        select(Track).where(Track.job_id == j.id)
+                    ).all()
+                }
+                forked: dict[str, list[bool]] = defaultdict(list)
+                for lg, rv in session.exec(
+                    select(Segment.lang, Segment.reviewed).where(
+                        Segment.job_id == j.id, Segment.lang != "ko"
+                    )
+                ).all():
+                    forked[lg].append(bool(rv))
+                for code, revs in forked.items():
+                    reviewed = sum(1 for r in revs if r)
                     langs.append(
                         {
                             "code": code,
                             "label": LANG_KO.get(code, code),
-                            "translated": len(rows),
+                            "translated": len(revs),
+                            "reviewed": reviewed,
+                            "complete": len(revs) > 0 and reviewed == len(revs),
+                            "forked": True,
+                            "timing_done": track_timing.get(code, False),
+                        }
+                    )
+                # project only the two columns the counts need — not the full
+                # Translation ORM object (which drags the per-cue text blob over
+                # for every language on every dashboard poll, pure read waste).
+                by_lang: dict[str, list[bool]] = defaultdict(list)
+                for t_lang, t_reviewed in session.exec(
+                    select(Translation.lang, Translation.reviewed).where(
+                        Translation.segment_id.in_(seg_ids)
+                    )
+                ).all():
+                    if t_lang not in forked:  # a forked track overrides its rows
+                        by_lang[t_lang].append(t_reviewed)
+                for code, revs_list in by_lang.items():
+                    reviewed = sum(1 for r in revs_list if r)
+                    langs.append(
+                        {
+                            "code": code,
+                            "label": LANG_KO.get(code, code),
+                            "translated": len(revs_list),
                             "reviewed": reviewed,
                             "complete": reviewed == n_total,
+                            "forked": False,
+                            "timing_done": False,
                         }
                     )
                 langs.sort(key=lambda x: x["code"])
@@ -351,7 +388,22 @@ def fork_track(video_id: str, lang: str) -> dict:
                 Translation.lang == lang,
             )
         ).all()
+        from ..pipeline.translate import _hash
+
         text_by_seg = {t.segment_id: t.text for t in trs}
+        edited_by_seg = {t.segment_id: t.edited for t in trs}
+        # carry the per-translation review state onto the forked segment, so
+        # forking a fully-reviewed language purely to retime it does NOT reset
+        # its 124/124 review progress (list_jobs then reads the forked
+        # Segment.reviewed, ignoring the now-superseded Translation rows). BUT
+        # only carry reviewed=True when the translation is NOT stale: a row
+        # confirmed against OLD Korean (source_hash mismatch) would otherwise
+        # freeze as 'done' with no stale flag left on the forked Segment.
+        reviewed_by_seg = {}
+        for t in trs:
+            ko = next((s for s in ko_segs if s.id == t.segment_id), None)
+            fresh = ko is not None and t.source_hash == _hash(_best_ko(ko).strip())
+            reviewed_by_seg[t.segment_id] = bool(t.reviewed and fresh)
 
         created = 0
         for s in ko_segs:
@@ -363,7 +415,8 @@ def fork_track(video_id: str, lang: str) -> dict:
                     start=s.start,
                     end=s.end,
                     text_final=text_by_seg.get(s.id, ""),
-                    reviewed=False,
+                    reviewed=reviewed_by_seg.get(s.id, False),
+                    edited=edited_by_seg.get(s.id, False),
                 )
             )
             created += 1
@@ -373,9 +426,97 @@ def fork_track(video_id: str, lang: str) -> dict:
         if track is None:
             track = Track(job_id=job.id, lang=lang)
         track.forked = True
+        # a fresh fork owes its own timing pass — never resurrect a stale
+        # timing_done from a previous fork/unfork cycle of this language.
+        track.timing_done = False
         session.add(track)
+        # the forked Segment rows now own this language's text/review state;
+        # the source Translation rows are dead duplicates (list_jobs/export/
+        # editor all read the forked segments). Delete them so they don't (a)
+        # duplicate ~N rows of text per forked lang, nor (b) keep feeding
+        # translation_examples() frozen pre-fork text as human-confirmed
+        # few-shot examples after the reviewer edits the forked segments.
+        for tr in trs:
+            session.delete(tr)
+        # idempotency is guaranteed by the existence check above (a re-fork
+        # returns created:0 before reaching here), not a DB unique index.
         session.commit()
     return {"video_id": video_id, "lang": lang, "forked": True, "created": created}
+
+
+@app.post("/api/jobs/{video_id}/unfork-track")
+def unfork_track(video_id: str, lang: str) -> dict:
+    """Revert a forked translation track back to the inherited (Translation) view.
+
+    Reconstructs Translation rows from the forked Segment.text_final (matched to
+    each Korean cue by time overlap — lossless for an unedited fork, best-effort
+    if the track was re-split), then removes the lang Segment rows and clears the
+    fork flag. This is the honest counterpart to fork_track so 'fork to try
+    independent timing' is reversible without hand-retyping every line.
+    """
+    if lang == "ko":
+        raise HTTPException(400, "cannot unfork the Korean source track")
+    from ..pipeline.translate import _hash
+
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+        fseg = session.exec(
+            select(Segment).where(Segment.job_id == job.id, Segment.lang == lang)
+        ).all()
+        if not fseg:
+            return {"video_id": video_id, "lang": lang, "forked": False, "restored": 0}
+        ko_segs = session.exec(
+            select(Segment).where(Segment.job_id == job.id, Segment.lang == "ko")
+        ).all()
+        # rebuild inherited translations: for each ko cue, the forked cue that
+        # overlaps it most carries the translation text
+        restored = 0
+        for ko in ko_segs:
+            best, best_ov = None, 0.0
+            for f in fseg:
+                ov = min(f.end, ko.end) - max(f.start, ko.start)
+                if ov > best_ov:
+                    best, best_ov = f, ov
+            text = (best.text_final or "").strip() if best is not None else ""
+            if not text:
+                continue
+            # drop any stale row for this ko cue+lang, then write the rebuilt one
+            for old in session.exec(
+                select(Translation).where(
+                    Translation.segment_id == ko.id, Translation.lang == lang
+                )
+            ).all():
+                session.delete(old)
+            session.add(
+                Translation(
+                    segment_id=ko.id,
+                    lang=lang,
+                    text=text,
+                    source_hash=_hash(_best_ko(ko).strip()),
+                    reviewed=bool(best.reviewed) if best is not None else False,
+                    # carry the REAL edited flag from the forked segment — do not
+                    # mark all rebuilt rows edited. Copied machine text (a fork made
+                    # only to retime) must stay edited=False so it (a) isn't frozen
+                    # against re-translation and (b) doesn't masquerade as a human-
+                    # confirmed few-shot example, which would poison the loop.
+                    edited=bool(best.edited) if best is not None else False,
+                )
+            )
+            restored += 1
+        # remove the forked segments and clear the fork flag
+        session.exec(
+            sql_delete(Segment).where(Segment.job_id == job.id, Segment.lang == lang)
+        )
+        track = session.exec(
+            select(Track).where(Track.job_id == job.id, Track.lang == lang)
+        ).first()
+        if track is not None:
+            track.forked = False
+            session.add(track)
+        session.commit()
+    return {"video_id": video_id, "lang": lang, "forked": False, "restored": restored}
 
 
 @app.get("/api/jobs/{video_id}/segments")
@@ -484,12 +625,24 @@ def restore_segments(video_id: str, body: RestoreSegmentsBody, lang: str = "ko")
         if job is None:
             raise HTTPException(404, f"no job for {video_id}")
 
-        current_ids = session.exec(
-            select(Segment.id).where(Segment.job_id == job.id, Segment.lang == lang)
-        ).all()
-        if current_ids:
+        # Translations of ids the snapshot KEEPS stay valid (reinserted with the
+        # same id) — do not touch those, so a ko structural undo never wipes
+        # reviewed translation work. But translations of ids the undo DROPS must
+        # be deleted, not orphaned: Segment.id is a reused rowid, so a later
+        # insert would reattach the dead translation to an unrelated cue and
+        # export it (same protection as merge_next/delete_segment).
+        current_ids = set(
             session.exec(
-                sql_delete(Translation).where(Translation.segment_id.in_(current_ids))
+                select(Segment.id).where(
+                    Segment.job_id == job.id, Segment.lang == lang
+                )
+            ).all()
+        )
+        surviving_ids = {s.id for s in body.segments if s.id is not None}
+        dropped_ids = current_ids - surviving_ids
+        if dropped_ids:
+            session.exec(
+                sql_delete(Translation).where(Translation.segment_id.in_(dropped_ids))
             )
         session.exec(
             sql_delete(Segment).where(Segment.job_id == job.id, Segment.lang == lang)
@@ -532,6 +685,10 @@ def update_segment(segment_id: int, body: SegmentUpdate) -> dict:
         if seg is None:
             raise HTTPException(404, "segment not found")
         if body.text_final is not None:
+            # on a forked translation track, a text change is a human edit —
+            # record it so unfork can keep it protected (vs copied machine text)
+            if seg.lang != "ko" and body.text_final.strip() != (seg.text_final or "").strip():
+                seg.edited = True
             seg.text_final = body.text_final
         # independent resize (subtitle-editor convention): a dragged edge moves
         # only THIS cue and is clamped at the neighbour — never pushes it.
@@ -668,6 +825,9 @@ def split_segment(segment_id: int, body: SplitBody) -> dict:
                 text_final=right,
                 flagged=seg.flagged,
                 llm_uncertain=seg.llm_uncertain,
+                # both halves derive from the same (possibly edited) text — carry
+                # the edited flag so a forked human edit stays protected
+                edited=seg.edited,
             )
         )
         # stale translations regenerate via source_hash on next export
@@ -692,10 +852,31 @@ def merge_next(segment_id: int) -> dict:
         seg.end = nxt.end
         seg.flagged = seg.flagged or nxt.flagged
         seg.llm_uncertain = seg.llm_uncertain or nxt.llm_uncertain
+        seg.edited = seg.edited or nxt.edited  # preserve forked human-edit protection
         seg.reviewed = False
         session.add(seg)
 
-        session.exec(sql_delete(Translation).where(Translation.segment_id == nxt.id))
+        # Move nxt's translations onto the surviving segment instead of leaving
+        # them as orphans. Orphans are NOT safe: Segment.id is a plain rowid with
+        # no AUTOINCREMENT, so SQLite reuses nxt.id on the next insert (split/
+        # fork) and the dead translation would reattach to an unrelated cue and
+        # export as its translation. Re-pointing keeps reviewed work (the merged
+        # Korean differs, so get_translations flags it stale for a re-check);
+        # if the survivor already has that language, its own row wins.
+        seg_langs = {
+            t.lang
+            for t in session.exec(
+                select(Translation).where(Translation.segment_id == seg.id)
+            ).all()
+        }
+        for tr in session.exec(
+            select(Translation).where(Translation.segment_id == nxt.id)
+        ).all():
+            if tr.lang in seg_langs:
+                session.delete(tr)
+            else:
+                tr.segment_id = seg.id
+                session.add(tr)
         session.delete(nxt)
         tail = session.exec(
             select(Segment).where(
@@ -806,6 +987,10 @@ def delete_segment(segment_id: int) -> dict:
         if seg is None:
             raise HTTPException(404, "segment not found")
         job_id, idx, lang = seg.job_id, seg.idx, seg.lang
+        # delete this segment's translations — do NOT orphan them: Segment.id is
+        # a reused rowid (no AUTOINCREMENT), so a later insert would reattach the
+        # dead translation to an unrelated cue. Deleting a cue drops its
+        # translations (an explicit user action, unlike a merge).
         session.exec(sql_delete(Translation).where(Translation.segment_id == seg.id))
         session.delete(seg)
         tail = session.exec(
@@ -866,6 +1051,11 @@ def export_srt(video_id: str, stage: str = "best", lang: str = "ko"):
         for d in seg_dicts:
             d["text_export"] = d["text_final"] or d["text_llm"] or d["text_whisper"]
         key = "text_export"
+    elif forked:
+        # a forked track only populates text_final (no whisper/llm stages), so a
+        # stage=whisper/llm request would map to an all-empty column and export a
+        # blank .srt. Always read text_final for forked tracks.
+        key = "text_final"
     elif stage in key_map:
         key = key_map[stage]
     else:
@@ -876,14 +1066,21 @@ def export_srt(video_id: str, stage: str = "best", lang: str = "ko"):
 
         if lang not in LANGUAGES:
             raise HTTPException(400, f"unsupported language {lang}")
-        translated = translate_segments(seg_dicts, key, lang)
+        # always translate from the BEST Korean text (final>llm>whisper),
+        # independent of the requested export `stage`. Keying the translation
+        # cache to a stage-specific text (e.g. stage=whisper) would overwrite
+        # the canonical best-text translation, then read back as stale and
+        # force a needless re-translation on the next best export.
+        for d in seg_dicts:
+            d["text_ko_best"] = d["text_final"] or d["text_llm"] or d["text_whisper"]
+        translated = translate_segments(seg_dicts, "text_ko_best", lang)
         for d in seg_dicts:
             d["text_export_t"] = translated.get(d["id"], "")
         key = "text_export_t"
 
     out_dir = JOBS_DIR / video_id
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = to_srt(seg_dicts, key, out_dir / f"{video_id}.{stage}.{lang}.srt")
+    path = to_srt(seg_dicts, key, out_dir / f"{video_id}.{stage}.{lang}.srt", lang=lang)
     return FileResponse(
         path,
         media_type="application/x-subrip",
@@ -957,8 +1154,12 @@ def get_translations(video_id: str, lang: str) -> list[dict]:
             .where(Segment.job_id == job.id, Segment.lang == "ko")
             .order_by(Segment.idx)
         ).all()
+        # scope to THIS job's segments (was scanning every video's rows for lang)
         rows = session.exec(
-            select(Translation).where(Translation.lang == lang)
+            select(Translation).where(
+                Translation.segment_id.in_([s.id for s in segs]),
+                Translation.lang == lang,
+            )
         ).all()
         by_seg = {t.segment_id: t for t in rows}
         out = []
@@ -1007,8 +1208,21 @@ def update_translation(segment_id: int, lang: str, body: TranslationUpdate) -> d
         if body.text is not None and body.text != t.text:
             t.text = body.text
             t.edited = True
+            # stamp the Korean source hash so a LATER Korean edit correctly
+            # surfaces stale=True. A from-scratch human translation would
+            # otherwise keep source_hash="" and never flag as stale (get_
+            # translations short-circuits on empty hash), silently staying
+            # attached to Korean it no longer matches.
+            t.source_hash = _hash(_best_ko(seg).strip())
         if body.reviewed is not None:
             t.reviewed = body.reviewed
+        # never persist an empty phantom row (blank text, reviewed toggled on an
+        # untranslated cue): it would count toward progress and export nothing.
+        if not (t.text or "").strip():
+            if t.id is not None:
+                session.delete(t)
+            session.commit()
+            return {"segment_id": segment_id, "text": "", "reviewed": False}
         session.add(t)
         session.commit()
         session.refresh(t)
@@ -1202,21 +1416,40 @@ class TimingDoneBody(BaseModel):
 
 
 @app.post("/api/jobs/{video_id}/timing-done")
-def set_timing_done(video_id: str, body: TimingDoneBody) -> dict:
-    """Mark (or unmark) the video's timing pass as human-confirmed.
+def set_timing_done(video_id: str, body: TimingDoneBody, lang: str = "ko") -> dict:
+    """Mark (or unmark) a track's timing pass as human-confirmed.
 
     Separate from text review: a reviewer can finish all the words and still owe
-    a timing pass. The landing dashboard surfaces both so nothing ships half-done.
+    a timing pass. Timing is per-track — the Korean source uses Job.timing_done;
+    a forked translation track (retimed independently, ADR-0006) uses its Track
+    row so its timing state is tracked and shown per language.
     """
     with get_session() as session:
         job = session.exec(select(Job).where(Job.video_id == video_id)).first()
         if job is None:
             raise HTTPException(404, f"no job for {video_id}")
-        job.timing_done = body.done
-        job.updated_at = utcnow()
-        session.add(job)
+        if lang == "ko":
+            job.timing_done = body.done
+            job.updated_at = utcnow()
+            session.add(job)
+        else:
+            # only a forked track (own Segment rows) has independent timing
+            has_fork = session.exec(
+                select(Segment.id).where(
+                    Segment.job_id == job.id, Segment.lang == lang
+                )
+            ).first()
+            if has_fork is None:
+                raise HTTPException(400, f"{lang} is not a forked track")
+            track = session.exec(
+                select(Track).where(Track.job_id == job.id, Track.lang == lang)
+            ).first()
+            if track is None:
+                track = Track(job_id=job.id, lang=lang, forked=True)
+            track.timing_done = body.done
+            session.add(track)
         session.commit()
-    return {"video_id": video_id, "timing_done": body.done}
+    return {"video_id": video_id, "lang": lang, "timing_done": body.done}
 
 
 @app.post("/api/jobs/{video_id}/absorb")

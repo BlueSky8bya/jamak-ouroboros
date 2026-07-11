@@ -46,6 +46,10 @@ def evaluate_all() -> list[dict]:
             segs = session.exec(
                 select(Segment).where(
                     Segment.job_id == job.id,
+                    # ko only: CER measures Korean STT accuracy. Forked translation
+                    # segments have foreign text_final but empty whisper/llm, which
+                    # would inflate the metric (ADR-0006).
+                    Segment.lang == "ko",
                     Segment.reviewed == True,  # noqa: E712
                 )
             ).all()

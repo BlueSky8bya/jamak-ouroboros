@@ -17,11 +17,13 @@ function Row({
   langLabel,
   onSeek,
   onSave,
+  onSaveNext,
 }: {
   row: TranslationRow;
   langLabel: string;
   onSeek: (t: number) => void;
   onSave: (segId: number, text: string, reviewed: boolean | null) => void;
+  onSaveNext: (segId: number, text: string) => void;
 }) {
   const [text, setText] = useState(row.text);
   const dirty = useRef(false);
@@ -41,7 +43,10 @@ function Row({
   }
 
   return (
-    <div className={"trow" + (row.reviewed ? " reviewed" : "") + (row.stale ? " stale" : "")}>
+    <div
+      data-seg={row.segment_id}
+      className={"trow" + (row.reviewed ? " reviewed" : "") + (row.stale ? " stale" : "")}
+    >
       <button className="time" onClick={() => onSeek(row.start)} title="이 구간 재생">
         ▶ {fmt(row.start)}
       </button>
@@ -69,7 +74,7 @@ function Row({
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               dirty.current = false;
-              onSave(row.segment_id, text, true);
+              onSaveNext(row.segment_id, text); // 확인 + 다음 미검수로 이동
             }
           }}
         />
@@ -92,12 +97,16 @@ export function TranslateReview({
   langLabel,
   currentTime,
   onSeek,
+  onGenerated,
 }: {
   videoId: string;
   lang: string;
   langLabel: string;
   currentTime: number;
   onSeek: (t: number) => void;
+  // notify parent that translations now exist for this lang, so it can refetch
+  // its own transMap (which gates the fork button / on-video overlay)
+  onGenerated?: () => void;
 }) {
   const [rows, setRows] = useState<TranslationRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -130,6 +139,7 @@ export function TranslateReview({
     try {
       await makeTranslations(videoId, lang);
       await load();
+      onGenerated?.();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -149,6 +159,7 @@ export function TranslateReview({
             : r,
         ),
       );
+      if (updated.text.trim()) onGenerated?.();
     } catch (e) {
       setError(String(e));
     }
@@ -170,8 +181,51 @@ export function TranslateReview({
     );
   }
 
+  const pct = rows.length ? Math.round((nReviewed / rows.length) * 100) : 0;
+  const remaining = rows.length - nReviewed;
+
+  function continueToNext(fromSegId?: number) {
+    // find the next unreviewed row AFTER the given one (rows state may not yet
+    // reflect the just-saved reviewed flip, so exclude fromSegId explicitly)
+    const start = fromSegId != null ? rows.findIndex((r) => r.segment_id === fromSegId) + 1 : 0;
+    const next =
+      rows.slice(start).find((r) => !r.reviewed && r.segment_id !== fromSegId) ||
+      rows.find((r) => !r.reviewed && r.segment_id !== fromSegId);
+    if (!next) return;
+    seekTo(next.start);
+    const el = document.querySelector<HTMLElement>(`.trow[data-seg="${next.segment_id}"]`);
+    el?.scrollIntoView({ block: "center", behavior: "smooth" });
+    el?.querySelector("textarea")?.focus();
+  }
+
+  function saveNext(segId: number, text: string) {
+    void save(segId, text, true);
+    continueToNext(segId);
+  }
+
   return (
     <div className="translate-review">
+      {/* per-language progress hero — same momentum system the Korean track
+          gets: a progress bar, remaining count, and a continue affordance, so
+          a (often large) translation review isn't a pacing-blind slog */}
+      <div className="tflow-hero">
+        <div className="tflow-top">
+          <strong>
+            {langLabel} 번역 검수 {nReviewed}/{rows.length}
+          </strong>
+          <span className="tflow-pct">{pct}%</span>
+        </div>
+        <div className="tflow-bar">
+          <span style={{ width: `${pct}%` }} />
+        </div>
+        {remaining > 0 ? (
+          <button className="continue-btn" onClick={() => continueToNext()}>
+            이어서 작업하기 · 남은 {remaining}개 →
+          </button>
+        ) : (
+          <div className="tflow-done">✓ {langLabel} 번역 검수 완료</div>
+        )}
+      </div>
       <div className="treview-head">
         <span>
           {langLabel} 번역 검수 {nReviewed}/{rows.length}
@@ -188,6 +242,7 @@ export function TranslateReview({
           langLabel={langLabel}
           onSeek={seekTo}
           onSave={save}
+          onSaveNext={saveNext}
         />
       ))}
     </div>

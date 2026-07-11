@@ -81,7 +81,10 @@ def translation_examples(lang: str, max_pairs: int = 14) -> list[tuple[str, str]
     examples that teach terminology and tone to future translations —
     the same ouroboros loop the Korean correction stage uses.
     """
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
     with get_session() as session:
+        # non-forked tracks: the reviewed/edited Translation rows joined to ko
         rows = session.exec(
             select(Translation, Segment)
             .join(Segment, Translation.segment_id == Segment.id)
@@ -90,17 +93,86 @@ def translation_examples(lang: str, max_pairs: int = 14) -> list[tuple[str, str]
                 or_(Translation.reviewed == True, Translation.edited == True),  # noqa: E712
             )
         ).all()
-    out: list[tuple[str, str]] = []
-    seen: set[str] = set()
-    for t, seg in rows:
-        ko = (seg.text_final or seg.text_llm or seg.text_whisper).strip()
-        tx = t.text.strip()
-        if ko and tx and ko not in seen:
-            seen.add(ko)
-            out.append((ko, tx))
-    # shortest first tend to be the term-defining lines; keep a diverse set
-    out.sort(key=lambda p: len(p[0]))
-    return out[:max_pairs]
+        for t, seg in rows:
+            ko = (seg.text_final or seg.text_llm or seg.text_whisper).strip()
+            tx = t.text.strip()
+            if ko and tx and ko not in seen:
+                seen.add(ko)
+                out.append((ko, tx))
+
+        # forked tracks: after a fork the Translation rows are deleted and the
+        # reviewed translation lives in Segment.text_final (lang != "ko"). Match
+        # each to its Korean source by time overlap (idx diverges after a fork).
+        forked = session.exec(
+            select(Segment).where(
+                Segment.lang == lang, Segment.reviewed == True  # noqa: E712
+            )
+        ).all()
+        if forked:
+            ko_by_job: dict[int, list[Segment]] = {}
+            for k in session.exec(
+                select(Segment).where(
+                    Segment.job_id.in_({s.job_id for s in forked}),
+                    Segment.lang == "ko",
+                )
+            ).all():
+                ko_by_job.setdefault(k.job_id, []).append(k)
+            for fs in forked:
+                tx = (fs.text_final or "").strip()
+                if not tx:
+                    continue
+                fs_dur = max(0.001, fs.end - fs.start)
+                overlaps = [
+                    k
+                    for k in ko_by_job.get(fs.job_id, [])
+                    if k.start < fs.end and k.end > fs.start
+                ]
+                # only emit a near-1:1 pair. After a real fork the track is
+                # re-split, so one forked cue may span 2-3 ko cues; concatenating
+                # them would teach the model a wrong many-to-one alignment. Accept
+                # exactly one overlap, or a single ko cue that dominates (>=80% of
+                # the forked cue's span); otherwise skip (quality over quantity).
+                if len(overlaps) == 1:
+                    k = overlaps[0]
+                elif overlaps:
+                    dominant = max(
+                        overlaps,
+                        key=lambda k: min(k.end, fs.end) - max(k.start, fs.start),
+                    )
+                    cover = (
+                        min(dominant.end, fs.end) - max(dominant.start, fs.start)
+                    ) / fs_dur
+                    k = dominant if cover >= 0.8 else None
+                else:
+                    k = None
+                if k is None:
+                    continue
+                ko = (k.text_final or k.text_llm or k.text_whisper).strip()
+                if ko and ko not in seen:
+                    seen.add(ko)
+                    out.append((ko, tx))
+
+    # Selection: the loop exists to propagate consistent per-language spelling
+    # of domain terms (허경영, 하늘궁, 축지법…), which live in LONGER sentences —
+    # so shortest-first truncation would drop exactly those. Prioritise pairs
+    # whose Korean carries an approved glossary term, then fill the remainder
+    # with a length-STRATIFIED sample (not shortest-only) for tone/length variety.
+    from ..glossary import glossary_surface_forms
+
+    forms = glossary_surface_forms()
+
+    def has_term(ko: str) -> bool:
+        return any(f in ko for f in forms)
+
+    term_pairs = [p for p in out if has_term(p[0])]
+    other = sorted((p for p in out if not has_term(p[0])), key=lambda p: len(p[0]))
+
+    selected = term_pairs[:max_pairs]
+    if len(selected) < max_pairs and other:
+        remainder = max_pairs - len(selected)
+        step = max(1, len(other) // remainder)  # spread across short..long
+        selected += other[::step][:remainder]
+    return selected[:max_pairs]
 
 
 def _system_prompt(lang: str) -> str:
@@ -111,7 +183,7 @@ def _system_prompt(lang: str) -> str:
         "",
         "규칙:",
         "1. 문맥에 맞게 자연스럽게 번역한다. 직역보다 강연의 말맛과 의미 전달 우선.",
-        "2. 자막이다 — 한 세그먼트의 번역이 원문보다 크게 길어지지 않게 간결히.",
+        "2. 자막이다 — 각 세그먼트는 화면 표시 시간에 맞춰 읽을 수 있어야 한다. 세그먼트마다 권장 글자수(≤N자)를 함께 주니 그 안에서 간결히 옮겨라. 넘칠 것 같으면 군더더기를 줄이고, 정 길면 짧은 두 줄로 나눠도 좋다 (내용 삭제는 금지). 권장 글자수가 매우 작으면(≤12자) 의미 핵심만 남긴 최단 표현을 택한다 (예: \"뭐라고?\"→\"What?\", \"혹시 아는가?\"→\"Know it?\"). 원문이 짧은데 대상 언어가 길어지는 경우 정중한 군말(please, happen to, do you 등)을 먼저 버린다.",
         "3. 고유명사(허경영, 하늘궁 등)는 표준 로마자/현지 표기로 일관되게 옮기고,",
         "   처음 등장 시 필요하면 짧은 의미 병기를 허용한다.",
         "4. 성경/불교/유교 용어는 해당 언어권의 통용 표현을 쓴다 (예: 에스더 → Esther).",
@@ -131,9 +203,9 @@ def _system_prompt(lang: str) -> str:
 
 
 def translate_texts(
-    items: list[tuple[int, str]], lang: str, console=None
+    items: list[tuple[int, str, int]], lang: str, console=None
 ) -> dict[int, str]:
-    """[(idx, korean)] -> {idx: translated}. One Claude call per chunk."""
+    """[(idx, korean, char_budget)] -> {idx: translated}. One Claude call per chunk."""
     import anthropic
 
     if lang not in LANGUAGES:
@@ -150,10 +222,10 @@ def translate_texts(
         lines = []
         if context:
             lines.append("### 직전 문맥 (번역 대상 아님):")
-            lines.extend(f"  {t}" for _, t in context)
+            lines.extend(f"  {t}" for _, t, _b in context)
             lines.append("")
-        lines.append("### 번역 대상 세그먼트:")
-        lines.extend(f"[{i}] {t}" for i, t in chunk)
+        lines.append("### 번역 대상 세그먼트 (idx, 권장 최대 글자수, 원문):")
+        lines.extend(f"[{i}] (≤{b}자) {t}" for i, t, b in chunk)
 
         response = client.messages.create(
             model=TRANSLATE_MODEL,
@@ -197,6 +269,9 @@ def translate_segments(seg_dicts: list[dict], text_key: str, lang: str, console=
     sources = {
         d["id"]: (d.get(text_key) or "").strip() for d in seg_dicts if (d.get(text_key) or "").strip()
     }
+    # per-cue readable char budget (~17 chars/sec of on-screen time), so the
+    # model keeps a translation that inherits the Korean timing readable
+    dur = {d["id"]: max(0.5, float(d.get("end", 0)) - float(d.get("start", 0))) for d in seg_dicts}
 
     result: dict[int, str] = {}
     todo: list[tuple[int, str]] = []
@@ -209,10 +284,21 @@ def translate_segments(seg_dicts: list[dict], text_key: str, lang: str, console=
                     Translation.segment_id == seg_id, Translation.lang == lang
                 )
             ).all()
-            # human work (edited/reviewed) is never re-translated away, even if
-            # the Korean changed — the human re-translates explicitly if needed
-            protected = next((t for t in existing if t.edited or t.reviewed), None)
-            fresh = next((t for t in existing if t.source_hash == h), None)
+            # Only EDITED (human-authored) text is a hard lock, never re-translated.
+            # `reviewed` means "a human confirmed the translation of THIS Korean
+            # text" — it is not a permanent lock: if the Korean later changes, the
+            # confirmation is stale and the row must fall through to the source_hash
+            # check below and re-translate (per the module/schema docstrings). An
+            # empty row is never protected (would export blank and never refill).
+            protected = next(
+                (t for t in existing if t.edited and t.text.strip()),
+                None,
+            )
+            # a reviewed row whose hash still matches the current Korean is fresh
+            # and kept; a reviewed row whose Korean changed is NOT fresh -> todo.
+            fresh = next(
+                (t for t in existing if t.source_hash == h and t.text.strip()), None
+            )
             if protected is not None:
                 result[seg_id] = protected.text
             elif fresh is not None:
@@ -221,18 +307,36 @@ def translate_segments(seg_dicts: list[dict], text_key: str, lang: str, console=
                 todo.append((seg_id, text))
 
     if todo:
-        translated = translate_texts(todo, lang, console=console)
+        budgeted = [
+            (sid, txt, max(10, int(17 * dur.get(sid, 3.0)))) for sid, txt in todo
+        ]
+        translated = translate_texts(budgeted, lang, console=console)
+        missing = [sid for sid, _ in todo if sid not in translated]
+        if missing:
+            # the model dropped these idx from its JSON output. Fall back to the
+            # Korean source so the cue is never a silent blank in the .srt, and
+            # do NOT cache it (source_hash unwritten) so a later export retries.
+            if console:
+                console.print(
+                    f"  {lang}: {len(missing)} segment(s) dropped by model — "
+                    "using Korean source as fallback (will retry on re-export)"
+                )
+            for sid in missing:
+                result[sid] = sources.get(sid, "")
         with get_session() as session:
             for seg_id, text in todo:
                 if seg_id not in translated:
                     continue
-                # replace stale, non-protected cache rows for this segment+lang
+                # replace stale cache rows for this segment+lang. Only EDITED
+                # rows are kept (hard lock); a stale reviewed row is deleted and
+                # replaced with the fresh translation (its confirmation was for
+                # the OLD Korean, now superseded).
                 for old in session.exec(
                     select(Translation).where(
                         Translation.segment_id == seg_id, Translation.lang == lang
                     )
                 ).all():
-                    if old.edited or old.reviewed:
+                    if old.edited:
                         continue
                     session.delete(old)
                 session.add(

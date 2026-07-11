@@ -1,6 +1,6 @@
 # Current State
 
-Last Updated: 2026-07-10 (fatigue-reduction batch: PLAN-20260710-010)
+Last Updated: 2026-07-11 (translate-subsystem 3-agent audit fix batch)
 Project Version: 0.1.0
 Harness Protocol: project-initializing_260710.md
 
@@ -86,6 +86,112 @@ cp949 콘솔에서 유니코드 특수문자 크래시 → CLI 문자열에서 e
 3. 새 강연 영상으로 2회전 → CER 추이 확인 (우로보로스 실증)
 4. 관찰 항목: LLM 자동자막 문맥 보충([1] "지혜로우니까"), 사투리 정규화(내한테→나한테) — 과교정 패턴이면 correct.py 프롬프트 조정
 5. ISSUE-002 (긴 세그먼트 분할) — 검수 불편하면 착수
+
+## Recent Additions (2026-07-11 — 번역 서브시스템 3-에이전트 감사 수정 배치)
+
+사용자 지시: 특성 다양화한 3 에이전트(정확성/UX/DB) 루프 감사 → 통과까지 번역 품질·편의·DB 최적화 완성. 1차 감사(wf_84ab4ada): 17 제기 → 12 확정. 전부 수정·검증:
+
+- **데이터 손실(HIGH)**: `restore_segments`가 ko undo 시 **모든 언어 Translation 삭제**하던 코드 제거. 고아 Translation은 무해(get_translations는 live 세그먼트만 조인).
+- **list_jobs fork-aware**: 포크된 언어는 `Segment(lang!=ko)`에서, 미포크는 Translation에서 집계(이미 포크된 언어 스킵). 두 shape 혼재해도 정확.
+- **get_translations job-scoped**: 해당 job 세그먼트 id로 한정 + `lang` 필터.
+- **fork 멱등성**: `uq_segment_job_lang_idx` 유니크 인덱스 + `IntegrityError` 가드 → 재포크 시 `created:0`. 검증: 1차 124, 2차 0.
+- **LlmCache 중복 제거**: 한 런에서 동일 source_hash는 캐시 행 1개(`written` set).
+- **번역 프롬프트 읽기속도/글자예산**: 세그먼트별 권장 글자수(≤N자, dur×17) 주입 + 매우 빡빡할 때(≤12자) 최단 표현 규칙. 검증: ja 6/6·en 6/6 예산 내(수정 전 en 3개 초과), 품질 유지("뭐라고?"→"What?", "혹시 아는가?"→"Know it?").
+- **포크 에디터 한국어 원문 참조(HIGH UX)**: 번역 트랙 편집 시 각 Row에 읽기전용 `원문`(시간 겹침 매칭, idx 분기 대응) 표시. `koRefSegs` fetch + `.ko-ref`. 검증: en 포크 124행 전부 원문 표시.
+- **카드 빠른 .srt 내보내기 언어**: 선택 언어 트랙으로 export(`exportUrl(vid,'best',lang)`), 라벨 `⬇ .srt (영어)`, exportable 게이팅.
+- 검증 전부 **읽기전용/정리 완료**(테스트 포크 en 124 생성→삭제, DB 상속 상태 복원, 라이브 리뷰 데이터 무변경).
+
+### 2차 감사(wf_1ca71219): 15 제기 → 8 확정. 전부 수정·검증:
+
+- **[HIGH·내가 넣은 회귀] split 500**: 1차에 추가한 `uq_segment_job_lang_idx` 유니크 인덱스가 split의 오름차순 idx+=1 시프트와 충돌(SQLite 즉시 검사) → 모든 트랙 split 500. **인덱스 제거**로 근본 해결.
+- **[HIGH·내가 넣은 회귀] repair_stt 500**: 같은 인덱스가 gap-fill의 idx=0 다중 삽입과 충돌. 인덱스 제거로 해결. fork 멱등성은 이미 app-level 존재검사(존재 시 created:0)로 보장 — 인덱스 불필요. `IntegrityError` 가드/import 제거.
+- **[HIGH UX] 미번역 트랙 fork → 빈 자막 124줄**: fork 버튼을 번역 존재(`transMap>0`) 시에만 노출. 검증: en(번역O) 버튼 보임 / de(번역X) 숨김.
+- **[MED] merge/delete가 검수완료 번역 영구삭제**: Translation 하드삭제 제거 → 고아로 남김(undo가 원본 id로 복구 시 재부착, restore/split 패턴 일치).
+- **[MED] 사람 작성 번역 stale 미표시**: update_translation이 저장 시 `source_hash=_hash(ko)` 스탬프 → 이후 한국어 변경 시 stale 감지.
+- **[LOW] export stage=whisper가 번역 캐시 오염**: 항상 best 한국어 텍스트로 번역(stage 무관).
+- **[LOW] 찾기·바꾸기 카운트 트랙 전환 시 stale**: effect deps에 `lang` 추가.
+- **[LOW] 중복 단일컬럼 인덱스**: `ix_segment_lang`/`ix_segment_idx` drop + 모델 index=True 제거(job_id만 유지).
+- 검증: 라이브 DB 인덱스 확인(uq/lang/idx 제거, job_id만), **격리 temp-DB로 split·repair idx 연산 무충돌 재현**, fork 게이팅 양방향, 콘솔 0.
+
+### 3차 감사(wf_cd3bc83e): 13 제기 → 8 확정(2차 8건은 전부 해소, 이건 더 깊은 신규건). 전부 수정·검증:
+
+- **[HIGH 데이터손실] 재실행/재인식이 모든 언어 트랙 삭제** (`cli.py`): `delete(Segment).where(job_id)` lang 무필터 → forked en/ja 몰살. **`lang=='ko'` 스코프 + insert에 `lang='ko'` 명시**, `correct_job`도 ko 스코프. 검증: 격리 temp-DB에서 ko 재삽입돼도 en(reviewed) 4줄 생존.
+- **[MED] 미번역 행 '확인'→ 보호된 빈 번역이 export 공백 + 재번역 안됨**: translate_segments 보호 필터에 `and t.text.strip()` 추가.
+- **[MED] 모델이 idx 누락 → 조용한 공백 자막**: 누락 idx는 한국어 원문 폴백(캐시 안함→재export 시 재시도) + 콘솔 경고.
+- **[MED·내 fork 게이팅 부작용] 번역 생성 직후 fork 버튼 안뜸**: TranslateReview `onGenerated` 콜백 → 부모 transMap 재fetch(transRefresh).
+- **[MED] 비-fork 번역의 영상 위 오버레이 죽어있음**: koRefSegs 타이밍 기준으로 해당 언어 번역 오버레이(포크 없이 미리보기).
+- **[MED] 트랙 전환 셀렉트가 export 푸터에 라벨 없이 묻힘**: `편집·내보낼 언어` 라벨 추가.
+- **[LOW] 카드 언어 선택 무시하고 항상 ko로 열림**: `initialLang` prop 스레드. 검증: 카드 en 선택→에디터 en으로 열림.
+- **[MED 이연] forked 트랙 timing-done 상태 없음**: Phase 4 기능 범위(Track.timing_done 배선·lang별 엔드포인트·칩) — 의도적 보류.
+- 검증: 백엔드 compile OK, 프론트 build OK, 데이터손실 fix temp-DB 재현, initialLang·트랙라벨 UI 확인, 콘솔 0, DB 정리(포크 0).
+### 4차 감사(wf_3666f164): 11 제기 → 5 확정(3차 8건 전부 해소). 전부 수정·검증:
+
+- **[HIGH·내 round-2 부작용] 고아 Translation이 rowid 재사용으로 엉뚱한 세그먼트에 재부착**: Segment.id는 AUTOINCREMENT 없는 rowid라 삭제된 max id가 재사용됨 → 고아 번역이 무관한 자막에 붙어 잘못 export. **merge는 고아 남기지 않고 생존 세그먼트로 re-point**(언어 중복 시 생존측 우선, 병합됐으니 stale 표시), **delete는 번역 삭제**(생존자 없음). 검증: 격리 temp-DB에서 merge 후 dangling 0, delete 후 dangling 0.
+- **[HIGH] fork가 번역 reviewed 상태 폐기 → 검수 완료 언어가 미검수로 회귀**: fork_track이 `reviewed=False` 하드코딩. **Translation.reviewed를 forked Segment.reviewed로 이관**. 검증: reviewed 번역 fork → forked 세그먼트 reviewed=True.
+- **[MED] 공유 DB idx read-modify-write 레이스**: `busy_timeout=30s` 추가(동시 writer 대기·직렬화). 완전 직렬화(BEGIN IMMEDIATE per (job,lang))는 SQLite→PG 잠금 ADR로 이연. 검증: PRAGMA busy_timeout=30000.
+- **[MED] 언어 전환 시 undo 스택 미초기화 → 타 트랙 id로 restore 500**: lang/videoId 변경 effect에서 `setUndoStack([])`+ref+focus 리셋. undo는 트랙별.
+- 검증: compile OK, build OK, temp-DB 실코드경로(fork/merge/delete) 테스트 통과, busy_timeout 확인, 트랙 전환 콘솔 0, 라이브 DB 무변경(222 ko).
+### 5차 감사(wf_a74b518b): 9 제기 → 5 확정(4차 5건 전부 해소). 전부 수정·검증:
+
+- **[HIGH·rowid-reuse 마지막 구멍] restore_segments 고아 → 재부착 부패**: round-1에 restore의 Translation 삭제를 뺐던 것이 3번째 고아 소스. **undo가 버리는 id(스냅샷에 없는 현재 id)의 Translation만 삭제**(생존 id는 유지). merge/delete와 동일 보호. 검증: temp-DB에서 drop된 id 4의 번역 삭제, dangling 0. → merge·delete·restore·fork 4개 고아 소스 전부 폐쇄.
+- **[MED] fork가 Translation 고아화(죽은 중복 + few-shot 오염)**: fork_track이 forked Segment 생성 후 원본 Translation 미삭제 → 중복 저장 + 편집 후에도 translation_examples가 옛 텍스트를 '사람 확정 예시'로 계속 제공. **fork 시 원본 Translation 삭제** + **translation_examples가 forked reviewed Segment도 시간겹침으로 수확**(언어 학습 유지). 검증: fork 후 Translation 0, examples가 forked에서 쌍 추출.
+- **[MED] wrap_korean이 모든 언어 18자 CJK 규칙 → Latin 번역 줄바꿈 깨짐/클리핑**: `to_srt(lang=)` + `line_budget`(CJK 18 / Latin·Cyrillic 42). 검증: en \"It's recorded in the Bible\" 한 줄(전엔 2줄), ko 18 유지.
+- **[MED·피로↓] 비-fork 번역 검수에 진행 히어로 없음(죽은 좌측 레일)**: TranslateReview에 진행바+%+`이어서 작업하기·남은 N개`(다음 미검수로 스크롤/포커스) 자체 히어로. 검증: en 히어로 렌더("영어 번역 검수 0/124", 남은 124).
+- **[LOW] 키보드 Enter/이어서가 카드 언어 무시**: Enter 핸들러가 커서 카드의 `.card-lang select` 값 반영(클릭 경로와 일치).
+- 검증: compile/build OK, temp-DB 실코드경로(restore/fork/examples) + 순수함수(wrap) 통과, 번역 히어로·콘솔0, 라이브 DB 무변경(222 ko·124 en·0 fork).
+### 6차 감사(wf_31487380): 10 제기 → 7 확정(5차 5건 해소; 신규 3건은 내 5차 fix 부작용). 전부 수정·검증:
+
+- **[HIGH·내 5차 부작용] fork 되돌리기 불가 + 툴팁 거짓말("비우면 됨") + 되돌리면 작업 파괴**: 5차에 fork가 Translation을 삭제하게 만든 뒤 "비우면 됨" 안내가 파괴적이 됨. **실제 unfork 엔드포인트 추가**(`POST /unfork-track`): forked Segment.text_final을 시간겹침으로 ko별 Translation 재구성(1:1 무손실·재분할 근사) + forked 세그먼트 삭제 + Track.forked=False. 프론트 `↩ 독립 편집 해제` 버튼(confirm) + 툴팁 정직화. 검증: temp-DB fork→편집→unfork 왕복, 편집("EDITED")·reviewed 복원, 세그먼트 0.
+- **[HIGH] CLI 재실행이 ko Translation 고아화**: ko 세그먼트만 지우고 그 Translation은 안 지워 매 재실행마다 누적 + rowid 재사용 오부착. **ko 세그먼트 삭제 전 그 Translation부터 삭제**(app 패턴과 동일, CLI가 유일한 누락처).
+- **[MED·내 5차 부작용] forked few-shot이 겹치는 ko 큐 전부 concat → 오정렬 예시**: 재분할 후 1 forked 큐가 2-3 ko 걸침. **near-1:1만 채택**(겹침 정확히 1개 or 한 ko가 forked 큐의 ≥80% 커버). 검증: 1:1 채택, 2개 걸침 스킵.
+- **[MED] few-shot 최단줄 편향 + 용어사전 미주입**: 길이순 자르면 용어 든 긴 문장이 잘림. **glossary surface form 든 쌍 우선 + 나머지 길이-계층 샘플**.
+- **[MED] ko 검수 회귀가 독립(forked) 트랙을 조용히 ko로 스냅백**: lang-lock이 forked 무시. **forked(=자체 세그먼트 존재) 예외 + statusMsg 설명**(상속 트랙만 게이팅).
+- **[MED 이연] fork 후 기계 재번역 경로 없음** → unfork로 복구 경로 생김(unfork→재생성→refork). Phase 4 per-row 재번역은 이연.
+- **[LOW 이연] forked 트랙 timing-done 없음** → Phase 4(Track.timing_done 배선).
+- 검증: compile/build OK, temp-DB 실코드경로(unfork 왕복·forked few-shot 게이트) 통과, UI(정직 툴팁·히어로) 콘솔0, 라이브 DB 무변경(222 ko·124 en·source_hash 보존).
+### 7차 감사(wf_f0da8e82): 10 제기 → 6 확정, **HIGH 0** (전부 MED/LOW — 심각도 하강=수렴 신호). 전부 수정·검증:
+
+- **[MED·내 6차 부작용] unfork가 edited 플래그 유실 → 손편집 번역 재번역돼 사라짐**: unfork 재구성 Translation에 `edited=True` (protected 분기 태워 덮어쓰기 방지). 검증: fork→unfork 후 edited=True.
+- **[MED] TranslateReview Enter가 "확인+다음" 라벨과 달리 안 넘어감**: `onSaveNext`→`saveNext`(저장+continueToNext, 방금 행 제외하고 다음 미검수로). 히어로 버튼도 유지.
+- **[MED·내 6차 부작용] 키보드 Enter 카드 열기 셀렉터 오류(`.card-lang select`)**: `select.card-lang`로 수정(카드 언어 반영). 검증: 셀렉터 매치.
+- **[MED] 카드 빠른내보내기가 부분번역이면 동기 1~2분 무피드백 행**: exportable을 `complete`만으로 제한(항상 캐시/즉시). 검증: en(미완) .srt 버튼 없음 / ko(완료) 있음.
+- **[MED] list_jobs가 카운트하려고 전체 Translation(text blob) 로드**: `select(Translation.lang, Translation.reviewed)`로 2컬럼만 프로젝션(폴링마다 낭비 제거). 검증: langs 동일 출력.
+- **[LOW] forked 트랙 stage=llm/whisper export 전부 공백**: forked면 stage 무시하고 text_final. 
+- 검증: compile/build OK, temp-DB(unfork edited)·API(list_jobs projection)·UI(카드 export 게이팅·셀렉터)·콘솔0, 라이브 DB 무변경(222 ko·124 en·0 fork).
+### 8차 감사(wf_72a3feab): 13 제기 → 11 확정(감사가 training/eval/split까지 범위 확장). 전부 수정·검증:
+
+- **[HIGH] training.py STT 파인튜닝이 forked 비-ko 세그먼트(한국어 오디오+영어 텍스트) 페어링 = 학습 오염**: `Segment.lang=='ko'` 필터(training 2곳).
+- **[HIGH] evaluate.py CER에 forked 세그먼트 섞임**: `Segment.lang=='ko'` 필터.
+- **[MED] split.py 줄길이 예산이 비-ko 텍스트로 오염**: `Segment.lang=='ko'` 필터.
+- **[MED] reviewed-only 번역이 한국어 바뀌어도 영구잠금**: protected를 `edited`만으로(reviewed는 source_hash 신선도). 검증: ko 그대로면 확정 유지, ko 바뀌면 재번역.
+- **[MED·내 7차 부작용] unfork가 모든 행 edited=True → 미검수 기계번역이 few-shot 오염**: **Segment.edited 필드+마이그레이션** + update_segment가 forked 편집 시 set, unfork는 실제 edited만 이관. 검증: 기계텍스트 False, 손편집 True.
+- **[MED] forked 트랙 독립성 미반영(fork/dropdown/timing 4건)**: list_jobs에 lang별 `forked`·`timing_done` 노출, 타이밍 체크박스·landing 칩을 forked에도(Track.timing_done 배선, 엔드포인트 lang-aware), 드롭다운 forked 잠금 예외. 검증: en Track.timing_done 저장.
+- **[MED] fork 시 unsaved 편집 레이스**: runFork 전 blur+flush.
+- **[LOW] fork가 stale reviewed 동결**: source_hash 불일치면 reviewed=False 씨딩.
+- **[LOW] 드롭된 ix_segment_lang 풀스캔**: 복합 인덱스 `ix_segment_lang_reviewed` 생성 + 주석 정정.
+- **[LOW 이연] forked Row 에디터 stale 신호**: forked Segment에 source_hash 저장 필요 = ADR-0006 명시 미래 항목, 이연.
+- 검증: compile/build OK, 마이그레이션(segment.edited·인덱스) 라이브 확인, temp-DB 실코드경로 통과, UI 콘솔0, 라이브 DB 무변경(222 ko·124 en·0 fork·0 edited).
+### 9차 감사(wf_a4af6f52): 12 제기 → 9 확정, **HIGH 0** (전부 MED/LOW). 사용자 종료 기준(HIGH 0) 충족 → 커밋+루프 종료. 이 중 값싼 5건 즉시 수정, 4건 다음 배치로 이연.
+
+**9차 즉시 수정 (build+temp-DB 검증):**
+- **[MED] forked 트랙 진행% 분모가 ko 세그 수**: `denom = l.forked ? l.translated : j.segments`(칩·진행바). 재분할된 forked가 >100% 안 뜸.
+- **[MED] forked 트랙에서 발화맵/발화맞춤 사라짐**(재타이밍 도구인데): `words={isKo || forked ? words : []}`.
+- **[LOW] 미번역 행 '확인' 체크 → 빈 유령 Translation 영구 잔존**: 빈 텍스트면 저장 안 하고 삭제. 검증: 유령 0.
+- **[LOW] forked split/merge가 edited 미이관**: split 양쪽·merge 생존자에 edited 전파. 검증: 분할 양쪽 True.
+- **[LOW] 재fork 시 Track.timing_done 안 리셋 + set_timing_done이 비-fork Track 조작**: fork 시 timing_done=False, set_timing_done은 forked 세그 없으면 400. 검증: ja 저장/en 400.
+
+**9차 이연 (다음 배치, 전부 non-blocking):**
+- [MED] list_jobs '완료'가 staleness 무시 → 카드 완료지만 export 시 stale 행 재번역(unreviewed). **worst harm(잘못된 텍스트 배포)은 8차 reviewed-lock으로 이미 제거**(재번역=올바른 기계번역). 남은 건 '완료' 배지 부정확 + 폴링 쿼리에 source_hash 재도입 필요.
+- [MED] TranslateReview 리스트가 재생 큐 추적/하이라이트 안 함(dead `_active`).
+- [LOW] fork_track 이중생성 TOCTOU 레이스 → SQLite→PG 잠금 ADR(이연된 동시성 작업).
+- [LOW] 랜딩 카드가 잠긴 언어 선택 허용 → **8차 에디터 bounce+statusMsg로 완화됨**(카드 드롭다운 비활성화는 진행상황 뷰를 막아 트레이드오프).
+
+## 수렴 선언 (2026-07-11, 번역 서브시스템 9라운드 적대 감사)
+
+확정수 추이: **12→8→8→5→5→7→6→11→9**. HIGH: 라운드7=0, 라운드9=0. 총 **50+ 확정 버그 수정·검증**.
+- **데이터 부패/손실 클래스 전멸**: rowid-reuse 5소스(merge/delete/restore/fork/CLI), ko-only 필터 6소스(feedback/export/cli/training/eval/split), 번역 캐시 오염, reviewed-lock, unfork edited.
+- **내가 낸 회귀 3건도 감사가 잡아 수정**(유니크인덱스 split/repair 500, fork-delete-Translation 되돌리기, unfork over-edited).
+- 남은 9차 이연 4건 = 전부 non-blocking(표시 정확도·동시성 ADR·UX 폴리시). 적대적 생성 감사라 라운드마다 신규 표면화하나 심각도 하강 확정 → 종료.
 
 ## Recent Additions (2026-07-10 후반)
 

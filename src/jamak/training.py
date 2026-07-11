@@ -62,6 +62,10 @@ def export_training_data(out_dir: Path = TRAINING_DIR, make_clips: bool = True) 
                 select(Segment)
                 .where(
                     Segment.job_id == job.id,
+                    # ko source track only — a forked translation track (ADR-0006)
+                    # has non-Korean text_final over the same Korean audio; it must
+                    # not enter the STT/correction training corpus.
+                    Segment.lang == "ko",
                     Segment.reviewed == True,  # noqa: E712
                 )
                 .order_by(Segment.idx)
@@ -131,6 +135,10 @@ def export_correction_pairs(out_dir: Path = CORRECTIONS_DIR) -> dict:
                 select(Segment)
                 .where(
                     Segment.job_id == job.id,
+                    # ko source track only — a forked translation track (ADR-0006)
+                    # has non-Korean text_final over the same Korean audio; it must
+                    # not enter the STT/correction training corpus.
+                    Segment.lang == "ko",
                     Segment.reviewed == True,  # noqa: E712
                 )
                 .order_by(Segment.idx)

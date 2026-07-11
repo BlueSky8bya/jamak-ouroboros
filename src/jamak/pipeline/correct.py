@@ -188,8 +188,12 @@ def correct_job(job_id: int, console=None) -> int:
     prepass_pairs = load_prepass_pairs()
 
     with get_session() as session:
+        # only the Korean source track — correction is ko-only; forked
+        # translation tracks (lang != "ko") have their own text (ADR-0006)
         segments = session.exec(
-            select(Segment).where(Segment.job_id == job_id).order_by(Segment.idx)
+            select(Segment)
+            .where(Segment.job_id == job_id, Segment.lang == "ko")
+            .order_by(Segment.idx)
         ).all()
         seg_dicts = [s.model_dump() for s in segments]
 
@@ -261,6 +265,7 @@ def correct_job(job_id: int, console=None) -> int:
         # fill results + write cache (idx maps back to id via this run's
         # own snapshot, so concurrent structure edits can't shift rows)
         with get_session() as session:
+            written: set[str] = set()  # one cache row per source_hash per run
             for d in todo:
                 if d["idx"] in changed_by_idx:
                     text, unc = changed_by_idx[d["idx"]]
@@ -268,6 +273,9 @@ def correct_job(job_id: int, console=None) -> int:
                 else:
                     text, unc, changed = d["base_text"], False, False
                 results[d["id"]] = (text, unc)
+                if d["hash"] in written:
+                    continue  # identical source already cached this run — no dup row
+                written.add(d["hash"])
                 session.add(
                     LlmCache(
                         kind="correct",

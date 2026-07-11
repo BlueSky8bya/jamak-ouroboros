@@ -11,6 +11,7 @@ import {
   fetchTranslations,
   fetchWords,
   forkTrack,
+  unforkTrack,
   mergeNext,
   repairStt,
   replaceText,
@@ -418,6 +419,7 @@ function Row({
   preview,
   currentTime,
   hasNext,
+  koRef,
   words,
   register,
   onSeek,
@@ -436,6 +438,7 @@ function Row({
   preview: boolean;
   currentTime: number;
   hasNext: boolean;
+  koRef?: string;
   words: WordTime[];
   register: (h: RowHandle | null) => void;
   onSeek: (t: number) => void;
@@ -630,6 +633,12 @@ function Row({
         <div className="cue-rail" title={`영상 위치 ${fmt(currentTime)}`}>
           <span className="cue-fill" style={{ width: `${playPct}%` }} />
           <span className="cue-dot" style={{ left: `${playPct}%` }} />
+        </div>
+      )}
+      {koRef && (
+        <div className="ko-ref" title="번역 원문 (한국어) — 참고용, 수정 불가">
+          <span className="ko-ref-label">원문</span>
+          <span className="ko-ref-text">{koRef}</span>
         </div>
       )}
       <textarea
@@ -873,18 +882,27 @@ export function Editor({
   onBack,
   koComplete,
   timingDone: initialTimingDone,
+  initialLang = "ko",
+  languages = [],
 }: {
   videoId: string;
   onBack: () => void;
   koComplete: boolean;
   timingDone: boolean;
+  initialLang?: string;
+  languages?: { code: string; forked: boolean; timing_done: boolean }[];
 }) {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [timingDone, setTimingDoneState] = useState(initialTimingDone);
+  // per-forked-track timing-done (ko uses `timingDone`); synced from the job's
+  // languages when the active forked track changes
+  const [langTimingDone, setLangTimingDone] = useState(false);
+  const forkedLangs = new Set(languages.filter((l) => l.forked).map((l) => l.code));
+  const [koDoneSeen, setKoDoneSeen] = useState(koComplete);
   const [error, setError] = useState("");
   const [absorbMsg, setAbsorbMsg] = useState("");
   const [langs, setLangs] = useState<{ code: string; label: string }[]>([]);
-  const [lang, setLang] = useState("ko");
+  const [lang, setLang] = useState(initialLang);
   const [exporting, setExporting] = useState(false);
   const [pauseOnType, setPauseOnType] = useState(true);
   const [loopSeg, setLoopSeg] = useState(false);
@@ -904,6 +922,12 @@ export function Editor({
   const [words, setWords] = useState<WordTime[]>([]);
   // for the on-video preview overlay when reviewing a translation: segment_id → text
   const [transMap, setTransMap] = useState<Record<number, string>>({});
+  // Korean source segments, shown as a read-only reference while editing a
+  // forked translation track (matched by time overlap since idx diverges)
+  const [koRefSegs, setKoRefSegs] = useState<Segment[]>([]);
+  // bumped when TranslateReview generates/saves translations, so the transMap
+  // effect refetches and the fork button / overlay appear without a track switch
+  const [transRefresh, setTransRefresh] = useState(0);
   const { currentTime, playing, seekTo, seekBy, play, pause, playPause } = usePlayer(videoId);
 
   const rowsRef = useRef(new Map<number, RowHandle>());
@@ -924,6 +948,12 @@ export function Editor({
   // segments for the CURRENT track (ko source, or a forked language). Empty for
   // a non-forked translation language → the translation-review view is shown.
   useEffect(() => {
+    // undo is per-track: restore_segments is scoped to one lang and reinserts
+    // by original id. A snapshot from another track carries foreign ids that
+    // collide on restore (500). Clear undo/focus whenever the track changes.
+    setUndoStack([]);
+    undoStackRef.current = [];
+    setFocusedId(null);
     fetchSegments(videoId, lang)
       .then((nextSegments) => {
         segmentsRef.current = nextSegments;
@@ -946,7 +976,26 @@ export function Editor({
         setTransMap(m);
       })
       .catch(() => setTransMap({}));
-  }, [videoId, lang, showPreview]);
+  }, [videoId, lang, showPreview, transRefresh]);
+
+  // Korean source, kept alongside a forked translation track so each row can
+  // show the original as read-only reference (idx diverges after split/merge,
+  // so rows are matched by time overlap, not index)
+  useEffect(() => {
+    if (lang === "ko") {
+      setKoRefSegs([]);
+      return;
+    }
+    fetchSegments(videoId, "ko")
+      .then(setKoRefSegs)
+      .catch(() => setKoRefSegs([]));
+  }, [videoId, lang]);
+
+  // sync the forked track's timing-done state when the active track changes
+  useEffect(() => {
+    if (lang === "ko") return;
+    setLangTimingDone(languages.find((l) => l.code === lang)?.timing_done ?? false);
+  }, [lang, languages]);
 
   // live match-count preview for find & replace (debounced)
   useEffect(() => {
@@ -960,7 +1009,9 @@ export function Editor({
         .catch(() => setFindMatches(null));
     }, 350);
     return () => window.clearTimeout(t);
-  }, [findText, findOpen, videoId]);
+    // lang: re-query the count when the active track changes, else the "N곳"
+    // preview keeps the previous track's number while replace uses the new lang
+  }, [findText, findOpen, videoId, lang]);
 
   // 어떤 경로로 떠나도 수정 내용은 저장된다 (구조적 보장)
   async function flushAll() {
@@ -1015,11 +1066,25 @@ export function Editor({
   // a forked translation track has its own segments; a non-forked one shows the
   // lighter translation-review view (inherits Korean structure/timing)
   const forked = !isKo && segments.length > 0;
-
-  // never let a locked language stay selected
+  // the koComplete prop is a frozen snapshot from the landing list; unlock the
+  // translation languages the moment the Korean track hits 100% in-editor, so
+  // the reviewer doesn't have to exit and re-open at the hand-off.
+  const koTrackDone = isKo && segments.length > 0 && nReviewed === segments.length;
   useEffect(() => {
-    if (lang !== "ko" && !koComplete) setLang("ko");
-  }, [lang, koComplete]);
+    if (koTrackDone) setKoDoneSeen(true);
+  }, [koTrackDone]);
+  const koDone = koComplete || koDoneSeen;
+
+  // never let a locked language stay selected — EXCEPT a forked track, which is
+  // fully independent of Korean completeness (it has its own segments). Only a
+  // non-forked (inherited) translation is gated on Korean being done. Explain
+  // the snap-back so the reviewer isn't silently bounced to Korean.
+  useEffect(() => {
+    if (lang !== "ko" && !koDone && segments.length === 0) {
+      setLang("ko");
+      setStatusMsg("한국어 검수가 미완이라 번역 트랙(상속)을 열 수 없습니다 — 한국어를 먼저 끝내세요");
+    }
+  }, [lang, koDone, segments]);
 
   // review pace → soft ETA ("이 속도면 약 N분 남음"), and gentle milestone
   // pulses at 25/50/75/100% — both cut the "endless list" fatigue without
@@ -1379,6 +1444,12 @@ export function Editor({
 
   async function runFork() {
     try {
+      // flush any in-flight translation edit first: TranslateReview autosaves on
+      // blur (fire-and-forget), and fork_track copies from the Translation rows
+      // then deletes them — a mid-edit fork could copy the pre-edit value and
+      // lose the just-typed text. Blur the active field and let its save land.
+      (document.activeElement as HTMLElement | null)?.blur();
+      await new Promise((r) => setTimeout(r, 250));
       await forkTrack(videoId, lang);
       const next = await fetchSegments(videoId, lang);
       segmentsRef.current = next;
@@ -1391,14 +1462,40 @@ export function Editor({
     }
   }
 
+  async function runUnfork() {
+    if (
+      !window.confirm(
+        `${langLabel} 독립 편집을 해제하고 한국어 구조를 따르는 번역 검수로 되돌립니다.\n` +
+          `편집한 번역 텍스트는 한국어 자막에 맞춰 복원됩니다 (재분할한 경우 근사 복원). 계속할까요?`,
+      )
+    )
+      return;
+    try {
+      await unforkTrack(videoId, lang);
+      setUndoStack([]);
+      undoStackRef.current = [];
+      const next = await fetchSegments(videoId, lang);
+      segmentsRef.current = next;
+      setSegments(next);
+      setFocusedId(null);
+      focusedIdRef.current = null;
+      setTransRefresh((n) => n + 1);
+      setStatusMsg(`${langLabel} 독립 편집을 해제했습니다 — 번역 검수 화면으로 복귀`);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   async function toggleTimingDone() {
     try {
-      const r = await setTimingDone(videoId, !timingDone);
-      setTimingDoneState(r.timing_done);
+      const current = isKo ? timingDone : langTimingDone;
+      const r = await setTimingDone(videoId, !current, lang);
+      if (isKo) setTimingDoneState(r.timing_done);
+      else setLangTimingDone(r.timing_done);
       setStatusMsg(
         r.timing_done
-          ? "타이밍 검수 완료로 표시했습니다"
-          : "타이밍 검수 미완으로 되돌렸습니다",
+          ? `${langLabel} 타이밍 검수 완료로 표시했습니다`
+          : `${langLabel} 타이밍 검수 미완으로 되돌렸습니다`,
       );
     } catch (e) {
       setError(String(e));
@@ -1509,10 +1606,22 @@ export function Editor({
         <div className="player-wrap">
           <div id="yt-player" />
           {showPreview &&
-            activeSeg &&
             (() => {
-              // show the language being reviewed on the video, not Korean
-              const cc = isKo || forked ? displayText(activeSeg) : transMap[activeSeg.id] ?? "";
+              // show the language being reviewed on the video, not Korean.
+              let cc = "";
+              if (isKo || forked) {
+                // current track has its own segments/timing
+                if (activeSeg) cc = displayText(activeSeg);
+              } else {
+                // non-forked translation: no lang segments exist, so drive the
+                // overlay off the inherited Korean timing (koRefSegs) and show
+                // this language's translation for the active Korean cue. Without
+                // this the on-video preview was dead until the track was forked.
+                const koSeg = koRefSegs.find(
+                  (k) => currentTime >= k.start && currentTime < k.end,
+                );
+                if (koSeg) cc = transMap[koSeg.id] ?? "";
+              }
               return cc ? (
                 <div className="cc-overlay">
                   <span>{cc}</span>
@@ -1621,31 +1730,35 @@ export function Editor({
           </button>
         </div>
 
-        {/* momentum hero: progress + the one primary action */}
-        <div className={"flow-hero" + (celebrate ? " celebrate" : "")}>
-          <div className="flow-progress">
-            <div className="flow-nums">
-              <strong>{nReviewed}</strong>
-              <span>/ {segments.length}</span>
-              <em>{reviewedPct}%</em>
+        {/* momentum hero — only when this track has segments to work on. A
+            not-yet-forked translation has none here (its progress lives in the
+            right-hand translation-review panel), so don't falsely say "done". */}
+        {(isKo || forked) && (
+          <div className={"flow-hero" + (celebrate ? " celebrate" : "")}>
+            <div className="flow-progress">
+              <div className="flow-nums">
+                <strong>{nReviewed}</strong>
+                <span>/ {segments.length}</span>
+                <em>{reviewedPct}%</em>
+              </div>
+              <div className="flow-bar">
+                <span style={{ width: `${reviewedPct}%` }} />
+              </div>
+              <div className="flow-remain">
+                <span>{nRemaining ? `${nRemaining}개 남음` : "모두 확인 🎉"}</span>
+                {eta && <em className="flow-eta">{eta}</em>}
+              </div>
             </div>
-            <div className="flow-bar">
-              <span style={{ width: `${reviewedPct}%` }} />
-            </div>
-            <div className="flow-remain">
-              <span>{nRemaining ? `${nRemaining}개 남음` : "모두 확인 🎉"}</span>
-              {eta && <em className="flow-eta">{eta}</em>}
-            </div>
+            <button
+              className="continue-btn"
+              disabled={!nRemaining}
+              onClick={() => void continueWork()}
+            >
+              <span>이어서 작업하기</span>
+              <strong>{nRemaining ? "다음 →" : "완료"}</strong>
+            </button>
           </div>
-          <button
-            className="continue-btn"
-            disabled={!nRemaining}
-            onClick={() => void continueWork()}
-          >
-            <span>이어서 작업하기</span>
-            <strong>{nRemaining ? "다음 →" : "완료"}</strong>
-          </button>
-        </div>
+        )}
 
         {/* secondary tools — Korean-source only (whisper/YouTube based) */}
         {isKo && (
@@ -1685,31 +1798,40 @@ export function Editor({
 
         {/* export footer */}
         <div className="export-footer">
-          {isKo && (
+          {(isKo || forked) && (
             <label
-              className={"timing-done" + (timingDone ? " on" : "")}
-              title="자막 시간(타이밍)까지 조정을 끝냈으면 체크 — 텍스트 검수와 별개로 목록에 표시됩니다"
+              className={"timing-done" + ((isKo ? timingDone : langTimingDone) ? " on" : "")}
+              title="자막 시간(타이밍)까지 조정을 끝냈으면 체크 — 텍스트 검수와 별개로, 트랙(언어)별로 목록에 표시됩니다"
             >
               <input
                 type="checkbox"
-                checked={timingDone}
+                checked={isKo ? timingDone : langTimingDone}
                 onChange={() => void toggleTimingDone()}
               />
-              ⏱ 타이밍 검수 완료
+              ⏱ {isKo ? "" : langLabel + " "}타이밍 검수 완료
             </label>
           )}
           <div className="export-row">
+            <span className="track-label" title="지금 편집하고 내보낼 언어 트랙">
+              편집·내보낼 언어
+            </span>
             <select
               value={lang}
               onChange={(e) => setLang(e.target.value)}
-              title={koComplete ? "" : "한국어 검수를 마치면 번역 언어를 선택할 수 있어요"}
+              title={koDone ? "편집·내보낼 언어 트랙 선택" : "한국어 검수를 마치면 번역 언어를 선택할 수 있어요"}
             >
-              {langs.map((l) => (
-                <option key={l.code} value={l.code} disabled={l.code !== "ko" && !koComplete}>
-                  {l.label}
-                  {l.code !== "ko" && !koComplete ? " (한국어 검수 후)" : ""}
-                </option>
-              ))}
+              {langs.map((l) => {
+                // a forked track is independent of Korean completeness — never
+                // lock/mislabel it. Only inherited (non-forked) translations are
+                // gated on ko being done.
+                const locked = l.code !== "ko" && !koDone && !forkedLangs.has(l.code);
+                return (
+                  <option key={l.code} value={l.code} disabled={locked}>
+                    {l.label}
+                    {locked ? " (한국어 검수 후)" : ""}
+                  </option>
+                );
+              })}
             </select>
             <button className="export" disabled={exporting} onClick={() => void runExport()}>
               {exporting
@@ -1816,25 +1938,43 @@ export function Editor({
         )}
         {!isKo && !forked ? (
           <div className="track-review">
-            <div className="track-fork">
-              <button className="mini fork-btn" onClick={() => void runFork()}>
-                ✂ 이 언어를 따로 분할·타이밍 편집하기
-              </button>
-              <span className="fork-hint">
-                언어에 맞게 자막을 다르게 쪼개거나 타이밍을 바꿔야 할 때. 한국어 구조를 복사해
-                독립 트랙으로 만듭니다 (되돌리려면 비우면 됨).
-              </span>
-            </div>
+            {Object.keys(transMap).length > 0 && (
+              <div className="track-fork">
+                <button className="mini fork-btn" onClick={() => void runFork()}>
+                  ✂ 이 언어를 따로 분할·타이밍 편집하기
+                </button>
+                <span className="fork-hint">
+                  언어에 맞게 자막을 다르게 쪼개거나 타이밍을 바꿔야 할 때. 한국어 구조를 복사해
+                  독립 트랙으로 만듭니다. 나중에 <b>독립 편집 해제</b>로 되돌릴 수 있어요.
+                </span>
+              </div>
+            )}
             <TranslateReview
               videoId={videoId}
               lang={lang}
               langLabel={langLabel}
               currentTime={currentTime}
               onSeek={seekTo}
+              onGenerated={() => setTransRefresh((n) => n + 1)}
             />
           </div>
         ) : (
-          segments.map((seg) => (
+          <>
+            {!isKo && forked && (
+              <div className="track-fork forked-actions">
+                <button
+                  className="mini"
+                  onClick={() => void runUnfork()}
+                  title="한국어 구조를 따르는 번역 검수로 되돌립니다 (편집한 번역은 복원)"
+                >
+                  ↩ 독립 편집 해제
+                </button>
+                <span className="fork-hint">
+                  {langLabel}을(를) 독립 트랙으로 편집 중 — 분할·타이밍을 한국어와 다르게 조정할 수 있어요.
+                </span>
+              </div>
+            )}
+            {segments.map((seg) => (
             <Row
               key={seg.id}
               seg={seg}
@@ -1843,7 +1983,16 @@ export function Editor({
               preview={showPreview}
               currentTime={currentTime}
               hasNext={segments.some((s) => s.job_id === seg.job_id && s.idx === seg.idx + 1)}
-              words={isKo ? words : []}
+              koRef={
+                isKo
+                  ? undefined
+                  : koRefSegs
+                      .filter((k) => k.start < seg.end && k.end > seg.start)
+                      .map((k) => displayText(k))
+                      .join(" ")
+                      .trim() || undefined
+              }
+              words={isKo || forked ? words : []}
               register={(h) => {
                 if (h) rowsRef.current.set(seg.id, h);
                 else rowsRef.current.delete(seg.id);
@@ -1860,7 +2009,8 @@ export function Editor({
               onFocusRow={markFocused}
               onOpenRow={focusSegment}
             />
-          ))
+            ))}
+          </>
         )}
       </div>
     </div>

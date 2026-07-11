@@ -1093,6 +1093,38 @@ img.broken { opacity: 0; }
   font-weight: 700;
   color: var(--text);
 }
+.tflow-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  margin-bottom: 6px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.tflow-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 15px;
+  color: var(--text);
+}
+.tflow-pct { font-weight: 900; color: var(--blue); }
+.tflow-bar {
+  height: 8px;
+  border-radius: 5px;
+  background: var(--line);
+  overflow: hidden;
+}
+.tflow-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--teal, var(--blue)), var(--blue));
+  transition: width 200ms ease;
+}
+.tflow-done { font-weight: 800; color: var(--green); }
 .mini {
   font-size: 12px;
   padding: 5px 10px;
@@ -1448,8 +1480,15 @@ img.broken { opacity: 0; }
 
 .export-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
+  align-items: center;
+}
+.track-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .export-row select {
@@ -1726,6 +1765,27 @@ kbd {
   font-weight: 600;
 }
 .lowconf::selection { background: transparent; }
+/* Korean source shown while editing a forked translation track (read-only) */
+.ko-ref {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 4px 0 2px;
+  padding: 5px 9px;
+  border-left: 3px solid var(--blue);
+  border-radius: 4px;
+  background: var(--blue-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.ko-ref-label {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--blue);
+  padding-top: 1px;
+}
+.ko-ref-text { color: var(--fg); opacity: 0.85; user-select: text; }
 .badge.unc { background: var(--rose-soft); color: var(--rose); }
 .badge.ok { background: var(--green-soft); color: var(--green); }
 .badge.dirty { background: var(--blue-soft); color: var(--blue); }

@@ -113,9 +113,18 @@ function chipsFor(j: JobSummary, lang: string): Chip[] {
   }
   const l = j.languages.find((x) => x.code === lang);
   if (!l || l.translated === 0) return [{ label: "번역 전", tone: "muted" }];
-  if (l.complete) return [{ label: "번역 ✓", tone: "done" }];
-  if (l.reviewed > 0) return [{ label: `번역 ${l.reviewed}/${j.segments}`, tone: "progress" }];
-  return [{ label: "번역됨 · 검수 전", tone: "muted" }];
+  const denom = l.forked ? l.translated : j.segments;
+  const text: Chip = l.complete
+    ? { label: "번역 ✓", tone: "done" }
+    : l.reviewed > 0
+      ? { label: `번역 ${l.reviewed}/${denom}`, tone: "progress" }
+      : { label: "번역됨 · 검수 전", tone: "muted" };
+  // a forked track is retimed independently — surface its own timing axis
+  if (!l.forked) return [text];
+  const timing: Chip = l.timing_done
+    ? { label: "타이밍 ✓", tone: "done" }
+    : { label: "타이밍", tone: "muted", icon: "⏱" };
+  return [text, timing];
 }
 
 function JobCard({
@@ -132,9 +141,9 @@ function JobCard({
   query: string;
   isCursor: boolean;
   dataIdx: number;
-  onOpen: (videoId: string) => void;
+  onOpen: (videoId: string, lang: string) => void;
   onReroll: (e: ReactMouseEvent, j: JobSummary) => void;
-  onExport: (e: ReactMouseEvent, j: JobSummary) => void;
+  onExport: (e: ReactMouseEvent, j: JobSummary, lang?: string) => void;
   onCopyLink: (e: ReactMouseEvent, j: JobSummary) => void;
 }) {
   const [lang, setLang] = useState("ko");
@@ -147,12 +156,16 @@ function JobCard({
       ? koPct
       : (() => {
           const l = j.languages.find((x) => x.code === lang);
-          return l && j.segments ? Math.round((l.reviewed / j.segments) * 100) : 0;
+          // a forked track has its OWN segment count (l.translated); the ko
+          // count (j.segments) would give a wrong % (>100%) once it's re-split
+          const denom = l ? (l.forked ? l.translated : j.segments) : 0;
+          return l && denom ? Math.round((l.reviewed / denom) * 100) : 0;
         })();
   const langOpts = [
     { code: "ko", label: "한국어", done: j.ko_complete && j.timing_done },
     ...j.languages.map((l) => ({ code: l.code, label: l.label, done: l.complete })),
   ];
+  const langLabel = langOpts.find((o) => o.code === lang)?.label ?? lang;
 
   return (
     <div
@@ -165,11 +178,11 @@ function JobCard({
       }
       role="button"
       tabIndex={openable ? 0 : -1}
-      onClick={() => openable && onOpen(j.video_id)}
+      onClick={() => openable && onOpen(j.video_id, lang)}
       onKeyDown={(e) => {
         if (openable && (e.key === "Enter" || e.key === " ")) {
           e.preventDefault();
-          onOpen(j.video_id);
+          onOpen(j.video_id, lang);
         }
       }}
       title={openable ? "검수 열기" : "파이프라인 처리 중"}
@@ -199,20 +212,31 @@ function JobCard({
         )}
         {openable && (
           <span className="quick-actions">
-            {j.ko_complete && (
-              <span
-                className="qa"
-                role="button"
-                tabIndex={0}
-                title=".srt 자막 바로 내려받기"
-                onClick={(e) => onExport(e, j)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") onExport(e as unknown as ReactMouseEvent, j);
-                }}
-              >
-                ⬇ .srt
-              </span>
-            )}
+            {(() => {
+              const l = j.languages.find((x) => x.code === lang);
+              // only offer the card quick-download when it will be fast/cached:
+              // ko complete, or a COMPLETE translation. A partly-translated lang
+              // would trigger a synchronous 1-2 min Claude translation on a bare
+              // <a download> click with no spinner — do that in the editor, which
+              // shows a "번역하는 중" state. (finish it in the editor first.)
+              const exportable = lang === "ko" ? j.ko_complete : !!(l && l.complete);
+              if (!exportable) return null;
+              const label = lang === "ko" ? "⬇ .srt" : `⬇ .srt (${langLabel})`;
+              return (
+                <span
+                  className="qa"
+                  role="button"
+                  tabIndex={0}
+                  title={`${langLabel} .srt 자막 바로 내려받기`}
+                  onClick={(e) => onExport(e, j, lang)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") onExport(e as unknown as ReactMouseEvent, j, lang);
+                  }}
+                >
+                  {label}
+                </span>
+              );
+            })()}
             <span
               className="qa"
               role="button"
@@ -300,6 +324,9 @@ export function App() {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  // language track to open the editor on (the track the reviewer was viewing
+  // on the card). Falls back to Korean for resume-hero / paste-to-open.
+  const [selectedLang, setSelectedLang] = useState("ko");
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -392,7 +419,15 @@ export function App() {
         });
       } else if (e.key === "Enter") {
         const j = visibleRef.current[cursorRef.current];
-        if (j && j.segments > 0) setSelected(j.video_id);
+        if (j && j.segments > 0) {
+          // honor the cursored card's selected language, matching a mouse click
+          // (the card's lang is local state; read it from its dropdown)
+          const cardSel = document.querySelector<HTMLSelectElement>(
+            `.job-card[data-idx="${cursorRef.current}"] select.card-lang`,
+          );
+          setSelectedLang(cardSel?.value || "ko");
+          setSelected(j.video_id);
+        }
       } else if (e.key === "Escape") {
         setShowHelp(false);
         setCursor(-1);
@@ -451,10 +486,10 @@ export function App() {
     }
   }
 
-  function exportSrt(e: ReactMouseEvent, j: JobSummary) {
+  function exportSrt(e: ReactMouseEvent, j: JobSummary, lang = "ko") {
     e.stopPropagation();
     const a = document.createElement("a");
-    a.href = exportUrl(j.video_id, "best", "ko");
+    a.href = exportUrl(j.video_id, "best", lang);
     a.download = "";
     document.body.appendChild(a);
     a.click();
@@ -556,6 +591,8 @@ export function App() {
         onBack={() => setSelected(null)}
         koComplete={jobs.find((j) => j.video_id === selected)?.ko_complete ?? false}
         timingDone={jobs.find((j) => j.video_id === selected)?.timing_done ?? false}
+        initialLang={selectedLang}
+        languages={jobs.find((j) => j.video_id === selected)?.languages ?? []}
       />
     );
 
@@ -641,7 +678,13 @@ export function App() {
       {error && <div className="error">{error}</div>}
 
       {resume && (
-        <button className="resume-hero" onClick={() => setSelected(resume.video_id)}>
+        <button
+          className="resume-hero"
+          onClick={() => {
+            setSelectedLang("ko");
+            setSelected(resume.video_id);
+          }}
+        >
           <span className="resume-thumb">
             <img
               src={`https://img.youtube.com/vi/${resume.video_id}/mqdefault.jpg`}
@@ -825,7 +868,10 @@ export function App() {
               query={query}
               isCursor={idx === cursor}
               dataIdx={idx}
-              onOpen={setSelected}
+              onOpen={(v, l) => {
+                setSelectedLang(l);
+                setSelected(v);
+              }}
               onReroll={reroll}
               onExport={exportSrt}
               onCopyLink={copyLink}

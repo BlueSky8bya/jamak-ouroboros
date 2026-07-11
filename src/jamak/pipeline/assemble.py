@@ -47,12 +47,24 @@ def wrap_korean(text: str, max_chars: int = MAX_CHARS_PER_LINE, max_lines: int =
     return "\n".join(lines[: max_lines + 1])
 
 
-def to_srt(segments: list[dict], text_key: str, out_path: Path) -> Path:
+# CJK scripts read ~18 chars/line; Latin/Cyrillic subtitle norm is ~42
+# (Netflix TTSS). Wrapping a translation by the Korean 18-char rule cramps it
+# and can even clip long lines — so the budget is per target language.
+CJK_LANGS = {"ko", "ja", "zh-Hans", "zh-Hant"}
+
+
+def line_budget(lang: str) -> int:
+    return MAX_CHARS_PER_LINE if lang in CJK_LANGS else 42
+
+
+def to_srt(segments: list[dict], text_key: str, out_path: Path, lang: str = "ko") -> Path:
     """segments: [{start, end, <text_key>}] -> .srt file.
 
     text_key picks the pipeline stage: text_whisper (M1 draft),
-    text_llm (M2 corrected), text_final (reviewed).
+    text_llm (M2 corrected), text_final (reviewed). lang picks the per-script
+    line-length budget (CJK ~18 vs Latin/Cyrillic ~42).
     """
+    max_chars = line_budget(lang)
     rows = [
         [float(seg["start"]), float(seg["end"]), text]
         for seg in segments
@@ -69,7 +81,7 @@ def to_srt(segments: list[dict], text_key: str, out_path: Path) -> Path:
             index=i + 1,
             start=dt.timedelta(seconds=s),
             end=dt.timedelta(seconds=e),
-            content=wrap_korean(t),
+            content=wrap_korean(t, max_chars=max_chars),
         )
         for i, (s, e, t) in enumerate(rows)
     ]
