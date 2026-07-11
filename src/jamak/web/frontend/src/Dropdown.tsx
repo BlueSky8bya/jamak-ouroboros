@@ -28,22 +28,55 @@ export function Dropdown({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  // the menu is position:fixed at the button's screen coords so it escapes any
+  // ancestor overflow:hidden (e.g. the job card, which clipped it before).
+  const [pos, setPos] = useState<React.CSSProperties | null>(null);
   const current = options.find((o) => o.value === value);
+
+  const place = () => {
+    const b = btnRef.current?.getBoundingClientRect();
+    if (!b) return;
+    const estH = Math.min(options.length * 40 + 12, 280);
+    const below = window.innerHeight - b.bottom;
+    const up = below < estH && b.top > below; // flip up if not enough room below
+    setPos({
+      position: "fixed",
+      left: b.left,
+      minWidth: b.width,
+      maxHeight: 280,
+      ...(up
+        ? { bottom: window.innerHeight - b.top + 4, top: "auto" }
+        : { top: b.bottom + 4, bottom: "auto" }),
+    });
+  };
 
   useEffect(() => {
     if (!open) return;
+    place();
     const onDoc = (e: PointerEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
+    // the fixed menu can't follow a page scroll — close it. But ignore scrolls
+    // that happen INSIDE the menu (its own option list can scroll when long).
+    const onScroll = (e: Event) => {
+      if (ref.current && e.target instanceof Node && ref.current.contains(e.target)) return;
+      setOpen(false);
+    };
     window.addEventListener("pointerdown", onDoc);
     window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
     return () => {
       window.removeEventListener("pointerdown", onDoc);
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const stop = (e: { stopPropagation: () => void }) => {
@@ -58,6 +91,7 @@ export function Dropdown({
       onPointerDown={stop}
     >
       <button
+        ref={btnRef}
         type="button"
         className="dd-btn"
         title={title}
@@ -75,7 +109,7 @@ export function Dropdown({
         </span>
       </button>
       {open && (
-        <div className="dd-menu" role="listbox">
+        <div className="dd-menu" role="listbox" style={pos ?? undefined}>
           {options.map((o) => (
             <button
               key={o.value}
