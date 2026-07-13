@@ -23,18 +23,27 @@ export function usePlayer(videoId: string, freezeRef?: RefObject<boolean>) {
 
     function create() {
       if (disposed) return;
-      playerRef.current = new window.YT.Player("yt-player", {
-        videoId,
-        // fill the container instead of YouTube's default 640x360 (which was
-        // getting cropped to the panel width — wrong ratio + too small)
-        width: "100%",
-        height: "100%",
-        playerVars: { rel: 0, disablekb: 1 },
-        events: {
-          onReady: () => setReady(true),
-          onStateChange: (e: any) => setPlaying(e.data === 1),
-        },
-      });
+      // the widget API throws synchronously on a malformed/blocked video —
+      // that must degrade to "no player", never unmount the whole editor
+      // (the subtitle list is still fully usable without playback)
+      try {
+        playerRef.current = new window.YT.Player("yt-player", {
+          videoId,
+          // fill the container instead of YouTube's default 640x360 (which was
+          // getting cropped to the panel width — wrong ratio + too small)
+          width: "100%",
+          height: "100%",
+          playerVars: { rel: 0, disablekb: 1 },
+          events: {
+            onReady: () => setReady(true),
+            onStateChange: (e: any) => setPlaying(e.data === 1),
+            onError: () => setReady(false), // deleted/embed-blocked/region-locked
+          },
+        });
+      } catch (e) {
+        console.error("youtube player init failed:", e);
+        playerRef.current = null;
+      }
     }
 
     if (window.YT?.Player) {

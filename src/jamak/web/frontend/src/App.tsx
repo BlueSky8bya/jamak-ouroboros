@@ -9,6 +9,8 @@ import {
   fetchVersion,
   importSrt,
   logout,
+  practiceKey,
+  practiceSession,
   retranscribe,
   setAssignee,
   setPractice,
@@ -185,6 +187,7 @@ function JobCard({
   onUndoSrt,
   onAssign,
   onPractice,
+  onBindCourse,
 }: {
   job: JobSummary;
   query: string;
@@ -200,6 +203,7 @@ function JobCard({
   onUndoSrt: (videoId: string) => void;
   onAssign: (videoId: string, current: string) => void;
   onPractice: (e: ReactMouseEvent, j: JobSummary) => void;
+  onBindCourse: (j: JobSummary, course: string) => void;
 }) {
   const [lang, setLang] = useState("ko");
   const [dragOver, setDragOver] = useState(false);
@@ -348,6 +352,26 @@ function JobCard({
               >
                 🎓 연습용
               </span>
+            )}
+            {canIngest && j.practice && (
+              <select
+                className="qa qa-course"
+                value={j.practice_course || ""}
+                title="이 영상을 특정 따라하기 코스의 전용 연습 영상으로 지정 (코스당 1개)"
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  onBindCourse(j, e.target.value);
+                }}
+              >
+                <option value="">코스 없음</option>
+                <option value="basic">연습 1 · 기본기</option>
+                <option value="playback">연습 2 · 재생 다루기</option>
+                <option value="fast">연습 3 · 빠르게 훑기</option>
+                <option value="structure">연습 4 · 나누기·합치기</option>
+                <option value="timing">연습 5 · 타이밍</option>
+                <option value="finish">연습 6 · 마무리</option>
+              </select>
             )}
             {canIngest && (
               <span
@@ -545,6 +569,13 @@ export function App() {
   // -> hide the create box / re-roll so videos are only made on the local machine.
   const canIngest = me?.can_ingest ?? false;
   const [selected, setSelected] = useState<string | null>(null);
+  // one-shot handoff: "이 영상으로 건너가서 이 코스를 자동 시작해라" — React
+  // state only (localStorage 금지: 실패한 전환 값이 다음 방문에 오발함)
+  const [pendingCourse, setPendingCourse] = useState<{
+    course: string;
+    videoId: string;
+    nonce: number;
+  } | null>(null);
   // language track to open the editor on (the track the reviewer was viewing
   // on the card). Falls back to Korean for resume-hero / paste-to-open.
   const [selectedLang, setSelectedLang] = useState("ko");
@@ -659,8 +690,7 @@ export function App() {
           const card = document.querySelector<HTMLElement>(
             `.job-card[data-idx="${cursorRef.current}"]`,
           );
-          setSelectedLang(card?.dataset.cardLang || "ko");
-          setSelected(j.video_id);
+          void openVideo(j.video_id, card?.dataset.cardLang || "ko");
         }
       } else if (e.key === "Escape") {
         setShowHelp(false);
@@ -762,6 +792,42 @@ export function App() {
     } catch (err) {
       setError(`연습용 지정 실패: ${err instanceof Error ? err.message : err}`);
     }
+  }
+
+  async function bindCourse(j: JobSummary, course: string) {
+    setError("");
+    try {
+      await setPractice(j.video_id, true, course);
+      await refresh();
+    } catch (err) {
+      setError(`코스 지정 실패: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  // 코스 id -> 전용 연습 영상 (기준 Job). 서버 GET /api/tutorials와 같은 맵을
+  // jobs 응답에서 파생 (추가 왕복 없이).
+  const tutorials = Object.fromEntries(
+    jobs.filter((j) => j.practice_course).map((j) => [j.practice_course as string, j.video_id]),
+  ) as Record<string, string>;
+
+  // 연습용 기준 영상을 열면: 이 브라우저 전용 클론을 만들어 그걸 연다 —
+  // 모든 검수자가 항상 깨끗한 처음 상태에서 병렬로 연습 (PLAN v4 §4.3)
+  async function openVideo(vid: string, lang = "ko", course?: string) {
+    setError("");
+    const j = jobs.find((x) => x.video_id === vid);
+    let target = vid;
+    if (j?.practice && !vid.includes("~")) {
+      try {
+        const r = await practiceSession(vid, practiceKey());
+        target = r.video_id;
+      } catch (e) {
+        setError(`연습 준비 실패: ${e instanceof Error ? e.message : e}`);
+        return;
+      }
+    }
+    if (course) setPendingCourse({ course, videoId: target, nonce: Date.now() });
+    setSelectedLang(lang);
+    setSelected(target);
   }
 
   async function undoSrtImport(videoId: string) {
@@ -901,18 +967,34 @@ export function App() {
   if (!me) return null;
   if (me.auth_on && !me.authed) return <Login onLogin={() => window.location.reload()} />;
 
-  if (selected)
+  if (selected) {
+    // a practice-session clone ("base~key") isn't in the jobs list — derive
+    // card-level props from its baseline job
+    const baseVid = selected.split("~")[0];
+    const bj = jobs.find((j) => j.video_id === baseVid);
     return (
       <Editor
+        key={selected} // full remount per video: no mode/tour state leaking across
         videoId={selected}
-        onBack={() => setSelected(null)}
-        koComplete={jobs.find((j) => j.video_id === selected)?.ko_complete ?? false}
-        timingDone={jobs.find((j) => j.video_id === selected)?.timing_done ?? false}
+        onBack={() => {
+          setPendingCourse(null);
+          setSelected(null);
+        }}
+        koComplete={bj?.ko_complete ?? false}
+        timingDone={bj?.timing_done ?? false}
         initialLang={selectedLang}
-        languages={jobs.find((j) => j.video_id === selected)?.languages ?? []}
-        practice={jobs.find((j) => j.video_id === selected)?.practice ?? false}
+        languages={bj?.languages ?? []}
+        practice={bj?.practice ?? false}
+        tutorials={tutorials}
+        pendingCourse={pendingCourse && pendingCourse.videoId === selected ? pendingCourse : null}
+        onConsumePendingCourse={() => setPendingCourse(null)}
+        onOpenCourseVideo={(courseId) => {
+          const v = tutorials[courseId];
+          if (v) void openVideo(v, "ko", courseId);
+        }}
       />
     );
+  }
 
   const runningCount = jobs.filter((j) => j.running).length;
   const koDoneCount = jobs.filter((j) => j.ko_complete).length;
@@ -1096,10 +1178,7 @@ export function App() {
       {resume && (
         <button
           className="resume-hero"
-          onClick={() => {
-            setSelectedLang("ko");
-            setSelected(resume.video_id);
-          }}
+          onClick={() => void openVideo(resume.video_id, "ko")}
         >
           <span className="resume-thumb">
             <img
@@ -1329,10 +1408,8 @@ export function App() {
               onUndoSrt={undoSrtImport}
               onAssign={assignReviewer}
               onPractice={togglePractice}
-              onOpen={(v, l) => {
-                setSelectedLang(l);
-                setSelected(v);
-              }}
+              onBindCourse={(j2, c) => void bindCourse(j2, c)}
+              onOpen={(v, l) => void openVideo(v, l)}
               onReroll={reroll}
               onExport={exportSrt}
               onCopyLink={copyLink}

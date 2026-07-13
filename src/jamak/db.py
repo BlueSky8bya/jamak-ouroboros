@@ -44,6 +44,19 @@ class Job(SQLModel, table=True):
     # without fear. Its edits never feed the ouroboros (absorb is a no-op) so
     # practice typos can't pollute corrections/glossary.
     practice: bool = False
+    # dedicated tutorial course this video teaches ("" = none). One active
+    # video per course — enforced by a partial unique index (_ensure_columns).
+    # Unbinding a course never clears `practice`: synthetic tutorial videos
+    # stay excluded from learning forever.
+    practice_course: str = Field(default="")
+    # per-user practice sandbox (PLAN v4 §4.3): a clone Job deep-copied from a
+    # baseline practice job so every reviewer starts from the same pristine
+    # state in parallel. clone_of = the baseline job id; session_key = the
+    # browser's UUID. A clone's video_id is "<base_video_id>~<session_key>",
+    # which lets every video_id-keyed endpoint work on clones unchanged (the
+    # player strips the "~..." suffix to embed the real YouTube video).
+    clone_of: Optional[int] = Field(default=None, index=True)
+    session_key: str = Field(default="")
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
@@ -248,6 +261,9 @@ def _ensure_columns(engine) -> None:
             "timing_done": f"BOOLEAN DEFAULT {bt}",
             "assignee": "VARCHAR DEFAULT ''",
             "practice": f"BOOLEAN DEFAULT {bt}",
+            "practice_course": "VARCHAR DEFAULT ''",
+            "clone_of": "INTEGER",
+            "session_key": "VARCHAR DEFAULT ''",
         },
         "segment": {
             "low_conf": "VARCHAR DEFAULT ''",
@@ -285,6 +301,16 @@ def _ensure_columns(engine) -> None:
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_segment_lang_reviewed "
                     "ON segment (lang, reviewed)"
+                )
+            )
+        if "job" in existing_tables:
+            # one active tutorial video per course (PLAN v4 §4.1): the partial
+            # unique index makes a concurrent double-bind an IntegrityError
+            # instead of two silent winners. Works on SQLite and Postgres.
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_job_practice_course "
+                    "ON job (practice_course) WHERE practice_course <> ''"
                 )
             )
 

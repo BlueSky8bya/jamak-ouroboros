@@ -3868,6 +3868,28 @@ kbd {
 }
 .tc-state.done { color: var(--green); border-color: var(--green); background: var(--green-soft); }
 
+.practice-restart {
+  margin-left: 10px;
+  padding: 2px 10px;
+  border: 1px solid color-mix(in srgb, var(--blue) 45%, var(--line));
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--blue);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.practice-restart:hover { border-color: var(--blue); }
+.practice-restart:disabled { opacity: 0.6; cursor: default; }
+.tc-jump { color: var(--blue); font-style: normal; }
+.qa-course {
+  font-size: 11px;
+  max-width: 130px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+}
 .practice-banner {
   margin: 8px 0 2px;
   padding: 9px 12px;

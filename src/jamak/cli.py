@@ -831,6 +831,17 @@ def worker(
             s0.commit()
             console.print(f"[yellow]reclaimed {len(stuck)} stuck request(s)[/]")
 
+    # housekeeping: drop per-user tutorial practice clones idle past the TTL
+    # (PLAN v4 §4.3 — clones are throwaway working copies, never review data)
+    try:
+        from .practice import cleanup_stale_clones
+
+        removed = cleanup_stale_clones()
+        if removed:
+            console.print(f"cleaned {removed} stale practice clone(s)")
+    except Exception as e:
+        console.print(f"[yellow]practice-clone cleanup skipped: {e}[/]")
+
     console.print(
         "[bold]jamak worker[/] - waiting for subtitle requests (Ctrl+C to stop)"
     )

@@ -24,6 +24,7 @@ export interface JobSummary {
   srt_undo?: boolean; // an applied .srt import can be reverted
   assignee?: string; // reviewer who claimed this video ('' = unassigned)
   practice?: boolean; // 연습용 튜토리얼 영상 (마음껏 편집, absorb 제외)
+  practice_course?: string; // 이 영상이 전담하는 따라하기 코스 id ('' = 없음)
 }
 
 export interface Segment {

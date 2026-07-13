@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-14 (v0.4.3 — Codex 감사 반영: practice 누수 차단 + PLAN v2)
-Project Version: 0.4.3
+Last Updated: 2026-07-14 (v0.6.0 — P4 클론 세션 + 코스 바인딩 + 결함 주입)
+Project Version: 0.6.0
 Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATION.md)
 
 ## Current Objective
@@ -11,6 +11,12 @@ Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATI
 ## Pending (사용자 액션)
 
 - **v0.3.0~1 실사용 확인** — DELEGATED (인앱 브라우저가 YT iframe 못 열어 재생 연동 미검증): ① 흘려듣기(영상 재생 중 자막 따라오기 + 입력칸 밖 Enter 확인), ② 카라오케 단어 하이라이트가 실제 말과 잘 맞는지(비례 매핑 근사), ③ 단어 클릭 재생 체감, ④ 자동 정리 결과가 실제 영상에서 자연스러운지, ⑤ ▶버튼 실재생(b8cd8b2).
+
+## Recent Additions (2026-07-14 — v0.5.x~0.6.0, CHG-20260714-007~010)
+
+- **P4 완료 (v0.6.0)**: 연습 영상이 **사용자별 병렬 격리** — 기준 Job 불변, 열 때마다 브라우저별 클론(`base~sha256(key)[:10]` video_id — 기존 엔드포인트 무수정 재사용), ↺ 처음부터 다시 = 재복제. 코스 바인딩(practice_course + 부분 UNIQUE + 관리자 카드 선택기 + GET /api/tutorials) + bind 시 결정적 결함 주입(basic 오타 4행 / fast 몽치 2행 / timing 침묵 연장 — hotwords가 대본 미끼 전멸시킨 것 대체) + 코스 메뉴 딥링크(클론 부트스트랩 → 자동 시작). YT 위젯 throw 시 앱 백지 → 재생만 강등 FIX. **P4 잔여(다음 배치)**: seek 앵커, tourEvent 성공 후 발생, 버블 중앙 폴백, 힌트 보기(사용자 결정 대기).
+- **긴 영상 번역 502 FIX (v0.5.2)**: 60개 배치 루프+진행률+배치별 커밋+중복 실행 409. 2h 영상(p_9m8r1bZSM, 1563세그) en 번역 배치 실행 완료.
+- **P2·P3·P5 1차 (v0.5.0~1)**: 연습 영상 6개 렌더(InJoon, 위치 안내 포함 77대사)→유튜브 업로드→워커 처리+practice 지정. **관리자 다음 액션: 각 연습 영상 카드에서 코스 1~6 바인딩**(선택기) → 파일럿 1명.
 
 ## Recent Additions (2026-07-14 — v0.4.0~0.4.3, CHG-20260714-001~006)
 

@@ -34,13 +34,49 @@ export interface SrtPreview {
   sample: { idx: number; old: string; new: string }[];
 }
 
-export async function setPractice(videoId: string, on: boolean): Promise<void> {
+export async function setPractice(
+  videoId: string,
+  on: boolean,
+  course?: string, // bind a tutorial course ('' unbinds); omit to just toggle
+): Promise<void> {
   const r = await fetch(`/api/jobs/${videoId}/practice`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ on }),
+    body: JSON.stringify(course === undefined ? { on } : { on, course }),
   });
   if (!r.ok) throw new Error(`practice: ${r.status}`);
+}
+
+/** stable per-browser id for practice-session clones (PLAN v4 §4.3) */
+export function practiceKey(): string {
+  let k = localStorage.getItem("jamak.practiceKey");
+  if (!k) {
+    k = crypto.randomUUID();
+    localStorage.setItem("jamak.practiceKey", k);
+  }
+  return k;
+}
+
+export async function practiceSession(
+  videoId: string,
+  key: string,
+  reset = false,
+): Promise<{ video_id: string; created: boolean }> {
+  const r = await fetch(`/api/jobs/${videoId}/practice-session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, reset }),
+  });
+  if (!r.ok) {
+    let msg = `practice-session: ${r.status}`;
+    try {
+      msg = (await r.json()).detail ?? msg;
+    } catch {
+      /* non-JSON */
+    }
+    throw new Error(msg);
+  }
+  return r.json();
 }
 
 export async function setAssignee(videoId: string, name: string): Promise<void> {

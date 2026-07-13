@@ -16,6 +16,8 @@ import {
   forkTrack,
   unforkTrack,
   mergeNext,
+  practiceKey,
+  practiceSession,
   repairStt,
   replaceText,
   restoreRows,
@@ -1699,6 +1701,10 @@ export function Editor({
   initialLang = "ko",
   languages = [],
   practice = false,
+  tutorials = {},
+  pendingCourse = null,
+  onConsumePendingCourse,
+  onOpenCourseVideo,
 }: {
   videoId: string;
   onBack: () => void;
@@ -1707,6 +1713,13 @@ export function Editor({
   initialLang?: string;
   languages?: { code: string; forked: boolean; timing_done: boolean }[];
   practice?: boolean;
+  /** course id -> 전용 연습 영상(기준 Job)의 video_id */
+  tutorials?: Record<string, string>;
+  /** one-shot: 이 영상이 열리면 이 코스를 자동 시작 (App이 전환 시 세팅) */
+  pendingCourse?: { course: string; nonce: number } | null;
+  onConsumePendingCourse?: () => void;
+  /** 코스 메뉴에서 전용 연습 영상으로 건너가기 (App이 클론 부트스트랩) */
+  onOpenCourseVideo?: (courseId: string) => void;
 }) {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [timingDone, setTimingDoneState] = useState(initialTimingDone);
@@ -1778,6 +1791,40 @@ export function Editor({
     setMode("text"); // 모든 코스는 내용 모드에서 출발 (타이밍 코스는 탭 전환부터 가르침)
     setTour({ course: i, step: 0 });
   }
+  // 전용 연습 영상 딥링크: App이 영상 전환과 함께 넘긴 코스를, 세그먼트가
+  // 로드된 뒤 자동 시작. nonce 기억으로 재실행 오발 방지 (일회성 소비).
+  const consumedCourseRef = useRef(0);
+  useEffect(() => {
+    if (!pendingCourse || segments.length === 0) return;
+    if (consumedCourseRef.current === pendingCourse.nonce) return;
+    consumedCourseRef.current = pendingCourse.nonce;
+    const i = COURSES.findIndex((c) => c.id === pendingCourse.course);
+    if (i >= 0) startCourse(i);
+    onConsumePendingCourse?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingCourse, segments.length]);
+  // 연습 초기화: 이 브라우저의 클론을 버리고 기준 상태로 재복제. 세그먼트
+  // id 공간이 통째로 바뀌므로 늦게 도착하는 이전 저장 PUT은 자연히 무효
+  // (지워진 id로 404) — baseline을 다시 오염시킬 수 없다.
+  const [practiceResetting, setPracticeResetting] = useState(false);
+  async function practiceRestart() {
+    if (!window.confirm("연습 내용을 지우고 처음 상태로 되돌릴까요?")) return;
+    setPracticeResetting(true);
+    try {
+      await practiceSession(ytVideoId, practiceKey(), true);
+      const next = await fetchSegments(videoId, langRef.current);
+      segmentsRef.current = next;
+      setSegments(next);
+      setUndoStack([]);
+      undoStackRef.current = [];
+      setFocusedId(null);
+      setStatusMsg("처음 상태로 되돌렸습니다 — 다시 연습해 보세요");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setPracticeResetting(false);
+    }
+  }
   function skipTourStep() {
     setTour((t) => {
       if (!t) return null;
@@ -1818,8 +1865,11 @@ export function Editor({
   // 250ms clock poll so the editor stops re-rendering and the main thread stays
   // free, letting the dragged handle track the pointer without stutter
   const dragFreezeRef = useRef(false);
+  // a practice-session clone's video_id is "<base>~<key>" — the YouTube player
+  // must load the real video id (PLAN v4 §4.3)
+  const ytVideoId = videoId.split("~")[0];
   const { currentTime, playing, rate, setRate, seekTo, seekBy, play, pause, playPause } =
-    usePlayer(videoId, dragFreezeRef);
+    usePlayer(ytVideoId, dragFreezeRef);
 
   const rowsRef = useRef(new Map<number, RowHandle>());
   const focusedIdRef = useRef<number | null>(null);
@@ -3037,6 +3087,16 @@ export function Editor({
           <div className="practice-banner" title="연습용 영상 — 여기서의 편집은 학습 데이터에 반영되지 않아요">
             🎓 <b>연습용 영상</b>이에요 — 마음껏 눌러보고 고쳐보세요. 실제 작업에
             영향이 없어요.
+            {videoId.includes("~") && (
+              <button
+                className="practice-restart"
+                disabled={practiceResetting}
+                title="내 연습 내용을 지우고 처음 상태로 (다른 분들에게는 영향 없음)"
+                onClick={() => void practiceRestart()}
+              >
+                {practiceResetting ? "되돌리는 중..." : "↺ 처음부터 다시"}
+              </button>
+            )}
           </div>
         )}
         <div className="player-wrap">
@@ -3625,18 +3685,41 @@ export function Editor({
                 : " 연습은 🎓 연습용 영상에서 하는 걸 권해요. (모든 연습은 Alt+Z로 되돌릴 수 있어요)"}
             </p>
             <div className="tour-courses">
-              {COURSES.map((c, i) => (
-                <button key={c.id} className="tour-course" onClick={() => startCourse(i)}>
-                  <span className="tc-icon">{c.icon}</span>
-                  <span className="tc-body">
-                    <strong>{c.title}</strong>
-                    <span>{c.desc}</span>
-                  </span>
-                  <span className={"tc-state" + (courseDone(c.id) ? " done" : "")}>
-                    {courseDone(c.id) ? "다시 하기 ✓" : `${c.steps.length - 1}단계`}
-                  </span>
-                </button>
-              ))}
+              {COURSES.map((c, i) => {
+                // 코스 전용 연습 영상이 따로 있으면 그 영상으로 건너가서 시작
+                // (App이 이 브라우저 전용 클론을 만들어 열어줌 — 항상 처음 상태)
+                const dedicated = tutorials[c.id];
+                const goElsewhere =
+                  !!dedicated && dedicated !== ytVideoId && !!onOpenCourseVideo;
+                return (
+                  <button
+                    key={c.id}
+                    className="tour-course"
+                    onClick={() => {
+                      if (goElsewhere) {
+                        setTourMenu(false);
+                        onOpenCourseVideo!(c.id);
+                      } else {
+                        startCourse(i);
+                      }
+                    }}
+                  >
+                    <span className="tc-icon">{c.icon}</span>
+                    <span className="tc-body">
+                      <strong>{c.title}</strong>
+                      <span>
+                        {c.desc}
+                        {goElsewhere && (
+                          <em className="tc-jump"> · 전용 연습 영상에서 열려요 →</em>
+                        )}
+                      </span>
+                    </span>
+                    <span className={"tc-state" + (courseDone(c.id) ? " done" : "")}>
+                      {courseDone(c.id) ? "다시 하기 ✓" : `${c.steps.length - 1}단계`}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
             <div className="srt-actions">
               <button className="srt-cancel" onClick={() => setTourMenu(false)}>

@@ -473,7 +473,12 @@ def list_jobs() -> list[dict]:
     with get_session() as session:
         from ..db import SrtBackup
 
-        jobs = session.exec(select(Job).order_by(Job.created_at.desc())).all()
+        # practice-session clones are per-user working copies — never listed
+        jobs = session.exec(
+            select(Job)
+            .where(Job.clone_of == None)  # noqa: E711
+            .order_by(Job.created_at.desc())
+        ).all()
         # video_ids that have an undoable .srt import snapshot (one query)
         srt_undo_ids = set(session.exec(select(SrtBackup.video_id)).all())
         out = []
@@ -576,6 +581,7 @@ def list_jobs() -> list[dict]:
                     "srt_undo": j.video_id in srt_undo_ids,
                     "assignee": j.assignee,
                     "practice": j.practice,
+                    "practice_course": j.practice_course,
                 }
             )
         # pipeline just launched, no DB row yet — show a placeholder card
@@ -2511,6 +2517,13 @@ def undo_srt(request: Request, video_id: str) -> dict:
 
 class PracticeBody(BaseModel):
     on: bool
+    # tutorial course to bind this video to ("" unbinds; None = don't touch).
+    # Binding forces practice=True and plants that course's deterministic
+    # defects once (PLAN v4 §4.1/§4.3).
+    course: str | None = None
+
+
+_COURSE_IDS = {"basic", "playback", "fast", "structure", "timing", "finish"}
 
 
 @app.post("/api/jobs/{video_id}/practice")
@@ -2518,17 +2531,94 @@ def set_practice(request: Request, video_id: str, body: PracticeBody) -> dict:
     """Mark (or unmark) a video as the 연습용 tutorial sandbox (admin).
 
     Practice videos are for tour lessons: reviewers can edit freely, and
-    absorb_job skips them so drills never feed corrections/glossary."""
+    absorb_job skips them so drills never feed corrections/glossary.
+
+    [WH-CHANGE v0.6.0 | FEAT | 2026-07-14 | CHG-20260714-010]
+    Reason: course binding (one video per course, partial unique index) +
+      bind-time defect injection — P5 rehearsal showed whisper hotwords beat
+      every scripted bait, so defects are planted deterministically instead.
+    Related: docs/tutorial/PLAN.md v4 §4.1/§4.3.
+    """
+    from ..practice import inject_course_defects
+
     _require_admin(request)
+    if body.course is not None and body.course and body.course not in _COURSE_IDS:
+        raise HTTPException(400, f"unknown course {body.course!r}")
     with get_session() as session:
         job = session.exec(select(Job).where(Job.video_id == video_id)).first()
         if job is None:
             raise HTTPException(404, f"no job for {video_id}")
-        job.practice = body.on
+        if job.clone_of is not None:
+            raise HTTPException(400, "연습 세션 복제본에는 지정할 수 없습니다")
+        injected = 0
+        if body.course is not None:
+            if body.course and body.course != job.practice_course:
+                # one video per course: release the previous holder in the same
+                # transaction (the partial unique index backstops races)
+                for other in session.exec(
+                    select(Job).where(
+                        Job.practice_course == body.course, Job.id != job.id
+                    )
+                ).all():
+                    other.practice_course = ""
+                    other.updated_at = utcnow()
+                    session.add(other)
+                injected = inject_course_defects(session, job, body.course)
+            job.practice_course = body.course
+            if body.course:
+                job.practice = True
+            # unbinding a course does NOT clear practice (synthetic tutorial
+            # videos stay excluded from learning forever — PLAN §4.1)
+        else:
+            job.practice = body.on
+            if not body.on:
+                job.practice_course = ""
         job.updated_at = utcnow()
         session.add(job)
         session.commit()
-    return {"video_id": video_id, "practice": body.on}
+        return {
+            "video_id": video_id,
+            "practice": job.practice,
+            "practice_course": job.practice_course,
+            "defects_injected": injected,
+        }
+
+
+class PracticeSessionBody(BaseModel):
+    key: str  # the browser's per-user session UUID (localStorage)
+    reset: bool = False  # discard the existing clone first ("start over")
+
+
+@app.post("/api/jobs/{video_id}/practice-session")
+def practice_session(request: Request, video_id: str, body: PracticeSessionBody) -> dict:
+    """Get (or create / reset) this browser's own clone of a practice video.
+
+    Every reviewer practices on their own deep copy of the frozen baseline, so
+    A/B/C can run the same course in parallel and each starts pristine
+    (PLAN v4 §4.3 — user-mandated isolation)."""
+    from ..practice import get_or_create_practice_session
+
+    try:
+        return get_or_create_practice_session(video_id, body.key, reset=body.reset)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/tutorials")
+def list_tutorials() -> dict:
+    """course id -> baseline video_id (server-computed, one per course)."""
+    with get_session() as session:
+        rows = session.exec(
+            select(Job).where(
+                Job.practice_course != "",  # noqa: E712
+                Job.clone_of == None,  # noqa: E711
+            )
+        ).all()
+    return {j.practice_course: j.video_id for j in rows}
 
 
 class AssigneeBody(BaseModel):
