@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   fetchTranslations,
   makeTranslations,
+  retranslateSegment,
   updateTranslation,
   type TranslationRow,
 } from "./api";
@@ -18,14 +19,17 @@ function Row({
   onSeek,
   onSave,
   onSaveNext,
+  onRetranslate,
 }: {
   row: TranslationRow;
   langLabel: string;
   onSeek: (t: number) => void;
   onSave: (segId: number, text: string, reviewed: boolean | null) => void;
   onSaveNext: (segId: number, text: string) => void;
+  onRetranslate: (segId: number) => Promise<void>;
 }) {
   const [text, setText] = useState(row.text);
+  const [retranslating, setRetranslating] = useState(false);
   const dirty = useRef(false);
   const textRef = useRef(text);
   textRef.current = text;
@@ -55,8 +59,22 @@ function Row({
           <span className="tlabel ko">한국어</span> {row.ko}
         </div>
         {row.stale && (
-          <div className="tstale" title="번역을 만든 뒤 한국어 원문이 바뀌었습니다. 다시 번역하거나 확인하세요.">
-            ⚠️ 원문이 바뀜 — 재번역/재확인 필요
+          <div className="tstale" title="번역을 만든 뒤 한국어 원문이 바뀌었습니다. 바뀐 원문에 맞춰 이 자막만 다시 번역할 수 있어요.">
+            <span>⚠️ 원문이 바뀜 — 이 자막만 다시 번역할 수 있어요</span>
+            <button
+              className="tretranslate"
+              disabled={retranslating}
+              onClick={async () => {
+                setRetranslating(true);
+                try {
+                  await onRetranslate(row.segment_id);
+                } finally {
+                  setRetranslating(false);
+                }
+              }}
+            >
+              {retranslating ? "번역 중…" : "🔄 다시 번역"}
+            </button>
           </div>
         )}
         <textarea
@@ -144,6 +162,23 @@ export function TranslateReview({
       setError(String(e));
     } finally {
       setTranslating(false);
+    }
+  }
+
+  async function retranslate(segId: number) {
+    setError("");
+    try {
+      const r = await retranslateSegment(videoId, lang, segId);
+      setRows((prev) =>
+        prev.map((row) =>
+          row.segment_id === segId
+            ? { ...row, text: r.text, reviewed: r.reviewed, stale: r.stale, has_translation: true }
+            : row,
+        ),
+      );
+      onGenerated?.();
+    } catch (e) {
+      setError(String(e));
     }
   }
 
@@ -243,6 +278,7 @@ export function TranslateReview({
           onSeek={seekTo}
           onSave={save}
           onSaveNext={saveNext}
+          onRetranslate={retranslate}
         />
       ))}
     </div>

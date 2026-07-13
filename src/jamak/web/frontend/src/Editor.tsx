@@ -2385,7 +2385,7 @@ export function Editor({
             title="자막 글씨와 버튼을 크게/보통으로"
             onClick={() => setBigType((v) => !v)}
           >
-            {bigType ? "가 보통" : "가 크게"}
+            {bigType ? "글씨 보통" : "글씨 크게"}
           </button>
           <ThemeToggle />
         </div>

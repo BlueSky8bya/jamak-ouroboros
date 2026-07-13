@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-13 (v0.3.2 — 내보내기 전 QC + AI 맞춤법)
-Project Version: 0.3.2
+Last Updated: 2026-07-13 (v0.3.3 — 셀 재번역 + UX 정리)
+Project Version: 0.3.3
 Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATION.md)
 
 ## Current Objective
@@ -11,6 +11,12 @@ Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATI
 ## Pending (사용자 액션)
 
 - **v0.3.0~1 실사용 확인** — DELEGATED (인앱 브라우저가 YT iframe 못 열어 재생 연동 미검증): ① 흘려듣기(영상 재생 중 자막 따라오기 + 입력칸 밖 Enter 확인), ② 카라오케 단어 하이라이트가 실제 말과 잘 맞는지(비례 매핑 근사), ③ 단어 클릭 재생 체감, ④ 자동 정리 결과가 실제 영상에서 자연스러운지, ⑤ ▶버튼 실재생(b8cd8b2).
+
+## Recent Additions (2026-07-13 — v0.3.3, CHG-20260713-010~011)
+
+- **셀 단위 재번역**: 원문 바뀐(stale) 번역 행에 🔄 다시 번역 — 앞뒤 문맥 넣어 그 셀만 재번역(`POST /retranslate`, `retranslate_one`). 전체 재번역 불필요.
+- **형식 토글**: 롱폼/쇼츠 드롭다운 → 세그먼트 토글. **워커 명령 복사 버튼**(큐 배너, 자동시작 실패 대비). "글씨 크게" 라벨.
+- **워커 자동시작 참고**: startup 폴더 `jamak-worker-autostart.cmd`(→ run-worker.ps1)가 로그온 시 기동하나 머신 상태 따라 안 붙을 수 있음. 로그(`data/worker.log`)는 시작만 찍히고 멈춘 이력. 안 돌면 배너의 복사 버튼으로 `uv run jamak worker` 수동 실행. DATABASE_URL은 User env에 설정됨.
 
 ## Recent Additions (2026-07-13 — v0.3.2, CHG-20260713-009)
 

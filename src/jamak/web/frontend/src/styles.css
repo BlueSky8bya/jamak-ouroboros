@@ -192,6 +192,19 @@ button {
   font-size: 12px;
 }
 .queue-bar .queue-err { color: var(--danger, #e06c75); font-weight: 600; }
+.worker-cmd { display: inline-flex; align-items: center; gap: 6px; margin-left: 6px; }
+.worker-copy {
+  padding: 2px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.worker-copy:hover { border-color: var(--blue); color: var(--blue); }
 .queue-bar .queue-cancels { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
 .queue-bar .queue-cancel {
   padding: 2px 8px;
@@ -771,8 +784,10 @@ button {
 }
 
 /* ===== view toggle + reset chip ===== */
-.view-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-.view-toggle button {
+.view-toggle,
+.form-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.view-toggle button,
+.form-toggle button {
   padding: 6px 10px;
   border: 0;
   background: var(--surface);
@@ -781,8 +796,10 @@ button {
   font-size: 14px;
   line-height: 1;
 }
-.view-toggle button.on { background: var(--blue-soft); color: var(--blue-ink); }
-.view-toggle button + button { border-left: 1px solid var(--line); }
+.view-toggle button.on,
+.form-toggle button.on { background: var(--blue-soft); color: var(--blue-ink); }
+.view-toggle button + button,
+.form-toggle button + button { border-left: 1px solid var(--line); }
 .reset-chip {
   padding: 6px 12px;
   border: 1px dashed var(--line-strong);
@@ -1520,10 +1537,26 @@ img.broken { opacity: 0; }
   opacity: 1;
 }
 .tstale {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
   color: var(--amber);
   font-size: 12px;
   font-weight: 700;
 }
+.tretranslate {
+  border: 1px solid var(--amber);
+  border-radius: 999px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  padding: 3px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.tretranslate:hover:not(:disabled) { filter: brightness(1.05); }
+.tretranslate:disabled { opacity: 0.6; cursor: wait; }
 .trow .time {
   flex: 0 0 auto;
   align-self: flex-start;

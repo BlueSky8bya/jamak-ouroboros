@@ -433,6 +433,28 @@ export async function makeTranslations(
   return r.json();
 }
 
+// re-translate ONE stale cue in context (원문이 바뀐 셀만 다시 번역)
+export async function retranslateSegment(
+  videoId: string,
+  lang: string,
+  segmentId: number,
+): Promise<{ segment_id: number; text: string; reviewed: boolean; stale: boolean }> {
+  const r = await fetch(
+    `/api/jobs/${videoId}/retranslate?lang=${lang}&segment_id=${segmentId}`,
+    { method: "POST" },
+  );
+  if (!r.ok) {
+    let msg = `retranslate: ${r.status}`;
+    try {
+      msg = (await r.json()).detail ?? msg;
+    } catch {
+      /* non-JSON */
+    }
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
 export async function fetchTranslations(videoId: string, lang: string): Promise<TranslationRow[]> {
   const r = await fetch(`/api/jobs/${videoId}/translations?lang=${lang}`);
   if (!r.ok) throw new Error(`translations: ${r.status}`);

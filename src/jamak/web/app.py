@@ -1701,6 +1701,79 @@ def update_translation(segment_id: int, lang: str, body: TranslationUpdate) -> d
         return {"segment_id": segment_id, "text": t.text, "reviewed": t.reviewed}
 
 
+# [WH-CHANGE v0.3.3 | FEAT | 2026-07-13 | CHG-20260713-010]
+# Reason: 원문(한국어)이 바뀌어 stale 표시된 번역 셀만, 앞뒤 문맥과 함께 한 번의
+#         API 호출로 재번역 — 전체 트랙 재번역 없이 그 셀만 갱신.
+# Related: ADR-0006 / CHANGELOG CHG-20260713-010.
+@app.post("/api/jobs/{video_id}/retranslate")
+def retranslate_segment(request: Request, video_id: str, lang: str, segment_id: int) -> dict:
+    """Re-translate ONE cue against the current Korean, with its neighbours as
+    context (the stale-row "다시 번역" button). Overwrites the segment's cached
+    translation with source_hash = current Korean, reviewed=False, edited=False,
+    so it stops showing stale and can be re-confirmed."""
+    from ..pipeline.translate import LANGUAGES, _hash, retranslate_one
+
+    if lang == "ko" or lang not in LANGUAGES:
+        raise HTTPException(400, f"unsupported language {lang}")
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise HTTPException(
+            503,
+            "번역 기능이 이 서버에 아직 설정되지 않았습니다(ANTHROPIC_API_KEY 없음). "
+            "관리자에게 문의하세요.",
+        )
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+        segs = session.exec(
+            select(Segment)
+            .where(Segment.job_id == job.id, Segment.lang == "ko")
+            .order_by(Segment.idx)
+        ).all()
+        i = next((k for k, s in enumerate(segs) if s.id == segment_id), None)
+        if i is None:
+            raise HTTPException(404, "segment not found on the Korean track")
+        target = segs[i]
+        ko = _best_ko(target).strip()
+        if not ko:
+            raise HTTPException(400, "빈 원문은 번역할 수 없습니다")
+        ctx_before = [_best_ko(s) for s in segs[max(0, i - 4) : i]]
+        ctx_after = [_best_ko(s) for s in segs[i + 1 : i + 5]]
+        budget = max(10, int(17 * max(0.5, target.end - target.start)))
+
+    try:
+        new_text = retranslate_one(ko, ctx_before, ctx_after, lang, budget)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"번역 API 오류: {e}")
+    if not new_text.strip():
+        raise HTTPException(502, "번역 결과가 비어 있습니다. 다시 시도해 주세요.")
+
+    with get_session() as session:
+        # replace any cached row for this cue+lang (drop stale/reviewed; the
+        # reviewer explicitly asked to redo it, so an old edited row is replaced
+        # too — this is a deliberate overwrite, not the automatic re-translate)
+        for old in session.exec(
+            select(Translation).where(
+                Translation.segment_id == segment_id, Translation.lang == lang
+            )
+        ).all():
+            session.delete(old)
+        session.add(
+            Translation(
+                segment_id=segment_id,
+                lang=lang,
+                text=new_text,
+                source_hash=_hash(ko),
+                reviewed=False,
+                edited=False,
+            )
+        )
+        session.commit()
+    return {"segment_id": segment_id, "text": new_text, "reviewed": False, "stale": False}
+
+
 @app.post("/api/jobs/{video_id}/repair-stt")
 def repair_stt(request: Request, video_id: str) -> dict:
     """Recover segments where whisper hallucinated its initial_prompt.

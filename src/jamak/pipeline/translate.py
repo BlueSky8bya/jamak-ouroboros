@@ -261,6 +261,60 @@ def translate_texts(
     return out
 
 
+def retranslate_one(
+    ko_text: str,
+    context_before: list[str],
+    context_after: list[str],
+    lang: str,
+    char_budget: int,
+) -> str:
+    """Re-translate a SINGLE Korean cue with surrounding context (both sides).
+
+    Used when the reviewer edited the Korean of one cue and wants just that
+    translation refreshed in-context — not a whole-track re-translate. One
+    Claude call. The before/after lines are shown as read-only context so the
+    model keeps pronouns, terms, and tone coherent with its neighbours.
+    """
+    import anthropic
+
+    if lang not in LANGUAGES:
+        raise ValueError(f"unsupported language: {lang}")
+    ko_text = ko_text.strip()
+    if not ko_text:
+        return ""
+
+    client = anthropic.Anthropic()
+    lines: list[str] = []
+    if context_before:
+        lines.append("### 앞 문맥 (번역 대상 아님):")
+        lines.extend(f"  {t}" for t in context_before if t.strip())
+        lines.append("")
+    lines.append("### 번역 대상 세그먼트 (idx, 권장 최대 글자수, 원문):")
+    lines.append(f"[0] (≤{char_budget}자) {ko_text}")
+    if context_after:
+        lines.append("")
+        lines.append("### 뒤 문맥 (번역 대상 아님):")
+        lines.extend(f"  {t}" for t in context_after if t.strip())
+
+    response = client.messages.create(
+        model=TRANSLATE_MODEL,
+        max_tokens=2000,
+        thinking={"type": "disabled"},
+        system=[
+            {
+                "type": "text",
+                "text": _system_prompt(lang),
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
+        output_config={"format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
+        messages=[{"role": "user", "content": "\n".join(lines)}],
+    )
+    text = next(b.text for b in response.content if b.type == "text")
+    out = {t["idx"]: t["text"] for t in json.loads(text)["translations"]}
+    return out.get(0, "")
+
+
 def translate_segments(seg_dicts: list[dict], text_key: str, lang: str, console=None) -> dict[int, str]:
     """Translate segments (given stage text) with per-segment cache.
 

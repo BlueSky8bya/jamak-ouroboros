@@ -455,6 +455,34 @@ function JobCard({
   );
 }
 
+/** copyable worker command — the local GPU worker that drains the queue.
+ *  Auto-start on this machine is best-effort (logon task), so surface the exact
+ *  command with one-click copy for when it isn't running. */
+function WorkerCmd() {
+  const [copied, setCopied] = useState(false);
+  const cmd = "uv run jamak worker";
+  return (
+    <span className="worker-cmd">
+      <code>{cmd}</code>
+      <button
+        className="worker-copy"
+        title="명령 복사"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(cmd);
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+          } catch {
+            /* clipboard blocked — user can select the text manually */
+          }
+        }}
+      >
+        {copied ? "복사됨 ✓" : "📋 복사"}
+      </button>
+    </span>
+  );
+}
+
 export function App() {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -985,8 +1013,8 @@ export function App() {
                   </>
                 ) : queued.length > 0 ? (
                   <>
-                    대기 {queued.length}개 — 처리하려면 이 PC에서{" "}
-                    <code>uv run jamak worker</code> 를 켜두세요
+                    대기 {queued.length}개 — 처리하려면 이 PC에서 아래 명령을 실행하세요
+                    <WorkerCmd />
                   </>
                 ) : (
                   errored.length > 0 && <>대기 없음</>
@@ -1151,18 +1179,23 @@ export function App() {
             👤 내 담당만
           </button>
         )}
-        <label>
-          형식
-          <Dropdown
-            value={form}
-            onChange={(v) => setForm(v as typeof form)}
-            options={[
-              { value: "all", label: "전체" },
-              { value: "short", label: "쇼츠" },
-              { value: "long", label: "롱폼" },
-            ]}
-          />
-        </label>
+        {/* YouTube form is only ever 롱폼 vs 쇼츠 — a 3-way segmented toggle
+            reads faster than a dropdown */}
+        <div className="form-toggle" role="group" aria-label="영상 형식">
+          {([
+            ["all", "전체"],
+            ["long", "롱폼"],
+            ["short", "쇼츠"],
+          ] as [typeof form, string][]).map(([v, label]) => (
+            <button
+              key={v}
+              className={form === v ? "on" : ""}
+              onClick={() => setForm(v)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         {allLangs.length > 0 && (
           <label>
             번역 언어

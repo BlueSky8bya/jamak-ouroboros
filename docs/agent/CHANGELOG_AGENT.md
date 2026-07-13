@@ -1,5 +1,15 @@
 # Agent Change Log
 
+## v0.3.3 — 2026-07-13 (셀 단위 재번역 + UX 정리)
+
+### CHG-20260713-010 — FEAT — stale 번역 셀만 문맥 재번역 (`POST /retranslate`)
+Change: 원문(한국어)이 바뀌어 stale 표시된 번역 행에 **🔄 다시 번역** 버튼. `pipeline/translate.py`에 `retranslate_one(ko, ctx_before, ctx_after, lang, budget)`(앞뒤 각 4행 문맥 + 글자 예산, 1 API 호출). 엔드포인트가 그 셀만 재번역해 Translation 덮어씀(source_hash=현재 ko, reviewed·edited=False → stale 해제, 재확인 대상). 전체 트랙 재번역 없음. 키 없으면 503. TranslateReview가 응답으로 해당 행 로컬 패치.
+Validation: 합성 3행 실 API 스모크(문맥의 암세포·양산 반영, stale→fresh, hash 갱신, 단일 행) + 실브라우저 E2E(ko 편집→stale 배지→🔄 클릭→바뀐 원문 맞춰 재번역·배지 소멸, 콘솔 에러 0).
+
+### CHG-20260713-011 — FEAT/UX — 형식 토글 · 워커 명령 복사 · 라벨 정리
+Change: (a) 랜딩 "형식" 드롭다운(전체/롱폼/쇼츠) → **세그먼트 토글**(유튜브는 롱폼·쇼츠뿐이라 토글이 더 빠름, view-toggle 스타일 공유). (b) 큐 배너의 워커 안내에 `uv run jamak worker` **복사 버튼**(WorkerCmd, navigator.clipboard, "복사됨 ✓" 피드백) — 자동시작 실패 시 사용자가 바로 복사. (c) 에디터 "가 크게/가 보통" → **"글씨 크게/글씨 보통"**(의미 명확).
+Validation: 실브라우저 — 형식 토글 3버튼 선택·localStorage 유지, bigtype 라벨 "글씨 …", 빌드 클린.
+
 ## v0.3.2 — 2026-07-13 (내보내기 전 QC + AI 맞춤법)
 
 ### CHG-20260713-009 — FEAT — 내보내기 전 점검 모달 (규칙 QC 0원 + 선택적 AI 맞춤법)
