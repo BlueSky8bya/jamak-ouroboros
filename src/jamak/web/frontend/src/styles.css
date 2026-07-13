@@ -812,6 +812,8 @@ button {
   white-space: nowrap;
 }
 .reset-chip:hover { border-color: var(--rose); color: var(--rose); }
+/* keep the slot so toggling a filter doesn't reflow the (wrapping) filter bar */
+.reset-chip-hidden { visibility: hidden; pointer-events: none; }
 
 /* "내 담당만" — one-click filter to the reviewer's own videos */
 .mine-chip {

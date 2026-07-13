@@ -457,10 +457,14 @@ function JobCard({
 
 /** copyable worker command — the local GPU worker that drains the queue.
  *  Auto-start on this machine is best-effort (logon task), so surface the exact
- *  command with one-click copy for when it isn't running. */
+ *  command with one-click copy for when it isn't running.
+ *  `--project <dir>` makes it run from ANY directory (a bare `uv run jamak
+ *  worker` from the home folder fails with "program not found `jamak`" — uv
+ *  only sees the console script inside the project's own venv). The path is
+ *  this deployment's fixed local project dir, same one deploy/*.cmd use. */
 function WorkerCmd() {
   const [copied, setCopied] = useState(false);
-  const cmd = "uv run jamak worker";
+  const cmd = 'uv run --project "C:\\Projects\\jamak-ouroboros" jamak worker';
   return (
     <span className="worker-cmd">
       <code>{cmd}</code>
@@ -1243,11 +1247,18 @@ export function App() {
             ☰
           </button>
         </div>
-        {filtersActive && (
-          <button className="reset-chip" onClick={resetFilters} title="필터·검색 초기화">
-            초기화 ✕
-          </button>
-        )}
+        {/* always mounted, only visibility toggled — appearing/disappearing was
+            reflowing the wrapped filter bar and shifting the form toggle */}
+        <button
+          className={"reset-chip" + (filtersActive ? "" : " reset-chip-hidden")}
+          onClick={resetFilters}
+          title="필터·검색 초기화"
+          disabled={!filtersActive}
+          aria-hidden={!filtersActive}
+          tabIndex={filtersActive ? 0 : -1}
+        >
+          초기화 ✕
+        </button>
         <span className="filter-count">{visible.length}개</span>
       </div>
       </div>
