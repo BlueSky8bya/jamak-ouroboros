@@ -1,5 +1,15 @@
 # Agent Change Log
 
+## v0.3.4 — 2026-07-13 (어르신 사용법 화면 + 워커 자동시작 무창)
+
+### CHG-20260713-012 — FEAT — 앱 내 사용법 튜토리얼 화면 (어르신 검수자용)
+Change: `Guide.tsx` 신규 — 전체화면 오버레이 사용법. 큰 글씨(본문 17px/제목 24px), 쉬운 말, **시나리오별("이럴 때→이렇게")** 8개 카드(맞음=Enter, 틀림=클릭후고침, 안들림=🙉, 카라오케, 낱말클릭 재생, Alt+Z, 글씨크게, 타이밍은 나중에), 큰 키캡, "물 흐르듯 요령", 단축키표 6행, 루프 CSS 데모 2개(확인=초록체크, 카라오케=낱말 하이라이트 이동, prefers-reduced-motion 존중). 랜딩 헤더 "📖 사용법" 버튼 + **첫 방문 자동 1회 오픈**(localStorage `jamak.guideSeen`). 백엔드 무관, 순수 프레젠테이션.
+Validation: 실브라우저(scratch) — 첫 방문 자동 오픈, 8시나리오/26키캡/6단축키/데모2 렌더, 큰 버튼 닫기→기록 저장→헤더 버튼 재오픈, 본문 17px·가로 넘침 0·카라오케 애니 작동·콘솔 에러 0.
+
+### CHG-20260713-013 — CHORE — 워커 로그온 자동시작 무창(VBScript) + 재시작 루프
+Change: Startup 폴더 `.cmd`(부팅 때 콘솔 번쩍임) → **VBScript**(`WScript.Shell.Run …,0`=완전 숨김)로 교체. `run-worker.ps1`에 **자동 재시작 루프**(죽으면 10초 후 재기동) + **중복 방지 가드**(GPU 하나) + **DATABASE_URL 레지스트리 폴백** + UTF-8 BOM(PS5.1 한글 파싱). 배너 워커 명령도 `uv run --project "<dir>" jamak worker`(홈에서 실행돼도 됨). `scripts/jamak-worker-autostart.vbs` 템플릿 커밋(라이브 사본은 Startup 폴더, 옛 .cmd는 .disabled).
+Validation: .vbs로 부팅과 동일 실행 → 워커 숨김 기동(보이는 창 0)·PID 안정(크래시 루프 아님)·루프 런처 생존. 명령은 홈 디렉토리에서 `jamak --help` 확인.
+
 ## v0.3.3 — 2026-07-13 (셀 단위 재번역 + UX 정리)
 
 ### CHG-20260713-010 — FEAT — stale 번역 셀만 문맥 재번역 (`POST /retranslate`)

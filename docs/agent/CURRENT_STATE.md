@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-13 (v0.3.3 — 셀 재번역 + UX 정리)
-Project Version: 0.3.3
+Last Updated: 2026-07-13 (v0.3.4 — 어르신 사용법 화면 + 워커 무창 자동시작)
+Project Version: 0.3.4
 Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATION.md)
 
 ## Current Objective

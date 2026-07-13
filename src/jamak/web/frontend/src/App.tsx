@@ -19,6 +19,7 @@ import {
 import { Login } from "./Login";
 import { Dropdown } from "./Dropdown";
 import { Editor } from "./Editor";
+import { Guide } from "./Guide";
 import { ThemeToggle } from "./theme";
 import type { JobSummary } from "./types";
 
@@ -550,6 +551,15 @@ export function App() {
   // "내 담당만": one click narrows the board to videos assigned to me
   const [mineOnly, setMineOnly] = useState(() => localStorage.getItem("jamak.mine") === "1");
   const [showHelp, setShowHelp] = useState(false);
+  // 어르신용 사용법 화면. 첫 방문(로컬 기록 없음)이면 자동으로 한 번 띄운다.
+  const [showGuide, setShowGuide] = useState(false);
+  useEffect(() => {
+    if (!localStorage.getItem("jamak.guideSeen")) setShowGuide(true);
+  }, []);
+  function closeGuide() {
+    localStorage.setItem("jamak.guideSeen", "1");
+    setShowGuide(false);
+  }
   const [cursor, setCursor] = useState(-1); // keyboard-selected card index
   const timer = useRef<number | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -933,6 +943,9 @@ export function App() {
                 </button>
               </span>
             )}
+            <button className="guide-btn" title="처음이신가요? 사용법 보기" onClick={() => setShowGuide(true)}>
+              📖 사용법
+            </button>
             <button className="help-btn" title="단축키 (?)" onClick={() => setShowHelp((v) => !v)}>
               ?
             </button>
@@ -943,6 +956,8 @@ export function App() {
           자막 검수 작업대 <span className="brand-inf">♾️</span>
         </h1>
       </header>
+
+      {showGuide && <Guide onClose={closeGuide} />}
 
       {showHelp && (
         <div className="help-popover" onClick={() => setShowHelp(false)}>
