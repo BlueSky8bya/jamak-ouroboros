@@ -1,57 +1,55 @@
-# ACTIVE PLAN — 경로 B: 클라우드 웹앱 + 전용 Postgres (ADR-0007 후속)
+﻿# ACTIVE PLAN — 편집기 동시편집 안전화 + 반응성 개선 (2026-07-13)
 
-Status: Code complete — 사용자 Railway 셋업·이관 실행 대기 (PG 엔드투엔드 NOT VERIFIED: 로컬 Docker/PG 없음)
-Started: 2026-07-12
+Status: Done (2026-07-13) — 전 항목 구현·검증 완료
+Started: 2026-07-13
 Owner: User + Agent
-Host 결정: **Railway** (앱 + Postgres 한 프로젝트, 깃헙 자동배포, 종량제). 코드는 `DATABASE_URL`만 바꾸면 Neon/Render 등으로 이전 가능하게 짠다.
 
-(이전 플랜 = 언어별 독립 자막 트랙 ADR-0006, 완료 → git 이력·DECISION_INDEX 참조.)
+(이전 플랜 = 경로 B 클라우드 이전, 완료·배포됨 → git 이력·CHANGELOG v0.2.0 참조.)
 
-목표: 검수 웹앱을 클라우드에 상시 호스팅 → **검수자는 관리자 PC가 꺼져 있어도 접속·검수·내보내기**. 유튜브→자막 생성(로컬 GPU STT)만 관리자 PC 필요.
+## 배경
 
-## 아키텍처 (단일 DB)
+검수자 다수(≤50명) 동시 사용 전제. 사용자 보고:
+- 되돌리기(Alt+Z)가 여러 개를 한 번에 되돌리거나 아예 안 먹힘
+- 편집이 "뚝딱거림" (끊기는 느낌)
+- 담당자 기준으로 내 영상을 빨리 찾고 싶음
 
-```
-로컬 GPU 파이프라인 ──STT/교정──┐
-   (DATABASE_URL=클라우드)      ├─→ [Railway Postgres] ←─ 검수앱(Railway 상시) ←─ 검수자(PC 꺼도 OK)
-stt.json → SttBlob(DB) ────────┘
-```
+## 진단 (코드 확인 완료)
 
-- 로컬·클라우드 앱이 **같은 클라우드 Postgres 하나**를 봄 → 별도 sync/push 명령 불필요.
-- 로컬은 `DATABASE_URL` 설정 후 `jamak run` → 세그먼트 + stt.json 블롭을 클라우드 DB에 직접 씀. `audio.wav`는 로컬에만(안 올림, 기본 삭제).
-- **stt.json → DB(text)**: 오브젝트스토리지 불필요. 워드맵(`/words`)·타이밍다듬기(`/tighten`)가 클라우드에서 동작.
+1. **Undo = 전체 트랙 스냅샷 복원** (`restore_segments`: 해당 lang 세그먼트 전부 DELETE 후 재삽입).
+   - 텍스트 편집(`save`)은 `pushUndo`를 안 찍음 → 스택 비면 "안 먹힘".
+   - 체크포인트 사이 모든 변경이 한 스냅샷에 묻힘 → "여러 개 한 번에 되돌아감".
+   - 트랙 전체 delete-reinsert → 동시 편집자 B의 작업까지 파괴 (최대 위험).
+2. **뚝딱거림**: (a) 변이마다 전체 refetch(2×RTT 싱가포르), (b) Row 비-memo + currentTime 전 행 전파로 재생 중 상시 전체 재렌더, (c) 낙관적 업데이트 없음(Enter/저장이 RTT 대기).
+3. `_next_segment`/`_previous_segment`가 `idx == ±1` (dense idx 필수) → 부분 복원 시 idx 재정규화 필요.
 
-## 불변 제약
-- 로컬 `data/jamak.db` 파괴 금지 — 이관은 **읽기만**. 마이그레이션은 로컬→클라우드 단방향 복사.
-- 각 단계는 앱이 계속 동작하는 상태로 커밋(반쯤 깨진 상태 금지). SQLite 로컬 경로는 계속 동작해야 함(`DATABASE_URL` 없으면 기존과 100% 동일).
-- 시크릿(`ANTHROPIC_API_KEY`, `JAMAK_*_PASSWORD`, `JAMAK_SECRET`, `DATABASE_URL`)은 호스트 환경변수로만. 프론트 번들·레포에 절대 넣지 않음.
+## 계획
 
-## Phase 1 — DB 레이어 PG 대응 (무해, 로컬 SQLite 불변)
-- [ ] `get_engine()`: `DATABASE_URL` 있으면 Postgres(`postgresql+psycopg://`, `pool_pre_ping`), 없으면 기존 SQLite. `postgres://`·`postgresql://` → `+psycopg` 정규화.
-- [ ] `SttBlob` 테이블 `(id, job_id unique fk, data: str, created_at)` + `save_stt_blob`/`load_stt_blob` 헬퍼.
-- [ ] `_ensure_columns` dialect 인지(PG `BOOLEAN DEFAULT false`; 신규 PG DB는 create_all이 전부 만들어 ALTER는 no-op).
-- [ ] `psycopg[binary]>=3.2` base 의존성 추가. (faster-whisper=ctranslate2 경량, cuda extra는 optional → 클라우드 이미지 가벼움)
-- 검증: `DATABASE_URL` 없이 기존 SQLite 앱 무변화. 임시 DB로 엔진 분기 스모크.
+### A. 백엔드 (src/jamak/web/app.py, db.py)
+- [x] PG 엔진 풀 확장: `pool_size=10, max_overflow=20` (50명 대비)
+- [x] 변이 엔드포인트가 영향받은 행 반환 (전체 refetch 제거):
+  - boundary-prev/next, edge-drag, redistribute-next → `{segments: [...]}`
+  - split → `{segments: [left, right]}` / merge-next → `{segments: [survivor], deleted_id}` / delete → `{deleted_id}`
+- [x] 신규 `POST /api/jobs/{video_id}/segments/restore-rows?lang=`:
+  body `{upsert: [행 스냅샷], delete_ids: [...]}` — 해당 행만 upsert/삭제 + 트랙 idx를 (start,end,id) 순 재정규화, 전체 트랙 반환.
+- [x] 구 `restore` 전체-트랙 엔드포인트 제거 (유일 호출자 대체, 동시편집 위험 제거)
 
-## Phase 2 — stt.json → DB 블롭
-- [ ] stt.json 재생성 3곳(cli `run`, app `retranscribe`, app `repair-stt`)에서 `save_stt_blob` 동기화.
-- [ ] `/words`·`/tighten`: `load_stt_blob` 우선, 없으면 로컬 파일 폴백(로컬 개발 유지).
-- 검증: 로컬 파일 지워도 블롭으로 워드맵 로드. 임시 DB로.
+### B. 프런트 Editor.tsx — Undo v2 + 낙관적 UI + memo
+- [x] UndoEntry v2: `{label, kind, segId?, upsert: Segment[], deleteIds: number[]}` — 작업 단위.
+  - 텍스트 저장도 push (같은 세그먼트 연속 타이핑은 coalesce — 셀 편집 세션 단위).
+  - split은 응답의 새 행 id를 deleteIds로 기록.
+- [x] undoLast → restore-rows (영향 행만 복원; 다른 검수자 작업 불가침).
+- [x] 낙관적 저장: save() 로컬 즉시 반영 + Enter 즉시 다음 이동, PUT은 세그먼트별 직렬 큐, 실패 시 롤백+에러.
+- [x] 시간 조정(◀▶/발화맞춤): 로컬 즉시 반영 + 백그라운드 PUT.
+- [x] boundary/edge/구조: 응답 행으로 로컬 패치 (refetch 제거).
+- [x] `React.memo(Row)` + 안정 콜백 + currentTime은 active/focused 행에만 전달.
+- [x] keydown effect `[currentTime]` 의존 제거 (ref).
 
-## Phase 3 — `jamak migrate-to-cloud`
-- [ ] 로컬 SQLite → `DATABASE_URL` 대상. 모든 테이블 PK id 보존 복사, PG 시퀀스 setval 리셋.
-- [ ] 기존 `data/jobs/*/stt.json` → SttBlob 임포트.
-- 검증: 이관 후 클라우드에서 3영상 로드·세그먼트 수·timing_done·번역 일치. 로컬 원본 무변화(읽기전용).
+### C. 프런트 App.tsx — 담당자 검색
+- [x] 검색창이 제목+담당자 매칭, "👤 내 담당만" 토글 칩 (me.name, localStorage 유지).
 
-## Phase 4 — Railway 배포 파일
-- [ ] 멀티스테이지 `Dockerfile`(node로 frontend build → python serve). base 의존성만(cuda extra 제외).
-- [ ] serve `--host 0.0.0.0 --port $PORT`. `.dockerignore`(data/, node_modules, .git). `railway.json`(선택).
-- [ ] 쿠키 `secure=True` 이미 설정됨(HTTPS 도메인).
-- 검증: 로컬 `docker build` 통과 + 컨테이너 기동 → `/api/me` 200.
+### D. 검증
+- [x] 격리 임시 DB로 로컬 serve + 브라우저: 텍스트 undo / 구조 undo / Enter 즉시 이동 / nudge 무-refetch / 담당자 검색
+- [x] 실 DB(클라우드 PG·로컬 jamak.db) 쓰기 금지
 
-## Phase 5 — 문서
-- [ ] `deployment.md` 경로 B 절 + Railway 스텝바이스텝(env, 로컬 `DATABASE_URL`로 파이프라인, 배포).
-- [ ] ADR-0007 "future"→ 경로 B Accepted 갱신(supersede 아님, 확장). CURRENT_STATE 갱신.
-
-## 되돌리기
-`DATABASE_URL` 미설정 = 전부 기존 로컬 SQLite 경로. 클라우드는 추가 레이어일 뿐, 로컬 워크플로 파괴 없음.
+### E. 마무리
+- [x] CURRENT_STATE / CHANGELOG_AGENT 갱신, 커밋·푸시, 배포 SHA 보고

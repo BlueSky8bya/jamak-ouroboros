@@ -1,5 +1,22 @@
 # Agent Change Log
 
+## v0.2.1 — 2026-07-13 (동시편집 안전 + 편집 반응성)
+
+### CHG-20260713-001 — FIX/FEAT — Undo v2: 작업 단위 되돌리기 (동시편집 안전)
+Change: 에디터 undo를 전체-트랙 스냅샷 복원(→ 트랙 전부 DELETE-재삽입, 동시 검수자 작업 파괴 + "여러 개 한 번에 되돌아감")에서 **작업 단위**로 전환. `UndoEntry{upsert(변경 전 행들), deleteIds(작업이 만든 행)}` + 신규 `POST /segments/restore-rows`(해당 행만 upsert/삭제 + idx (start,end,id)순 재정규화 — `_next/_previous_segment`가 dense idx 요구). **텍스트 편집도 undo 등록**(같은 셀 연속 타이핑은 세션 단위 coalesce — "안 먹힘" 증상 해결). 구 `restore` 전체-트랙 엔드포인트 제거. 라벨 Ctrl+Z 오표기→Alt+Z 정정.
+Validation: API 13항목(텍스트/split/merge/delete/boundary 각 undo + idx dense) + 실브라우저(텍스트 Alt+Z 원복, split→undo 10→9행) — 격리 temp DB.
+Rollback: restore-rows/UndoEntry 관련 revert.
+
+### CHG-20260713-002 — PERF/UX — 편집 뚝딱거림 제거 (낙관적 UI + 행 단위 렌더)
+Change: (a) 변이 엔드포인트가 **영향받은 행을 반환**(split/merge/delete/boundary-prev·next/edge-drag/redistribute) → 프론트는 로컬 패치, 전체-트랙 refetch 제거(작업당 RTT 2→1, 800행 재렌더 제거). (b) **낙관적 저장**: 텍스트/Enter확정/시간 nudge/발화맞춤이 즉시 화면 반영+포커스 이동, PUT은 세그먼트별 직렬 큐로 백그라운드(실패 시 롤백+에러). (c) `React.memo(Row)` + ref-트램폴린 안정 콜백 + `currentTime`은 active/focused 행에만 전달 → 재생 중 틱당 1행만 재렌더. (d) 전역 keydown 리스너 1회 등록(기존: 틱마다 재등록). undo 전 대기 큐 flush로 순서 보장.
+Validation: 실브라우저 — Enter 즉시 다음 이동(<80ms)+낙관 reviewed, split refetch 0회, 콘솔 에러 0.
+Rollback: 해당 web/app.py 커밋 revert.
+
+### CHG-20260713-003 — FEAT — 담당자 검색 + "내 담당만" / PG 풀 확장
+Change: 랜딩 검색이 제목+담당자 매칭(placeholder "제목·담당자 검색"). `👤 내 담당만` 토글 칩(me.name 기준, localStorage 유지, 초기화 포함). PG 엔진 풀 `pool_size=10, max_overflow=20`(검수자 ≤50명 대비).
+Validation: 실브라우저 — 담당 지정 후 칩 필터 1개·이름 검색 매칭·리로드 유지.
+Rollback: mine-chip/pool 커밋 revert.
+
 ## v0.2.0 — 2026-07-11~12 (배포 + 경로 B + 검수 도구)
 
 세부 커밋은 git 이력 참조(메시지 상세). 아래는 테마별 통합 기록. 라이브 배포처 = https://hky-jamak.com (Railway, Singapore).

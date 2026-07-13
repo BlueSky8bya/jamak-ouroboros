@@ -286,7 +286,11 @@ def get_engine():
         if url:
             # Cloud Postgres (ADR-0007 path B). pool_pre_ping recycles
             # connections a serverless DB may have dropped between requests.
-            _engine = create_engine(url, pool_pre_ping=True)
+            # Pool sized for tens of concurrent reviewers (requests are short,
+            # so 10+20 overflow rarely saturates; Railway PG allows ~100 conns).
+            _engine = create_engine(
+                url, pool_pre_ping=True, pool_size=10, max_overflow=20
+            )
         else:
             ensure_dirs()
             # busy_timeout: the preview server and the user's own browser can

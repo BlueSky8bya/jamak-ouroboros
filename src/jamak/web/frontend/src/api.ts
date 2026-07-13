@@ -141,15 +141,18 @@ export async function unforkTrack(
   return r.json();
 }
 
-export async function restoreSegments(
+// undo ONE operation: put its before-rows back and delete the rows it created.
+// Touches only those rows — a concurrent reviewer's edits elsewhere survive.
+export async function restoreRows(
   videoId: string,
-  segments: Segment[],
-  lang = "ko",
+  lang: string,
+  upsert: Segment[],
+  deleteIds: number[],
 ): Promise<Segment[]> {
-  const r = await fetch(`/api/jobs/${videoId}/segments/restore?lang=${lang}`, {
+  const r = await fetch(`/api/jobs/${videoId}/segments/restore-rows?lang=${lang}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ segments }),
+    body: JSON.stringify({ upsert, delete_ids: deleteIds }),
   });
   if (!r.ok) throw new Error((await r.json()).detail ?? `restore: ${r.status}`);
   return r.json();
@@ -232,36 +235,47 @@ export async function retranscribe(
   return r.json();
 }
 
-export async function splitSegment(id: number, position: number): Promise<void> {
+// mutation endpoints return the rows they changed so the client patches its
+// local list instead of refetching the whole track (one RTT, no jank)
+export interface ChangedRows {
+  segments: Segment[];
+  deleted_id?: number;
+}
+
+export async function splitSegment(id: number, position: number): Promise<ChangedRows> {
   const r = await fetch(`/api/segments/${id}/split`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ position }),
   });
   if (!r.ok) throw new Error((await r.json()).detail ?? `split: ${r.status}`);
+  return r.json();
 }
 
-export async function mergeNext(id: number): Promise<void> {
+export async function mergeNext(id: number): Promise<ChangedRows> {
   const r = await fetch(`/api/segments/${id}/merge-next`, { method: "POST" });
   if (!r.ok) throw new Error((await r.json()).detail ?? `merge: ${r.status}`);
+  return r.json();
 }
 
-export async function boundaryNext(id: number, time: number): Promise<void> {
+export async function boundaryNext(id: number, time: number): Promise<ChangedRows> {
   const r = await fetch(`/api/segments/${id}/boundary-next`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ time }),
   });
   if (!r.ok) throw new Error((await r.json()).detail ?? `boundary: ${r.status}`);
+  return r.json();
 }
 
-export async function boundaryPrev(id: number, time: number): Promise<void> {
+export async function boundaryPrev(id: number, time: number): Promise<ChangedRows> {
   const r = await fetch(`/api/segments/${id}/boundary-prev`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ time }),
   });
   if (!r.ok) throw new Error((await r.json()).detail ?? `boundary: ${r.status}`);
+  return r.json();
 }
 
 // hybrid timeline-strip edge drag: free in a gap, pushes the neighbour once it
@@ -270,23 +284,26 @@ export async function edgeDrag(
   id: number,
   which: "start" | "end",
   time: number,
-): Promise<void> {
+): Promise<ChangedRows> {
   const r = await fetch(`/api/segments/${id}/edge-drag?which=${which}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ time }),
   });
   if (!r.ok) throw new Error((await r.json()).detail ?? `edge-drag: ${r.status}`);
+  return r.json();
 }
 
-export async function redistributeNext(id: number): Promise<void> {
+export async function redistributeNext(id: number): Promise<ChangedRows> {
   const r = await fetch(`/api/segments/${id}/redistribute-next`, { method: "POST" });
   if (!r.ok) throw new Error((await r.json()).detail ?? `redistribute: ${r.status}`);
+  return r.json();
 }
 
-export async function deleteSegment(id: number): Promise<void> {
+export async function deleteSegment(id: number): Promise<{ deleted_id: number }> {
   const r = await fetch(`/api/segments/${id}`, { method: "DELETE" });
   if (!r.ok) throw new Error(`delete: ${r.status}`);
+  return r.json();
 }
 
 export async function repairStt(

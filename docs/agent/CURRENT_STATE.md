@@ -1,12 +1,19 @@
 # Current State
 
-Last Updated: 2026-07-12 (경로 B 후속: 워커·백업·.srt임포트·담당자·UI 폴리시)
-Project Version: 0.2.0
+Last Updated: 2026-07-13 (동시편집 안전 undo v2 + 편집 반응성 + 담당자 검색)
+Project Version: 0.2.1
 Harness Protocol: project-initializing_260710.md
 
 ## Current Objective
 
-**라이브 운영 중**: https://hky-jamak.com (Railway 앱+Postgres, Singapore 리전). 검수자 다인 협업 가능(담당자 지정). 관리자 PC는 영상 만들 때만(`jamak worker`). 다음: 실사용 다회차 검수로 CER 추이 확인, 검수자 실제 온보딩.
+**라이브 운영 중**: https://hky-jamak.com (Railway 앱+Postgres, Singapore 리전). 검수자 다인(≤50명) 동시 협업 안전. 관리자 PC는 영상 만들 때만(`jamak worker`). 다음: 실사용 다회차 검수로 CER 추이 확인, 검수자 실제 온보딩.
+
+## Recent Additions (2026-07-13 — v0.2.1, CHANGELOG CHG-20260713-001~003)
+
+- **Undo v2 (동시편집 안전)**: 되돌리기가 작업 단위(변경된 행만 복원, `restore-rows` + idx 재정규화). 텍스트 편집도 undo 대상(셀 세션 coalesce). 전체-트랙 delete-재삽입 제거 → 한 검수자의 undo가 다른 검수자 작업을 못 지움. "여러 개 되돌아감/안 먹힘" 해결.
+- **편집 반응성**: 변이 응답=영향 행 → 로컬 패치(전체 refetch 제거), 낙관적 저장(Enter 즉시 이동, PUT 백그라운드 세그먼트별 직렬 큐+실패 롤백), `React.memo(Row)`+안정 콜백+currentTime은 active/focused 행만 → 재생 틱당 1행 렌더.
+- **담당자 검색**: 검색창 제목+담당자 매칭, `👤 내 담당만` 칩(localStorage 유지). PG 풀 10+20(50명 대비).
+- **동시편집 정책**: 같은 세그먼트 동시 수정은 last-write-wins(구두 안내로 운용, 담당자 지정 관례가 1차 방어). 남은 트랙-와이드 작업(fork/unfork/tighten/repair/replace/안심확인)은 드문 관리 작업이라 유지.
 
 ## Recent Additions (2026-07-12 — 경로 B 후속 배치, v0.2.0)
 

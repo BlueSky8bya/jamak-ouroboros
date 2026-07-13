@@ -515,6 +515,8 @@ export function App() {
     () => (localStorage.getItem("jamak.form") as "all" | "short" | "long") || "all",
   );
   const [query, setQuery] = useState("");
+  // "내 담당만": one click narrows the board to videos assigned to me
+  const [mineOnly, setMineOnly] = useState(() => localStorage.getItem("jamak.mine") === "1");
   const [showHelp, setShowHelp] = useState(false);
   const [cursor, setCursor] = useState(-1); // keyboard-selected card index
   const timer = useRef<number | null>(null);
@@ -530,6 +532,7 @@ export function App() {
   useEffect(() => localStorage.setItem("jamak.dir", dir), [dir]);
   useEffect(() => localStorage.setItem("jamak.view", view), [view]);
   useEffect(() => localStorage.setItem("jamak.form", form), [form]);
+  useEffect(() => localStorage.setItem("jamak.mine", mineOnly ? "1" : "0"), [mineOnly]);
 
   async function refresh() {
     try {
@@ -742,7 +745,15 @@ export function App() {
   const visible = useMemo(() => {
     let list = jobs.slice();
     const q = query.trim().toLowerCase();
-    if (q) list = list.filter((j) => (j.title || j.video_id).toLowerCase().includes(q));
+    // search matches the title OR the assigned reviewer's name, so typing a
+    // reviewer instantly narrows to their videos
+    if (q)
+      list = list.filter(
+        (j) =>
+          (j.title || j.video_id).toLowerCase().includes(q) ||
+          (j.assignee || "").toLowerCase().includes(q),
+      );
+    if (mineOnly && me?.name) list = list.filter((j) => (j.assignee || "") === me.name);
     if (status === "text")
       list = list.filter((j) => j.segments > 0 && !j.ko_complete && !j.running);
     else if (status === "timing")
@@ -780,7 +791,7 @@ export function App() {
       return dir === "desc" ? -cmp : cmp;
     });
     return list;
-  }, [jobs, filter, status, form, sort, dir, query]);
+  }, [jobs, filter, status, form, sort, dir, query, mineOnly, me]);
 
   const resume = useMemo(() => {
     const wip = jobs.filter((j) => j.segments > 0 && !j.ko_complete && !j.running);
@@ -854,13 +865,14 @@ export function App() {
   const resumePct = resume ? Math.round((resume.reviewed / resume.segments) * 100) : 0;
   const previewId = parseVideoId(url);
   const filtersActive =
-    status !== "all" || filter !== "all" || form !== "all" || query.trim() !== "";
+    status !== "all" || filter !== "all" || form !== "all" || query.trim() !== "" || mineOnly;
 
   function resetFilters() {
     setStatus("all");
     setFilter("all");
     setForm("all");
     setQuery("");
+    setMineOnly(false);
   }
 
   return (
@@ -1120,7 +1132,7 @@ export function App() {
           ref={searchRef}
           className="search"
           type="search"
-          placeholder="🔍 제목으로 검색  ( / )"
+          placeholder="🔍 제목·담당자 검색  ( / )"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
@@ -1130,6 +1142,15 @@ export function App() {
             }
           }}
         />
+        {me?.name && (
+          <button
+            className={"mine-chip" + (mineOnly ? " on" : "")}
+            title={`${me.name} 담당으로 지정된 영상만 보기`}
+            onClick={() => setMineOnly((v) => !v)}
+          >
+            👤 내 담당만
+          </button>
+        )}
         <label>
           형식
           <Dropdown

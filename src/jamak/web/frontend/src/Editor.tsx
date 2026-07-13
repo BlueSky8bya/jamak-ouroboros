@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   absorbFeedback,
   boundaryNext,
@@ -16,7 +16,7 @@ import {
   mergeNext,
   repairStt,
   replaceText,
-  restoreSegments,
+  restoreRows,
   setTimingDone,
   splitSegment,
   tightenTiming,
@@ -485,14 +485,17 @@ interface RowHandle {
   segId: number;
 }
 
+// ONE editor operation's undo step: put `upsert` rows back exactly as they
+// were and delete the rows the operation created. Only those rows are touched
+// on the server, so undoing never clobbers a concurrent reviewer's edits
+// elsewhere in the track (the old whole-track snapshot restore did).
 interface UndoEntry {
   label: string;
+  kind: "text" | "op";
+  segId: number | null; // text entries coalesce per editing session of one cell
   focusedId: number | null;
-  segments: Segment[];
-}
-
-function snapshotSegments(segments: Segment[]): Segment[] {
-  return segments.map((s) => ({ ...s }));
+  upsert: Segment[];
+  deleteIds: number[];
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -520,7 +523,7 @@ function Row({
   hasNext,
   koRef,
   words,
-  register,
+  onRegister,
   onSeek,
   onSave,
   onTime,
@@ -541,7 +544,7 @@ function Row({
   koRef?: string;
   words: WordTime[];
   onDragActive?: (active: boolean) => void;
-  register: (h: RowHandle | null) => void;
+  onRegister: (id: number, h: RowHandle | null) => void;
   onSeek: (t: number) => void;
   onSave: (id: number, text: string, reviewed: boolean | null, next: boolean) => Promise<void>;
   onTime: (seg: Segment, field: "start" | "end", value: number) => void;
@@ -590,10 +593,10 @@ function Row({
       focus: () => taRef.current?.focus(),
       segId: seg.id,
     };
-    register(handle);
+    onRegister(seg.id, handle);
     return () => {
       void flush();
-      register(null);
+      onRegister(seg.id, null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seg.id]);
@@ -890,7 +893,7 @@ function Row({
           </button>
           <button
             className="danger"
-            title="이 자막을 바로 지움 (Ctrl+Z로 복구)"
+            title="이 자막을 바로 지움 (Alt+Z로 복구)"
             onClick={() => {
               void flush().then(() => onStructure("delete", seg));
             }}
@@ -904,6 +907,12 @@ function Row({
     </div>
   );
 }
+
+// Memoized: with hundreds of rows, re-rendering the whole list per keystroke /
+// player tick is what made editing feel choppy. Handlers passed in are stable
+// (ref-trampolined) and `currentTime` is only fed to the active/focused row, so
+// during playback exactly one row re-renders per tick.
+const MemoRow = memo(Row);
 
 interface ShortcutItem {
   keys: string[];
@@ -941,8 +950,8 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ["Alt+Delete"], label: "이 자막 삭제", detail: "편집 중에도, Alt+Z로 복구" },
       {
         keys: ["Alt+Z"],
-        label: "방금 조작 되돌리기",
-        detail: "나누기·합치기·삭제·시간까지, 편집 중에도",
+        label: "방금 작업 하나 되돌리기",
+        detail: "글 수정·나누기·합치기·삭제·시간 — 한 번에 하나씩, 편집 중에도",
       },
     ],
   },
@@ -1044,8 +1053,102 @@ export function Editor({
   const paceRef = useRef<number[]>([]); // timestamps of recent confirms → pace
   const prevReviewedRef = useRef(0);
   const prevPctRef = useRef(0);
+  // latest player time for stable (non-re-registered) keyboard/undo closures
+  const currentTimeRef = useRef(0);
+  currentTimeRef.current = currentTime;
+  // per-segment save chains: optimistic edits apply to the UI instantly, the
+  // PUTs run in the background but strictly in order per segment
+  const saveQueuesRef = useRef(new Map<number, Promise<void>>());
+  const langRef = useRef(lang);
+  langRef.current = lang;
   segmentsRef.current = segments;
   undoStackRef.current = undoStack;
+
+  // Latest closures for the once-registered keyboard listener and the stable
+  // callback props MemoRow depends on (a re-created prop would defeat memo).
+  // All function declarations below are hoisted, so this assignment sees them.
+  const H = useRef({
+    save,
+    timeChange,
+    setTimes,
+    timing,
+    structure,
+    focusSegment,
+    markFocused,
+    undoLast,
+    replayCurrent,
+    runRepair,
+    runTighten,
+    runAbsorb,
+    seekTo,
+    seekBy,
+    play,
+    pause,
+    playPause,
+    pauseOnType,
+    playing,
+    words,
+  });
+  H.current = {
+    save,
+    timeChange,
+    setTimes,
+    timing,
+    structure,
+    focusSegment,
+    markFocused,
+    undoLast,
+    replayCurrent,
+    runRepair,
+    runTighten,
+    runAbsorb,
+    seekTo,
+    seekBy,
+    play,
+    pause,
+    playPause,
+    pauseOnType,
+    playing,
+    words,
+  };
+
+  // stable Row props (identity never changes → MemoRow can actually skip)
+  const onSaveCb = useCallback(
+    (id: number, text: string, reviewed: boolean | null, next: boolean) =>
+      H.current.save(id, text, reviewed, next),
+    [],
+  );
+  const onTimeCb = useCallback(
+    (seg: Segment, field: "start" | "end", v: number) => H.current.timeChange(seg, field, v),
+    [],
+  );
+  const onSetTimesCb = useCallback(
+    (seg: Segment, s: number, e: number) => H.current.setTimes(seg, s, e),
+    [],
+  );
+  const onTimingCb = useCallback(
+    (action: "start-here" | "next-here", seg: Segment) => H.current.timing(action, seg),
+    [],
+  );
+  const onStructureCb = useCallback(
+    (action: "split" | "merge" | "delete", seg: Segment, position?: number) =>
+      H.current.structure(action, seg, position),
+    [],
+  );
+  const onSeekCb = useCallback((t: number) => H.current.seekTo(t), []);
+  const onTypingCb = useCallback(() => {
+    // pause once when editing starts — reads live values via H
+    if (H.current.pauseOnType && H.current.playing) H.current.pause();
+  }, []);
+  const onFocusRowCb = useCallback((id: number) => H.current.markFocused(id), []);
+  const onOpenRowCb = useCallback((seg: Segment) => H.current.focusSegment(seg), []);
+  const onDragActiveCb = useCallback((a: boolean) => {
+    dragFreezeRef.current = a;
+  }, []);
+  const onRegisterCb = useCallback((id: number, h: RowHandle | null) => {
+    if (h) rowsRef.current.set(id, h);
+    else rowsRef.current.delete(id);
+  }, []);
 
   useEffect(() => {
     fetchLanguages().then(setLangs).catch(() => {});
@@ -1055,9 +1158,9 @@ export function Editor({
   // segments for the CURRENT track (ko source, or a forked language). Empty for
   // a non-forked translation language → the translation-review view is shown.
   useEffect(() => {
-    // undo is per-track: restore_segments is scoped to one lang and reinserts
+    // undo is per-track: restore-rows is scoped to one lang and rewrites rows
     // by original id. A snapshot from another track carries foreign ids that
-    // collide on restore (500). Clear undo/focus whenever the track changes.
+    // would hit the wrong rows. Clear undo/focus whenever the track changes.
     setUndoStack([]);
     undoStackRef.current = [];
     setFocusedId(null);
@@ -1261,10 +1364,10 @@ export function Editor({
   // replay the subtitle you're on, from its start (works while typing)
   function replayCurrent() {
     const segs = segmentsRef.current;
+    const t = currentTimeRef.current;
     const cur =
       segs.find((s) => s.id === focusedIdRef.current) ??
-      segs.find((s) => currentTime >= s.start && currentTime < s.end) ??
-      segs.find((s) => s.id === activeId);
+      segs.find((s) => t >= s.start && t < s.end);
     if (cur) {
       seekTo(cur.start);
       play();
@@ -1278,24 +1381,62 @@ export function Editor({
     setStatusMsg(target ? "이어서 작업할 자막으로 이동했습니다" : "이동할 자막이 없습니다");
   }
 
-  function pushUndo(label: string) {
-    const entry: UndoEntry = {
+  function pushEntry(entry: UndoEntry) {
+    // ref is the source of truth (multiple pushes can land in one render)
+    const next = [...undoStackRef.current.slice(-49), entry];
+    undoStackRef.current = next;
+    setUndoStack(next);
+  }
+
+  /** snapshot the rows an operation is about to change (call BEFORE mutating);
+   *  createdIds = rows the op created (known after), deleted again on undo */
+  function pushOpUndo(label: string, before: Segment[], createdIds: number[] = []) {
+    pushEntry({
       label,
+      kind: "op",
+      segId: null,
       focusedId: focusedIdRef.current,
-      segments: snapshotSegments(segmentsRef.current),
-    };
-    setUndoStack((prev) => [...prev.slice(-19), entry]);
+      upsert: before.map((s) => ({ ...s })),
+      deleteIds: createdIds,
+    });
+  }
+
+  /** text edits get one undo step per editing session of a cell: consecutive
+   *  autosaves of the same segment coalesce into the first snapshot (fine-
+   *  grained undo inside the textarea is the browser's native Ctrl+Z) */
+  function pushTextUndo(before: Segment) {
+    const top = undoStackRef.current[undoStackRef.current.length - 1];
+    if (top && top.kind === "text" && top.segId === before.id) return;
+    pushEntry({
+      label: "글 수정",
+      kind: "text",
+      segId: before.id,
+      focusedId: before.id,
+      upsert: [{ ...before }],
+      deleteIds: [],
+    });
   }
 
   async function undoLast() {
     const entry = undoStackRef.current[undoStackRef.current.length - 1];
     if (!entry) return;
     try {
+      // land any in-flight text edit AND queued background PUTs first, so a
+      // late save can't overwrite the restore we're about to do
       await flushAll();
-      const restored = await restoreSegments(videoId, entry.segments, lang);
-      segmentsRef.current = restored;
-      setSegments(restored);
-      setUndoStack((prev) => prev.slice(0, -1));
+      await Promise.all(Array.from(saveQueuesRef.current.values()));
+      const restored = await restoreRows(videoId, langRef.current, entry.upsert, entry.deleteIds);
+      // keep client-computed fields (safe) from rows we already had
+      const oldById = new Map(segmentsRef.current.map((s) => [s.id, s]));
+      const merged = restored.map((r) => {
+        const o = oldById.get(r.id);
+        return o ? { ...o, ...r } : r;
+      });
+      segmentsRef.current = merged;
+      setSegments(merged);
+      const rest = undoStackRef.current.slice(0, -1);
+      undoStackRef.current = rest;
+      setUndoStack(rest);
       focusedIdRef.current = entry.focusedId;
       setFocusedId(entry.focusedId);
       setStatusMsg(`${entry.label} 되돌림`);
@@ -1308,24 +1449,29 @@ export function Editor({
   }
 
   // ---- global keyboard workflow (Amara/YouTube Studio conventions)
+  // Registered ONCE: every mutable value is read through a ref (currentTimeRef,
+  // segmentsRef, H). The old version re-registered on every player tick.
   useEffect(() => {
     function currentRow(): Segment | undefined {
       const segs = segmentsRef.current;
+      const t = currentTimeRef.current;
       return (
         segs.find((s) => s.id === focusedIdRef.current) ??
-        segs.find((s) => currentTime >= s.start && currentTime < s.end)
+        segs.find((s) => t >= s.start && t < s.end)
       );
     }
     function deleteRow(row: Segment | undefined) {
       if (!row) return;
       const handle = rowsRef.current.get(row.id);
-      void (handle ? handle.flush() : Promise.resolve()).then(() => structure("delete", row));
+      void (handle ? handle.flush() : Promise.resolve()).then(() =>
+        H.current.structure("delete", row),
+      );
     }
     function onKey(e: KeyboardEvent) {
       if ((e as any).isComposing) return;
       if (isCellUndoShortcut(e)) {
         e.preventDefault();
-        void undoLast();
+        void H.current.undoLast();
         return;
       }
       if (isCellDeleteShortcut(e)) {
@@ -1336,7 +1482,7 @@ export function Editor({
       // ---- replay current cue from its start (Ctrl+\), safe while typing ----
       if ((e.ctrlKey || e.metaKey) && (e.code === "Backslash" || e.key === "\\")) {
         e.preventDefault();
-        replayCurrent();
+        H.current.replayCurrent();
         return;
       }
 
@@ -1344,13 +1490,13 @@ export function Editor({
       // mis-press or a slipped Shift can only move the playhead/selection =====
       if (e.key === "Tab" && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
-        if (e.shiftKey) seekBy(-3);
-        else playPause();
+        if (e.shiftKey) H.current.seekBy(-3);
+        else H.current.playPause();
         return;
       }
       if (e.code === "Space" && !e.ctrlKey && !e.altKey && !isTypingTarget(e.target)) {
         e.preventDefault();
-        playPause();
+        H.current.playPause();
         return;
       }
       // seek: Ctrl+←/→ = ∓3s, Ctrl+Shift+←/→ = ∓10s. On Ctrl (not Alt) so it can
@@ -1364,7 +1510,7 @@ export function Editor({
       ) {
         e.preventDefault();
         const step = e.shiftKey ? 10 : 3;
-        seekBy(e.key === "ArrowLeft" ? -step : step);
+        H.current.seekBy(e.key === "ArrowLeft" ? -step : step);
         return;
       }
       // swallow Alt+←/→ entirely so a stray press can't send Chrome back/forward
@@ -1383,7 +1529,7 @@ export function Editor({
           const from = cur ? segs.findIndex((s) => s.id === cur.id) : dir === 1 ? -1 : segs.length;
           for (let i = from + dir; i >= 0 && i < segs.length; i += dir) {
             if (!segs[i].reviewed) {
-              focusSegment(segs[i]);
+              H.current.focusSegment(segs[i]);
               return;
             }
           }
@@ -1391,7 +1537,7 @@ export function Editor({
         }
         if (!cur) return;
         const next = segs[segs.findIndex((s) => s.id === cur.id) + dir];
-        if (next) focusSegment(next);
+        if (next) H.current.focusSegment(next);
         return;
       }
       // cue timing on the focused subtitle (Alt + [ ] \) — in/out-point keys,
@@ -1403,17 +1549,17 @@ export function Editor({
         const h = rowsRef.current.get(row.id);
         const flushThen = (fn: () => void) =>
           void (h ? h.flush() : Promise.resolve()).then(fn);
-        if (e.key === "[") flushThen(() => timing("start-here", row));
-        else if (e.key === "]") flushThen(() => timing("next-here", row));
+        if (e.key === "[") flushThen(() => H.current.timing("start-here", row));
+        else if (e.key === "]") flushThen(() => H.current.timing("next-here", row));
         else {
-          const inside = words.filter((w) => {
+          const inside = H.current.words.filter((w) => {
             const m = (w.start + w.end) / 2;
             return row.start <= m && m < row.end;
           });
           if (inside.length) {
             const ns = Math.min(...inside.map((w) => w.start));
             const ne = Math.max(...inside.map((w) => w.end));
-            setTimes(row, Math.round(ns * 1000) / 1000, Math.round(ne * 1000) / 1000);
+            H.current.setTimes(row, Math.round(ns * 1000) / 1000, Math.round(ne * 1000) / 1000);
           }
         }
         return;
@@ -1425,9 +1571,9 @@ export function Editor({
           s: () => setPauseOnType((v) => !v),
           p: () => setShowPreview((v) => !v),
           b: () => setFindOpen((v) => !v),
-          g: () => void runRepair(),
-          m: () => void runTighten(),
-          k: () => void runAbsorb(),
+          g: () => void H.current.runRepair(),
+          m: () => void H.current.runTighten(),
+          k: () => void H.current.runAbsorb(),
         };
         const act = actions[e.key.toLowerCase()];
         if (act) {
@@ -1440,81 +1586,160 @@ export function Editor({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTime]);
+  }, []);
 
-  async function save(id: number, text: string, reviewed: boolean | null, next: boolean) {
-    try {
-      const body: Parameters<typeof updateSegment>[1] = { text_final: text };
-      if (reviewed !== null) body.reviewed = reviewed;
-      const updated = await updateSegment(id, body);
-      const nextSegments = segmentsRef.current.map((s) => (s.id === id ? updated : s));
-      segmentsRef.current = nextSegments;
-      setSegments(nextSegments);
-      if (next) {
-        focusSegment(nextWorkTarget(nextSegments, id));
+  /** Patch the local list with server/optimistic rows — no whole-track refetch.
+   *  Known ids are merged in place (keeping client-computed fields like `safe`),
+   *  unknown ids (split's new half) are inserted; removeIds drop rows. The list
+   *  is kept in time order. Untouched row objects keep their identity so
+   *  MemoRow skips them. */
+  function applyRows(changed: Segment[], removeIds: number[] = []) {
+    let list =
+      removeIds.length > 0
+        ? segmentsRef.current.filter((s) => !removeIds.includes(s.id))
+        : segmentsRef.current.slice();
+    for (const row of changed) {
+      const i = list.findIndex((s) => s.id === row.id);
+      if (i >= 0) list[i] = { ...list[i], ...row };
+      else list.push(row as Segment);
+    }
+    list.sort((a, b) => a.start - b.start || a.end - b.end);
+    segmentsRef.current = list;
+    setSegments(list);
+    return list;
+  }
+
+  /** serialize background PUTs per segment so they land in typing order */
+  function queueSave(id: number, task: () => Promise<void>): Promise<void> {
+    const prev = saveQueuesRef.current.get(id) ?? Promise.resolve();
+    const next = prev.then(task, task);
+    saveQueuesRef.current.set(id, next);
+    return next;
+  }
+
+  // Optimistic: the UI (and Enter's jump to the next cue) reacts instantly;
+  // the PUT runs in the background and the server row reconciles when it lands.
+  function save(id: number, text: string, reviewed: boolean | null, next: boolean): Promise<void> {
+    const before = segmentsRef.current.find((s) => s.id === id);
+    if (!before) return Promise.resolve();
+    const changed =
+      text !== displayText(before) || (reviewed !== null && reviewed !== before.reviewed);
+    if (changed) {
+      pushTextUndo(before);
+      applyRows([
+        { ...before, text_final: text, ...(reviewed !== null ? { reviewed } : {}) },
+      ]);
+    }
+    if (next) focusSegment(nextWorkTarget(segmentsRef.current, id));
+    if (!changed) return Promise.resolve();
+    const body: Parameters<typeof updateSegment>[1] = { text_final: text };
+    if (reviewed !== null) body.reviewed = reviewed;
+    return queueSave(id, async () => {
+      try {
+        const updated = await updateSegment(id, body);
+        applyRows([updated]);
+      } catch (e) {
+        applyRows([before]); // roll the optimistic edit back
+        setError(String(e));
       }
-    } catch (e) {
-      setError(String(e));
-    }
+    });
   }
 
-  async function timeChange(seg: Segment, field: "start" | "end", value: number) {
-    try {
-      pushUndo("시간 조정");
-      await updateSegment(seg.id, { [field]: Math.max(0, Math.round(value * 1000) / 1000) });
-      const nextSegments = await fetchSegments(videoId, lang);
-      segmentsRef.current = nextSegments;
-      setSegments(nextSegments);
-      setStatusMsg("시간 조정됨 - Ctrl+Z로 되돌릴 수 있습니다");
-    } catch (e) {
-      setError(String(e));
+  // Optimistic nudge (◀▶ / time field): clamp locally exactly like the server
+  // (independent resize, walled at the neighbour), then reconcile in background.
+  function timeChange(seg: Segment, field: "start" | "end", value: number) {
+    const list = segmentsRef.current;
+    const i = list.findIndex((s) => s.id === seg.id);
+    if (i < 0) return;
+    const before = list[i];
+    pushOpUndo("시간 조정", [before]);
+    const v = Math.max(0, Math.round(value * 1000) / 1000);
+    const optimistic = { ...before };
+    if (field === "start") {
+      const lo = i > 0 ? list[i - 1].end : 0;
+      optimistic.start = Math.round(Math.min(Math.max(v, lo), before.end - 0.1) * 1000) / 1000;
+    } else {
+      const hi = i < list.length - 1 ? list[i + 1].start : v;
+      optimistic.end = Math.round(Math.max(Math.min(v, hi), before.start + 0.1) * 1000) / 1000;
     }
+    applyRows([optimistic]);
+    setStatusMsg("시간 조정됨 - Alt+Z로 되돌릴 수 있습니다");
+    void queueSave(seg.id, async () => {
+      try {
+        const updated = await updateSegment(seg.id, { [field]: v });
+        applyRows([updated]);
+      } catch (e) {
+        applyRows([before]);
+        setError(String(e));
+      }
+    });
   }
 
-  // timeline-strip edge drag: hybrid neighbour push (see edge_drag endpoint)
+  // timeline-strip edge drag: hybrid neighbour push (see edge_drag endpoint).
+  // The response carries the changed rows (this cue + maybe the pushed
+  // neighbour) — patch them in, no track refetch.
   async function edgeDragCommit(seg: Segment, which: "start" | "end", time: number) {
     try {
-      pushUndo("시간 조정");
-      await edgeDrag(seg.id, which, Math.max(0, Math.round(time * 1000) / 1000));
-      const nextSegments = await fetchSegments(videoId, lang);
-      segmentsRef.current = nextSegments;
-      setSegments(nextSegments);
-      setStatusMsg("시간 조정됨 - Ctrl+Z로 되돌릴 수 있습니다");
+      // let any queued background PUT for this segment land first (ordering)
+      await (saveQueuesRef.current.get(seg.id) ?? Promise.resolve());
+      const list = segmentsRef.current;
+      const i = list.findIndex((s) => s.id === seg.id);
+      const neighbour = which === "start" ? list[i - 1] : list[i + 1];
+      pushOpUndo("시간 조정", neighbour ? [list[i], neighbour] : [list[i]]);
+      const r = await edgeDrag(seg.id, which, Math.max(0, Math.round(time * 1000) / 1000));
+      applyRows(r.segments);
+      setStatusMsg("시간 조정됨 - Alt+Z로 되돌릴 수 있습니다");
     } catch (e) {
       setError(String(e));
     }
   }
 
   // set both bounds at once (speech-map drag / 발화 맞춤) — one undo step
-  async function setTimes(seg: Segment, start: number, end: number) {
-    try {
-      pushUndo("시간 맞춤");
-      await updateSegment(seg.id, {
-        start: Math.max(0, start),
-        end: Math.max(start + 0.1, end),
-      });
-      const nextSegments = await fetchSegments(videoId, lang);
-      segmentsRef.current = nextSegments;
-      setSegments(nextSegments);
-      setStatusMsg("발화 구간에 맞췄습니다 - Ctrl+Z로 되돌릴 수 있습니다");
-    } catch (e) {
-      setError(String(e));
-    }
+  function setTimes(seg: Segment, start: number, end: number) {
+    const list = segmentsRef.current;
+    const i = list.findIndex((s) => s.id === seg.id);
+    if (i < 0) return;
+    const before = list[i];
+    pushOpUndo("시간 맞춤", [before]);
+    const lo = i > 0 ? list[i - 1].end : 0;
+    const hi = i < list.length - 1 ? list[i + 1].start : Math.max(start + 0.1, end);
+    const ns = Math.min(Math.max(Math.max(0, start), lo), before.end - 0.1);
+    const optimistic = {
+      ...before,
+      start: Math.round(ns * 1000) / 1000,
+      end: Math.round(Math.max(Math.min(Math.max(start + 0.1, end), hi), ns + 0.1) * 1000) / 1000,
+    };
+    applyRows([optimistic]);
+    setStatusMsg("발화 구간에 맞췄습니다 - Alt+Z로 되돌릴 수 있습니다");
+    void queueSave(seg.id, async () => {
+      try {
+        const updated = await updateSegment(seg.id, {
+          start: Math.max(0, start),
+          end: Math.max(start + 0.1, end),
+        });
+        applyRows([updated]);
+      } catch (e) {
+        applyRows([before]);
+        setError(String(e));
+      }
+    });
   }
 
   async function timing(action: "start-here" | "next-here", seg: Segment, atTime?: number) {
     try {
-      const t = atTime ?? currentTime;
-      pushUndo(action === "start-here" ? "시작 맞춤" : "넘김 맞춤");
-      if (action === "start-here") {
-        await boundaryPrev(seg.id, t);
-      } else {
-        await boundaryNext(seg.id, t);
-      }
-      const nextSegments = await fetchSegments(videoId, lang);
-      segmentsRef.current = nextSegments;
-      setSegments(nextSegments);
-      setStatusMsg("경계가 맞춰졌습니다 - Ctrl+Z로 되돌릴 수 있습니다");
+      const t = atTime ?? currentTimeRef.current;
+      await (saveQueuesRef.current.get(seg.id) ?? Promise.resolve());
+      const list = segmentsRef.current;
+      const i = list.findIndex((s) => s.id === seg.id);
+      const neighbour = action === "start-here" ? list[i - 1] : list[i + 1];
+      pushOpUndo(
+        action === "start-here" ? "시작 맞춤" : "넘김 맞춤",
+        neighbour ? [list[i], neighbour] : [list[i]],
+      );
+      const r =
+        action === "start-here" ? await boundaryPrev(seg.id, t) : await boundaryNext(seg.id, t);
+      applyRows(r.segments);
+      setStatusMsg("경계가 맞춰졌습니다 - Alt+Z로 되돌릴 수 있습니다");
     } catch (e) {
       setError(String(e));
     }
@@ -1523,18 +1748,31 @@ export function Editor({
   async function structure(action: "split" | "merge" | "delete", seg: Segment, position?: number) {
     try {
       const label = action === "split" ? "나누기" : action === "merge" ? "합치기" : "삭제";
-      pushUndo(label);
-      if (action === "split") await splitSegment(seg.id, position ?? 0);
-      else if (action === "merge") await mergeNext(seg.id);
-      else await deleteSegment(seg.id);
-      const nextSegments = await fetchSegments(videoId, lang);
-      segmentsRef.current = nextSegments;
-      setSegments(nextSegments);
-      if (action === "delete") focusSegment(nextTimelineTarget(nextSegments, seg));
+      await (saveQueuesRef.current.get(seg.id) ?? Promise.resolve());
+      const list = segmentsRef.current;
+      const i = list.findIndex((s) => s.id === seg.id);
+      if (i < 0) return;
+      const before = list[i];
+      if (action === "split") {
+        const r = await splitSegment(seg.id, position ?? 0);
+        // undo deletes the created right half and restores the original row
+        pushOpUndo(label, [before], r.segments.slice(1).map((s) => s.id));
+        applyRows(r.segments);
+      } else if (action === "merge") {
+        const nxt = list[i + 1];
+        const r = await mergeNext(seg.id);
+        pushOpUndo(label, nxt ? [before, nxt] : [before]);
+        applyRows(r.segments, r.deleted_id != null ? [r.deleted_id] : []);
+      } else {
+        const r = await deleteSegment(seg.id);
+        pushOpUndo(label, [before]);
+        const nextSegments = applyRows([], [r.deleted_id]);
+        focusSegment(nextTimelineTarget(nextSegments, seg));
+      }
       setStatusMsg(
         action === "delete"
-          ? "자막을 지웠습니다 - Ctrl+Z로 바로 복구할 수 있습니다"
-          : `${label} 완료 - Ctrl+Z로 되돌릴 수 있습니다`,
+          ? "자막을 지웠습니다 - Alt+Z로 바로 복구할 수 있습니다"
+          : `${label} 완료 - Alt+Z로 되돌릴 수 있습니다`,
       );
     } catch (e) {
       setError(String(e));
@@ -1542,7 +1780,7 @@ export function Editor({
   }
 
   async function refreshSegments() {
-    const next = await fetchSegments(videoId, lang);
+    const next = await fetchSegments(videoId, langRef.current);
     segmentsRef.current = next;
     setSegments(next);
   }
@@ -1869,7 +2107,7 @@ export function Editor({
           <button
             className="undo-mini"
             disabled={!undoStack.length}
-            title="되돌리기 (Ctrl+Z)"
+            title="방금 작업 하나 되돌리기 (Alt+Z)"
             onClick={() => void undoLast()}
           >
             ↶
@@ -2119,15 +2357,17 @@ export function Editor({
                 </span>
               </div>
             )}
-            {segments.map((seg) => (
-            <Row
+            {segments.map((seg, i) => (
+            <MemoRow
               key={seg.id}
               seg={seg}
               active={seg.id === activeId}
               focused={seg.id === focusedId}
               preview={showPreview}
-              currentTime={currentTime}
-              hasNext={segments.some((s) => s.job_id === seg.job_id && s.idx === seg.idx + 1)}
+              // only the row that actually shows the playhead re-renders per
+              // player tick — the rest get a constant and MemoRow skips them
+              currentTime={seg.id === activeId || seg.id === focusedId ? currentTime : -1}
+              hasNext={i < segments.length - 1}
               koRef={
                 isKo
                   ? undefined
@@ -2137,25 +2377,18 @@ export function Editor({
                       .join(" ")
                       .trim() || undefined
               }
-              words={isKo || forked ? words : []}
-              register={(h) => {
-                if (h) rowsRef.current.set(seg.id, h);
-                else rowsRef.current.delete(seg.id);
-              }}
-              onSeek={seekTo}
-              onSave={save}
-              onTime={timeChange}
-              onSetTimes={setTimes}
-              onTiming={timing}
-              onStructure={structure}
-              onTyping={() => {
-                if (pauseOnType && playing) pause();
-              }}
-              onFocusRow={markFocused}
-              onOpenRow={focusSegment}
-              onDragActive={(a) => {
-                dragFreezeRef.current = a;
-              }}
+              words={words}
+              onRegister={onRegisterCb}
+              onSeek={onSeekCb}
+              onSave={onSaveCb}
+              onTime={onTimeCb}
+              onSetTimes={onSetTimesCb}
+              onTiming={onTimingCb}
+              onStructure={onStructureCb}
+              onTyping={onTypingCb}
+              onFocusRow={onFocusRowCb}
+              onOpenRow={onOpenRowCb}
+              onDragActive={onDragActiveCb}
             />
             ))}
           </>

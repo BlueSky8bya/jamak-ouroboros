@@ -623,10 +623,16 @@ class SegmentSnapshot(BaseModel):
     flagged: bool = False
     llm_uncertain: bool = False
     reviewed: bool = False
+    edited: bool = False
+    low_conf: str = ""
 
 
-class RestoreSegmentsBody(BaseModel):
-    segments: list[SegmentSnapshot]
+class RestoreRowsBody(BaseModel):
+    """One editor undo step: put these rows back exactly as they were, and
+    delete the rows the undone operation created."""
+
+    upsert: list[SegmentSnapshot]
+    delete_ids: list[int] = []
 
 
 def _work_text(seg: Segment) -> str:
@@ -644,6 +650,16 @@ def _cps(seg: Segment) -> float:
     text = re.sub(r"\s+", "", _work_text(seg))
     dur = max(0.1, seg.end - seg.start)
     return len(text) / dur
+
+
+def _seg_payload(seg: Segment) -> dict:
+    """Segment dict for mutation responses. Mirrors get_segments' shape minus
+    `safe` (needs a glossary scan — too heavy per keystroke; the client keeps
+    its previous value by merging this over the old row)."""
+    d = seg.model_dump()
+    d["suspect"] = _suspect_words(seg)
+    d["too_fast"] = _cps(seg) > TOO_FAST_CPS
+    return d
 
 
 def _suspect_words(seg: Segment) -> str:
@@ -953,57 +969,81 @@ def replace_text(video_id: str, body: ReplaceBody, lang: str = "ko") -> dict:
     return {"matches": matches, "segments": seg_hits, "applied": body.apply}
 
 
-@app.post("/api/jobs/{video_id}/segments/restore")
-def restore_segments(video_id: str, body: RestoreSegmentsBody, lang: str = "ko") -> list[dict]:
-    """Restore one editor undo snapshot for ONE track's segment list."""
-    if not body.segments:
-        raise HTTPException(400, "empty segment snapshot")
+@app.post("/api/jobs/{video_id}/segments/restore-rows")
+def restore_rows(video_id: str, body: RestoreRowsBody, lang: str = "ko") -> list[dict]:
+    """Undo ONE editor operation by restoring only the rows it touched.
+
+    Replaces the old whole-track snapshot restore: that deleted and reinserted
+    every segment of the track, so one reviewer's undo silently wiped whatever
+    a concurrent reviewer had just edited elsewhere in the same video. This
+    endpoint upserts the operation's before-rows and deletes the rows the
+    operation created — other rows are never rewritten.
+
+    idx is then renormalized across the track (ordered by start) because
+    split/merge/delete shift the tail and _next/_previous_segment require a
+    dense idx sequence.
+    """
+    if not body.upsert and not body.delete_ids:
+        raise HTTPException(400, "empty undo step")
     with get_session() as session:
         job = session.exec(select(Job).where(Job.video_id == video_id)).first()
         if job is None:
             raise HTTPException(404, f"no job for {video_id}")
 
-        # Translations of ids the snapshot KEEPS stay valid (reinserted with the
-        # same id) — do not touch those, so a ko structural undo never wipes
-        # reviewed translation work. But translations of ids the undo DROPS must
-        # be deleted, not orphaned: Segment.id is a reused rowid, so a later
-        # insert would reattach the dead translation to an unrelated cue and
-        # export it (same protection as merge_next/delete_segment).
-        current_ids = set(
-            session.exec(
-                select(Segment.id).where(
-                    Segment.job_id == job.id, Segment.lang == lang
-                )
-            ).all()
-        )
-        surviving_ids = {s.id for s in body.segments if s.id is not None}
-        dropped_ids = current_ids - surviving_ids
-        if dropped_ids:
-            session.exec(
-                sql_delete(Translation).where(Translation.segment_id.in_(dropped_ids))
+        # rows created by the undone op (e.g. split's right half) — delete their
+        # translations too: Segment.id is a reused rowid, an orphan would
+        # reattach to an unrelated cue later (same protection as delete_segment)
+        if body.delete_ids:
+            own_ids = set(
+                session.exec(
+                    select(Segment.id).where(
+                        Segment.job_id == job.id,
+                        Segment.lang == lang,
+                        Segment.id.in_(body.delete_ids),
+                    )
+                ).all()
             )
-        session.exec(
-            sql_delete(Segment).where(Segment.job_id == job.id, Segment.lang == lang)
-        )
+            if own_ids:
+                session.exec(
+                    sql_delete(Translation).where(Translation.segment_id.in_(own_ids))
+                )
+                session.exec(sql_delete(Segment).where(Segment.id.in_(own_ids)))
 
-        for i, snap in enumerate(sorted(body.segments, key=lambda s: s.idx)):
-            session.add(
-                Segment(
-                    id=snap.id,
-                    job_id=job.id,
-                    lang=lang,
-                    idx=i,
-                    start=round(max(0.0, snap.start), 3),
-                    end=round(max(snap.start + 0.1, snap.end), 3),
-                    text_whisper=snap.text_whisper,
-                    text_youtube=snap.text_youtube,
-                    text_llm=snap.text_llm,
-                    text_final=snap.text_final,
-                    flagged=snap.flagged,
-                    llm_uncertain=snap.llm_uncertain,
-                    reviewed=snap.reviewed,
-                )
-            )
+        for snap in body.upsert:
+            row = session.get(Segment, snap.id) if snap.id is not None else None
+            if row is not None and (row.job_id != job.id or row.lang != lang):
+                raise HTTPException(400, "snapshot row belongs to another track")
+            if row is None:
+                # the op deleted this row (delete/merge undo) — reinsert with
+                # its original id so surviving translations stay attached
+                row = Segment(id=snap.id, job_id=job.id, lang=lang, idx=snap.idx)
+            row.idx = snap.idx
+            row.start = round(max(0.0, snap.start), 3)
+            row.end = round(max(snap.start + 0.1, snap.end), 3)
+            row.text_whisper = snap.text_whisper
+            row.text_youtube = snap.text_youtube
+            row.text_llm = snap.text_llm
+            row.text_final = snap.text_final
+            row.flagged = snap.flagged
+            row.llm_uncertain = snap.llm_uncertain
+            row.reviewed = snap.reviewed
+            row.edited = snap.edited
+            row.low_conf = snap.low_conf
+            session.add(row)
+        session.flush()
+
+        # renormalize idx by time order (segments never overlap — every timing
+        # op clamps at the neighbour, so start order == cue order)
+        track = session.exec(
+            select(Segment)
+            .where(Segment.job_id == job.id, Segment.lang == lang)
+            .order_by(Segment.start, Segment.end, Segment.id)
+        ).all()
+        for i, s in enumerate(track):
+            if s.idx != i:
+                s.idx = i
+                session.add(s)
+
         job.status, job.updated_at = "reviewing", utcnow()
         session.add(job)
         session.commit()
@@ -1049,7 +1089,7 @@ def update_segment(segment_id: int, body: SegmentUpdate) -> dict:
         session.add(job)
         session.commit()
         session.refresh(seg)
-        return seg.model_dump()
+        return _seg_payload(seg)
 
 
 def _display_text(seg: Segment) -> str:
@@ -1151,26 +1191,29 @@ def split_segment(segment_id: int, body: SplitBody) -> dict:
         seg.text_final = left
         seg.end = mid
         session.add(seg)
-        session.add(
-            Segment(
-                job_id=seg.job_id,
-                lang=seg.lang,
-                idx=seg.idx + 1,
-                start=mid,
-                end=old_end,
-                # machine texts stay on the left piece; diff-noise from the
-                # split is filtered by feedback.extract_pairs' size cap
-                text_final=right,
-                flagged=seg.flagged,
-                llm_uncertain=seg.llm_uncertain,
-                # both halves derive from the same (possibly edited) text — carry
-                # the edited flag so a forked human edit stays protected
-                edited=seg.edited,
-            )
+        right_seg = Segment(
+            job_id=seg.job_id,
+            lang=seg.lang,
+            idx=seg.idx + 1,
+            start=mid,
+            end=old_end,
+            # machine texts stay on the left piece; diff-noise from the
+            # split is filtered by feedback.extract_pairs' size cap
+            text_final=right,
+            flagged=seg.flagged,
+            llm_uncertain=seg.llm_uncertain,
+            # both halves derive from the same (possibly edited) text — carry
+            # the edited flag so a forked human edit stays protected
+            edited=seg.edited,
         )
+        session.add(right_seg)
         # stale translations regenerate via source_hash on next export
         session.commit()
-    return {"ok": True}
+        session.refresh(seg)
+        session.refresh(right_seg)
+        # affected rows so the client patches locally instead of refetching the
+        # whole track (also gives undo the created row's id)
+        return {"segments": [_seg_payload(seg), _seg_payload(right_seg)]}
 
 
 @app.post("/api/segments/{segment_id}/merge-next")
@@ -1215,6 +1258,7 @@ def merge_next(segment_id: int) -> dict:
             else:
                 tr.segment_id = seg.id
                 session.add(tr)
+        nxt_id = nxt.id
         session.delete(nxt)
         tail = session.exec(
             select(Segment).where(
@@ -1227,7 +1271,8 @@ def merge_next(segment_id: int) -> dict:
             t.idx -= 1
             session.add(t)
         session.commit()
-    return {"ok": True}
+        session.refresh(seg)
+        return {"segments": [_seg_payload(seg)], "deleted_id": nxt_id}
 
 
 class BoundaryBody(BaseModel):
@@ -1262,7 +1307,10 @@ def boundary_prev(segment_id: int, body: BoundaryBody) -> dict:
         job.status, job.updated_at = "reviewing", utcnow()
         session.add(job)
         session.commit()
-    return {"ok": True}
+        changed = [seg] if prev is None else [prev, seg]
+        for s in changed:
+            session.refresh(s)
+        return {"segments": [_seg_payload(s) for s in changed]}
 
 
 @app.post("/api/segments/{segment_id}/boundary-next")
@@ -1292,7 +1340,10 @@ def boundary_next(segment_id: int, body: BoundaryBody) -> dict:
         job.status, job.updated_at = "reviewing", utcnow()
         session.add(job)
         session.commit()
-    return {"ok": True}
+        changed = [seg] if nxt is None else [seg, nxt]
+        for s in changed:
+            session.refresh(s)
+        return {"segments": [_seg_payload(s) for s in changed]}
 
 
 @app.post("/api/segments/{segment_id}/edge-drag")
@@ -1313,6 +1364,7 @@ def edge_drag(segment_id: int, which: str, body: BoundaryBody) -> dict:
         if seg is None:
             raise HTTPException(404, "segment not found")
 
+        changed = [seg]
         if which == "start":
             hi = seg.end - 0.1  # can't cross this cue's own end
             t = min(body.time, hi)
@@ -1322,6 +1374,7 @@ def edge_drag(segment_id: int, which: str, body: BoundaryBody) -> dict:
                 t = round(min(max(t, prev.start + 0.1), hi), 3)
                 prev.end = t
                 session.add(prev)
+                changed.insert(0, prev)
             else:
                 t = round(max(t, 0.0), 3)  # free in the gap before prev.end
             seg.start = t
@@ -1334,6 +1387,7 @@ def edge_drag(segment_id: int, which: str, body: BoundaryBody) -> dict:
                 t = round(min(max(t, lo), nxt.end - 0.1), 3)
                 nxt.start = t
                 session.add(nxt)
+                changed.append(nxt)
             else:
                 t = round(t, 3)  # free in the gap after this end
             seg.end = t
@@ -1343,7 +1397,9 @@ def edge_drag(segment_id: int, which: str, body: BoundaryBody) -> dict:
         job.status, job.updated_at = "reviewing", utcnow()
         session.add(job)
         session.commit()
-    return {"ok": True}
+        for s in changed:
+            session.refresh(s)
+        return {"segments": [_seg_payload(s) for s in changed]}
 
 
 @app.post("/api/segments/{segment_id}/redistribute-next")
@@ -1366,7 +1422,9 @@ def redistribute_next(segment_id: int) -> dict:
         job.status, job.updated_at = "reviewing", utcnow()
         session.add(job)
         session.commit()
-    return {"ok": True}
+        session.refresh(seg)
+        session.refresh(nxt)
+        return {"segments": [_seg_payload(seg), _seg_payload(nxt)]}
 
 
 @app.delete("/api/segments/{segment_id}")
@@ -1391,7 +1449,7 @@ def delete_segment(segment_id: int) -> dict:
             t.idx -= 1
             session.add(t)
         session.commit()
-    return {"ok": True}
+    return {"deleted_id": segment_id}
 
 
 def _safe_filename(title: str) -> str:

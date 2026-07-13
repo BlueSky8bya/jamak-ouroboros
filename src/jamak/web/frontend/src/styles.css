@@ -796,6 +796,25 @@ button {
 }
 .reset-chip:hover { border-color: var(--rose); color: var(--rose); }
 
+/* "내 담당만" — one-click filter to the reviewer's own videos */
+.mine-chip {
+  padding: 6px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mine-chip:hover { border-color: var(--blue-ink); color: var(--blue-ink); }
+.mine-chip.on {
+  border-color: var(--blue-ink);
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+}
+
 /* ===== header actions + shortcut help popover ===== */
 .header-actions { display: flex; align-items: center; gap: 8px; }
 .help-btn {
