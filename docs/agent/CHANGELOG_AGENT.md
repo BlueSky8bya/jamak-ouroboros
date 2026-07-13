@@ -10,6 +10,9 @@ Validation: scratch SQLite 스모크 — 긴 문장 60행 practice Job이 budget
 Change: `endTour()`가 이탈·완주 구분 없이 완료 플래그를 써서 중도 포기 코스도 메뉴에 ✓ 표시(Codex 감사). `endTour(markDone)`으로 분리 — onExit=false(플래그 안 씀), onFinish=true. 건너뛰기로 마지막 단계 도달 후 완료는 유지(의식적 완주 간주). 부수: 코스6 📚 학습 버블에 "연습 영상은 0개가 정상" 문구(absorb no-op을 고장으로 오해 방지).
 Validation: 프론트 빌드 클린(tsc+vite). 실브라우저 회귀는 다음 배포 확인에 포함.
 
+### (문서) PLAN.md v3 — Codex 감사 2라운드 15 finding 처리
+2차 감사(1차 처리의 재검수)에서 해소 확인 11건 + 신규 15건 → §10 처리표. 수용: practice 지정 시점을 등록 직후로(리허설 중 학습 누수 — 진짜 구멍), 앵커 {t, focus}(seek는 focused row를 안 바꿈), PracticeSnapshot 생명주기(source_rev·재인식 무효화·결함 주입 멱등), reset 경합 가드(저장 큐 flush+undo 초기화+ko 단일 트랙 계약), practice_course 부분 UNIQUE 인덱스, Editor key={videoId} 재마운트+플레이어 ready 게이트, tourEvent 서버 변이 전수 분류, 웅얼 빈 행 predicate, Remotion staticFile/public 계약(P2 착수 조건), 캐시 키 확장+"합성 호출 0회" 기준(P2 착수 조건), 자식 프로세스 cp949 캡처. 부분 수용: 동시 연습은 lease 대신 소프트 가드(10분 편집 감지 409)+운영 규칙, 확대 검증은 버블 중앙 폴백 코드로 갈음. 기각: LlmCache practice namespace(캐시=메모이제이션, 무해 — §6-11 명시).
+
 ### (문서) PLAN.md v2 — Codex 감사 20개 finding 처리
 docs/tutorial/PLAN.md 전면 개정: PCM 샘플 오프셋 렌더 계약, Remotion `practice-N` id+calculateMetadata, edge-tts 재현성(버전 고정·캐시·재시도·atomic), 스냅샷·초기화(`PracticeSnapshot`+practice-reset — 다중 사용자 연습 재료 보호), 코스5 결정적 결함 주입, timing.json 기반 seek 앵커, tourEvent 성공 후 발생(P4), YouTube 단일 장애점(체크리스트+onError 게이트), 미끼별 predicate 표(화면 초안 기준, hotwords 충돌 경고), 완료 기준 측정화, 76대사 정정, README supersede. §9에 finding별 수용/부분 수용/기각 기록.
 

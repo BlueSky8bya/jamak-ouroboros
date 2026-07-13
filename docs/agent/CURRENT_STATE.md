@@ -17,7 +17,7 @@ Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATI
 - **따라하기 투어 6코스** (v0.3.5→v0.4.0~2): 실제 동작해야 진행(`tourEvent` 훅 ~28곳), 🎓 코스 메뉴 + 완료 ✓(localStorage `jamak.tour.<id>`), 주요 단축키·기능 커버리지 100%(MAPPING.md). 중도 이탈("그만 볼래요")은 완료로 기록 안 함(v0.4.3).
 - **연습용 영상**(`Job.practice`): 관리자 🎓 지정, 에디터 배너. **모든 학습·평가 경로에서 제외**(v0.4.3, CHG-20260714-005): absorb + 줄길이 학습 + 번역 few-shot + 학습 export 2종 + CER.
 - **클러스터 재번역**(v0.4.1): 🔄 다시 번역이 클릭 셀 + 연속 stale·빈 이웃(±6, edited/fresh에서 중단)을 한 번의 문맥 호출로. 부수 수정: 번역 수동 저장 500(`_hash` import 누락).
-- **연습 영상 파이프라인 계획**: `docs/tutorial/PLAN.md` **v2** (Codex 외부 감사 20 finding 반영 — §9 disposition 표). 다음 작업 = **P2 렌더 파이프라인**(`tools/tutorial-video/`: edge-tts + PCM 합성 + Remotion `practice-1~6` → mp4 6개). 이후 P3 업로드(사용자)→P4 앱 연결(스냅샷·초기화+seek 앵커+tourEvent 성공 후 발생)→P5 리허설(미끼 predicate 표).
+- **연습 영상 파이프라인 계획**: `docs/tutorial/PLAN.md` **v3** (Codex 외부 감사 2라운드 반영 — §9/§10 disposition 표. 2차 핵심 수용: practice 지정을 등록 직후로, 앵커 {t, focus}, 스냅샷 생명주기(source_rev), reset 경합 가드, 부분 UNIQUE 인덱스, key={videoId} 재마운트, staticFile 계약. 기각: lease 테이블, 6코스×3줌 전수 검증, LlmCache namespace). **P2 착수 조건 확정 — P2 착수 가능**. 열린 결정: TTS 목소리(SunHi/InJoon), 접근성 "힌트 보기" P4 포함 여부(Agent 추천: 포함). 이후 P3 업로드(사용자)→P4 앱 연결→P5 리허설.
 
 ## Recent Additions (2026-07-13 — v0.3.3, CHG-20260713-010~011)
 
