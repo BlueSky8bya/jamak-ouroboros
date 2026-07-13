@@ -160,7 +160,7 @@ export async function restoreRows(
 
 export async function updateSegment(
   id: number,
-  body: Partial<Pick<Segment, "text_final" | "start" | "end" | "reviewed">>,
+  body: Partial<Pick<Segment, "text_final" | "start" | "end" | "reviewed" | "review_flag">>,
 ): Promise<Segment> {
   const r = await fetch(`/api/segments/${id}`, {
     method: "PUT",
@@ -311,6 +311,30 @@ export async function repairStt(
 ): Promise<{ repaired: number; no_caption: number; filled: number }> {
   const r = await fetch(`/api/jobs/${videoId}/repair-stt`, { method: "POST" });
   if (!r.ok) throw new Error((await r.json()).detail ?? `repair: ${r.status}`);
+  return r.json();
+}
+
+// one-shot timing cleanup (ADR-0009): snap to speech + split oversized cues +
+// extend too-fast cues into silence. `before`/`created_ids` feed one undo step.
+export interface AutoTimingResult {
+  segments: Segment[];
+  created_ids: number[];
+  before: Segment[];
+  tightened: number;
+  split: number;
+}
+
+export async function autoTiming(videoId: string, lang = "ko"): Promise<AutoTimingResult> {
+  const r = await fetch(`/api/jobs/${videoId}/auto-timing?lang=${lang}`, { method: "POST" });
+  if (!r.ok) {
+    let msg = `auto-timing: ${r.status}`;
+    try {
+      msg = (await r.json()).detail ?? msg;
+    } catch {
+      /* non-JSON */
+    }
+    throw new Error(msg);
+  }
   return r.json();
 }
 

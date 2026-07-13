@@ -603,6 +603,8 @@ class SegmentUpdate(BaseModel):
     start: float | None = None
     end: float | None = None
     reviewed: bool | None = None
+    # "" = clear, "hold" = 잘 안 들림/보류 (ADR-0009)
+    review_flag: str | None = None
 
 
 class ReplaceBody(BaseModel):
@@ -625,6 +627,7 @@ class SegmentSnapshot(BaseModel):
     reviewed: bool = False
     edited: bool = False
     low_conf: str = ""
+    review_flag: str = ""
 
 
 class RestoreRowsBody(BaseModel):
@@ -1029,6 +1032,7 @@ def restore_rows(video_id: str, body: RestoreRowsBody, lang: str = "ko") -> list
             row.reviewed = snap.reviewed
             row.edited = snap.edited
             row.low_conf = snap.low_conf
+            row.review_flag = snap.review_flag
             session.add(row)
         session.flush()
 
@@ -1083,6 +1087,13 @@ def update_segment(segment_id: int, body: SegmentUpdate) -> dict:
             seg.end = round(max(min(body.end, hi), seg.start + 0.1), 3)
         if body.reviewed is not None:
             seg.reviewed = body.reviewed
+            # confirming a cue resolves its 잘 안 들림/보류 marker (ADR-0009)
+            if body.reviewed:
+                seg.review_flag = ""
+        if body.review_flag is not None:
+            if body.review_flag not in ("", "hold"):
+                raise HTTPException(400, "review_flag must be '' or 'hold'")
+            seg.review_flag = body.review_flag
         session.add(seg)
         job = session.get(Job, seg.job_id)
         job.status, job.updated_at = "reviewing", utcnow()
@@ -1867,6 +1878,136 @@ def tighten_timing(video_id: str) -> dict:
                 tightened += 1
         session.commit()
     return {"tightened": tightened, "total": len(segs)}
+
+
+# [WH-CHANGE v0.3.0 | FEAT | 2026-07-13 | CHG-20260713-006]
+# Reason: 타이밍 검수 모드의 "자동 정리" — 검수자가 손대기 전에 기계가 할 수 있는
+#         타이밍 작업(발화 스냅·과길이 분할·읽기속도 연장)을 한 번에 처리.
+# Related: ADR-0009 / CHANGELOG CHG-20260713-006.
+@app.post("/api/jobs/{video_id}/auto-timing")
+def auto_timing(video_id: str, lang: str = "ko") -> dict:
+    """One-shot timing cleanup for a track (ADR-0009): snap every cue to its
+    spoken words, split cues that overflow the 2-line/7s budget at their widest
+    internal pause, and extend too-fast cues into the following silence.
+
+    Deterministic, no GPU/API (uses the cached per-word timestamps). Ouroboros
+    safety: absorb runs FIRST — splitting moves machine text onto the left
+    piece only, so absorbing after a mass split would lose correction pairs.
+    reviewed/review_flag survive a split (the words are unchanged, only the
+    cut), so a text-complete video stays complete. The response carries the
+    before-rows and created ids so the editor can push one undo step
+    (restore-rows) — Alt+Z reverts the whole cleanup.
+    """
+    from ..pipeline.retime import plan_track
+
+    if lang == "ko":
+        # learning is ko-source only; a forked translation track has no
+        # machine↔final diff to absorb
+        from ..feedback import absorb_job
+
+        try:
+            absorb_job(video_id)
+        except ValueError as e:
+            raise HTTPException(404, str(e))
+
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+        raw = _load_stt(video_id, session)
+        if raw is None:
+            raise HTTPException(
+                400,
+                "이 영상은 음성인식 원본(stt.json)이 없어 자동 정리를 할 수 없습니다.",
+            )
+        words: list[tuple[float, float]] = []
+        for s in raw:
+            for w in s.get("words", []):
+                st, en = float(w["start"]), float(w["end"])
+                if en > st:
+                    words.append((st, en))
+        words.sort()
+
+        segs = session.exec(
+            select(Segment)
+            .where(Segment.job_id == job.id, Segment.lang == lang)
+            .order_by(Segment.start, Segment.end, Segment.id)
+        ).all()
+        if not segs:
+            raise HTTPException(400, "이 트랙엔 자막이 없습니다.")
+
+        cues = [
+            {"start": s.start, "end": s.end, "text": _display_text(s)} for s in segs
+        ]
+        plans = plan_track(cues, words)
+
+        before: list[dict] = []
+        changed: list[Segment] = []
+        created: list[Segment] = []
+        tightened = split_count = 0
+        for seg, pieces in zip(segs, plans):
+            first = pieces[0]
+            moved = abs(first.start - seg.start) > 0.01 or abs(first.end - seg.end) > 0.01
+            if len(pieces) == 1 and not moved:
+                continue
+            before.append(seg.model_dump())
+            if moved:
+                tightened += 1
+            seg.start, seg.end = first.start, first.end
+            if len(pieces) > 1:
+                split_count += 1
+                # same semantics as the split endpoint: machine texts stay on
+                # the left piece; each right piece carries only the final text
+                seg.text_final = pieces[0].text or ""
+                for p in pieces[1:]:
+                    created.append(
+                        Segment(
+                            job_id=job.id,
+                            lang=lang,
+                            idx=seg.idx,  # renumbered below
+                            start=p.start,
+                            end=p.end,
+                            text_final=p.text or "",
+                            flagged=seg.flagged,
+                            llm_uncertain=seg.llm_uncertain,
+                            # the words were human-confirmed; only the cut is
+                            # new — keep the review state so ko_complete (and
+                            # the translation gate) don't regress (ADR-0009)
+                            reviewed=seg.reviewed,
+                            edited=seg.edited,
+                            review_flag=seg.review_flag,
+                        )
+                    )
+            session.add(seg)
+            changed.append(seg)
+        for row in created:
+            session.add(row)
+        session.flush()
+
+        # dense idx by time order (same rule as restore_rows)
+        ordered = session.exec(
+            select(Segment)
+            .where(Segment.job_id == job.id, Segment.lang == lang)
+            .order_by(Segment.start, Segment.end, Segment.id)
+        ).all()
+        for i, s in enumerate(ordered):
+            if s.idx != i:
+                s.idx = i
+                session.add(s)
+
+        if changed or created:
+            job.status, job.updated_at = "reviewing", utcnow()
+            session.add(job)
+        session.commit()
+        for s in changed + created:
+            session.refresh(s)
+        return {
+            "segments": [_seg_payload(s) for s in changed + created],
+            "created_ids": [s.id for s in created],
+            "before": before,
+            "tightened": tightened,
+            "split": split_count,
+        }
 
 
 class TimingDoneBody(BaseModel):

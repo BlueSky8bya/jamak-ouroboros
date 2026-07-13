@@ -3231,3 +3231,108 @@ kbd {
   40% { filter: brightness(1.35) saturate(1.2); }
   100% { filter: none; }
 }
+
+/* ---- 검수 모드 탭 + 잘 안 들림 + 자동 정리 (ADR-0009) -------------------- */
+
+/* two big, plain-language tabs — the only navigation an elderly reviewer
+   needs. The active one is unmistakable (filled, bold, check state). */
+.mode-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg);
+  padding: 4px 0 6px;
+}
+.mode-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 2px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease);
+}
+.mode-tab strong { font-size: 1.05rem; color: inherit; }
+.mode-tab span { font-size: 0.78rem; }
+.mode-tab:hover { border-color: var(--blue); }
+.mode-tab.on {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: var(--ink-invert);
+  box-shadow: var(--shadow);
+}
+.mode-tab.on span { color: var(--deep-ink); }
+
+/* 내용 모드의 시간 표시: 방향감만 주는 라벨, 아무것도 만질 수 없음 */
+.time-plain {
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+  font-size: 0.85rem;
+  padding: 2px 6px;
+}
+
+.badge.hold { background: var(--amber-soft); color: var(--amber); }
+
+/* 잘 안 들림 버튼 — 죄책감 없이 넘어가는 큰 탈출구 */
+.hold-btn {
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  padding: 4px 12px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.hold-btn:hover { border-color: var(--amber); color: var(--amber); }
+.hold-btn.on {
+  background: var(--amber-soft);
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+/* 보류 다시 듣기 (진행 히어로 안) */
+.hold-replay {
+  border: 1px dashed var(--amber);
+  border-radius: 10px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  padding: 7px 10px;
+  font-size: 0.88rem;
+  cursor: pointer;
+  width: 100%;
+}
+.hold-replay:hover { filter: brightness(1.04); }
+
+/* 타이밍 모드 문제 큐 바 */
+.issue-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--amber);
+  border-radius: 10px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-size: 0.9rem;
+}
+.issue-bar .issue-next {
+  border: none;
+  border-radius: 8px;
+  background: var(--amber);
+  color: var(--ink-invert);
+  padding: 6px 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.issue-bar .issue-next:hover { filter: brightness(1.08); }

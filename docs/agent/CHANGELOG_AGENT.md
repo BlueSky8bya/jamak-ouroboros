@@ -1,5 +1,17 @@
 # Agent Change Log
 
+## v0.3.0 — 2026-07-13 (검수 모드 분리 + 자동 타이밍, ADR-0009)
+
+### CHG-20260713-007 — FEAT — 에디터 내용/타이밍 모드 + 잘 안 들림 보류 + 흘려듣기
+Change: 에디터에 큰 탭 2개(① 내용 확인 / ② 타이밍) — 기본값은 상태 파생(ko 미완→내용), 잠금 없음. **내용 모드**: TimingStrip·시간 필드·nudge·WordMap·타이밍 도구·구조 버튼·⏩빠름 배지·무음다듬기·타이밍완료 전부 숨김(시간은 읽기전용 라벨). **🙉 잘 안 들림**(Alt+H): `Segment.review_flag`("hold") 토글 → 다음 미검수·미보류로 이동, 확인 시 서버가 자동 해제, 완료는 막힘("남은 건 보류 N개뿐" 표시), 히어로의 "보류 N개 다시 듣기"가 0.75×+구간반복 프리셋으로 재방문. nextWorkTarget이 보류를 뒤로 미룸. **흘려듣기**(내용 모드, 기본 ON): active 자막 중앙 따라 스크롤(preview 센터링 재사용) + 입력칸 밖 Enter=지금 나온 자막 확인(재생 유지). **타이밍 모드**: 문제 자막(⏩빠름·0.35s↓·7s↑) 카운트 + "다음 문제 →" 순회 바. DB는 additive 1컬럼(`review_flag VARCHAR DEFAULT ''`, SQLite/PG 겸용), restore-rows 스냅샷에도 포함(undo가 플래그 안 지움).
+Validation: scratch SQLite(합성 스모크 + 실 스키마 복사본 1067행 마이그레이션 무손실) + 실브라우저(내용 모드 렌더/보류 플로우/탭 전환/타이밍 모드 복귀). 흘려듣기 Enter 실동작·실재생은 인앱 브라우저가 YT iframe 못 열어 DELEGATED(사용자 확인).
+Rollback: 해당 커밋 revert (컬럼은 additive라 잔존해도 무해).
+
+### CHG-20260713-006 — FEAT — ✨ 타이밍 자동 정리 (`POST /auto-timing`)
+Change: `pipeline/retime.py`(순수 계획 함수) + 엔드포인트 — **absorb 먼저**(분할이 machine 텍스트를 왼쪽 조각에만 남겨 교정쌍 유실 방지) → 발화 스냅(/tighten 규칙) → 36자/7초 초과 자막을 내부 최대 침묵에서 재귀 분할(시간비→공백 스냅 텍스트 분할) → 너무 빠른(>17cps) 자막 끝을 뒤 침묵으로 연장(다음 발화 -0.08s·+2s 한도; 분할은 cps를 못 낮추므로 연장이 정답). **분할돼도 reviewed·review_flag 보존**(내용은 동일, 잘리기만 — ko_complete 후퇴 방지). Translation은 원(왼쪽) 행 유지+stale 처리, idx (start,end,id)순 재정규화. 응답에 before-rows+created_ids → 에디터가 pushOpUndo 1스텝으로 **Alt+Z 전체 되돌리기**(restore-rows 재사용, 서버측 스냅샷 테이블 없음). 권한=로그인 사용자(tighten과 일관)+확인 모달.
+Validation: 합성 스모크 20/20(스냅·분할 글자 무손실·reviewed 보존·번역 생존·무겹침·idx dense·undo 원복·재실행) + 실브라우저(844→1264 분할 372·스냅 441, ↶로 844 복귀·보류 유지).
+Rollback: auto-timing/retime 커밋 revert.
+
 ## v0.2.1 — 2026-07-13 (동시편집 안전 + 편집 반응성)
 
 ### CHG-20260713-005 — HARNESS — 프로토콜 260710→260712 마이그레이션 (MODE D)

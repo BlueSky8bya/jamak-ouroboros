@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   absorbFeedback,
+  autoTiming,
   boundaryNext,
   boundaryPrev,
   edgeDrag,
@@ -519,6 +520,7 @@ function Row({
   active,
   focused,
   preview,
+  textMode,
   currentTime,
   hasNext,
   koRef,
@@ -534,12 +536,16 @@ function Row({
   onTyping,
   onFocusRow,
   onOpenRow,
+  onHold,
   onDragActive,
 }: {
   seg: Segment;
   active: boolean;
   focused: boolean;
   preview: boolean;
+  // 내용 검수 모드: hide every timing affordance so the reviewer only ever
+  // decides "is this what was said?" (ADR-0009)
+  textMode: boolean;
   currentTime: number;
   hasNext: boolean;
   koRef?: string;
@@ -556,6 +562,7 @@ function Row({
   onTyping: () => void;
   onFocusRow: (id: number) => void;
   onOpenRow: (seg: Segment) => void;
+  onHold: (seg: Segment) => void;
 }) {
   const [text, setText] = useState(displayText(seg));
   const dirtyRef = useRef(false);
@@ -667,49 +674,59 @@ function Row({
         <button className="time" onClick={() => onPlayFrom(seg.start)} title="이 구간 재생">
           ▶
         </button>
-        <span className="time-edit">
-          {focused && (
-            <button
-              className="nudge-btn"
-              title="시작 0.1초 앞으로"
-              onClick={() => onTime(seg, "start", Math.max(0, seg.start - 0.1))}
-            >
-              ◀
-            </button>
-          )}
-          <TimeField value={seg.start} title="시작 시간" onCommit={(v) => onTime(seg, "start", v)} />
-          {focused && (
-            <button
-              className="nudge-btn"
-              title="시작 0.1초 뒤로"
-              onClick={() => onTime(seg, "start", Math.min(seg.end - 0.1, seg.start + 0.1))}
-            >
-              ▶
-            </button>
-          )}
-        </span>
-        <span className="time-sep">→</span>
-        <span className="time-edit">
-          {focused && (
-            <button
-              className="nudge-btn"
-              title="끝 0.1초 앞으로"
-              onClick={() => onTime(seg, "end", Math.max(seg.start + 0.1, seg.end - 0.1))}
-            >
-              ◀
-            </button>
-          )}
-          <TimeField value={seg.end} title="끝 시간" onCommit={(v) => onTime(seg, "end", v)} />
-          {focused && (
-            <button
-              className="nudge-btn"
-              title="끝 0.1초 뒤로"
-              onClick={() => onTime(seg, "end", seg.end + 0.1)}
-            >
-              ▶
-            </button>
-          )}
-        </span>
+        {textMode ? (
+          // 내용 모드: the time is orientation only — nothing here is editable,
+          // so there is nothing timing-related to worry about
+          <span className="time-plain" title="자막 시간 (타이밍 검수에서 조정)">
+            {fmt(seg.start)}
+          </span>
+        ) : (
+          <>
+            <span className="time-edit">
+              {focused && (
+                <button
+                  className="nudge-btn"
+                  title="시작 0.1초 앞으로"
+                  onClick={() => onTime(seg, "start", Math.max(0, seg.start - 0.1))}
+                >
+                  ◀
+                </button>
+              )}
+              <TimeField value={seg.start} title="시작 시간" onCommit={(v) => onTime(seg, "start", v)} />
+              {focused && (
+                <button
+                  className="nudge-btn"
+                  title="시작 0.1초 뒤로"
+                  onClick={() => onTime(seg, "start", Math.min(seg.end - 0.1, seg.start + 0.1))}
+                >
+                  ▶
+                </button>
+              )}
+            </span>
+            <span className="time-sep">→</span>
+            <span className="time-edit">
+              {focused && (
+                <button
+                  className="nudge-btn"
+                  title="끝 0.1초 앞으로"
+                  onClick={() => onTime(seg, "end", Math.max(seg.start + 0.1, seg.end - 0.1))}
+                >
+                  ◀
+                </button>
+              )}
+              <TimeField value={seg.end} title="끝 시간" onCommit={(v) => onTime(seg, "end", v)} />
+              {focused && (
+                <button
+                  className="nudge-btn"
+                  title="끝 0.1초 뒤로"
+                  onClick={() => onTime(seg, "end", seg.end + 0.1)}
+                >
+                  ▶
+                </button>
+              )}
+            </span>
+          </>
+        )}
         <span className="badges">
           {seg.flagged && (
             <span className="badge flag" title="음성인식과 유튜브 자막이 서로 다르게 들은 구간">
@@ -721,12 +738,17 @@ function Row({
               확인 필요
             </span>
           )}
-          {tooFast && !seg.reviewed && (
+          {tooFast && !seg.reviewed && !textMode && (
             <span
               className="badge fast"
               title={`읽기 속도 ${cps.toFixed(0)}자/초 — 너무 빠릅니다. '나누기'로 쪼개거나 끝시간을 늘려 17자/초 이하로 (시청자가 못 읽음)`}
             >
               ⏩ 빠름 {cps.toFixed(0)}
+            </span>
+          )}
+          {seg.review_flag === "hold" && !seg.reviewed && (
+            <span className="badge hold" title="잘 안 들려서 나중에 다시 듣기로 표시한 자막">
+              🙉 나중에 다시
             </span>
           )}
           {seg.safe && !seg.reviewed && (
@@ -785,7 +807,7 @@ function Row({
         }}
         onBlur={() => void flush()}
       />
-      {focused && words.length > 0 && (
+      {focused && !textMode && words.length > 0 && (
         <WordMap
           seg={seg}
           words={words}
@@ -844,7 +866,16 @@ function Row({
           />
           확인 완료
         </label>
-        {focused && (
+        {textMode && (focused || seg.review_flag === "hold") && (
+          <button
+            className={"hold-btn" + (seg.review_flag === "hold" ? " on" : "")}
+            title="잘 안 들리면 눌러두세요 — 건너뛰고 나중에 다시 들을 수 있어요 (Alt+H)"
+            onClick={() => onHold(seg)}
+          >
+            {seg.review_flag === "hold" ? "🙉 보류 해제" : "🙉 잘 안 들림"}
+          </button>
+        )}
+        {focused && !textMode && (
         <>
         <span className="timing-tools">
           <button
@@ -981,6 +1012,8 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
     title: "모드·도구",
     items: [
+      { keys: ["Enter"], label: "(내용 모드, 입력칸 밖) 지금 나온 자막 확인", detail: "재생 안 멈춤 — 흘려들으며 확인" },
+      { keys: ["Alt+H"], label: "잘 안 들림 — 나중에 다시", detail: "건너뛰고 이어서, 나중에 느리게 다시 듣기" },
       { keys: ["Alt+P"], label: "미리보기 모드", detail: "영상 크게 + 자막 따라 스크롤" },
       { keys: ["Alt+R"], label: "구간 반복 켜기 / 끄기" },
       { keys: ["Alt+S"], label: "편집 시작 시 멈춤 켜기 / 끄기" },
@@ -1024,6 +1057,19 @@ export function Editor({
   // preview (theater) mode: big video + on-video caption + follow-along scroll.
   // off by default — editing is the primary task; turn on for the final watch.
   const [showPreview, setShowPreview] = useState(false);
+  // [WH-CHANGE v0.3.0 | FEAT | 2026-07-13 | CHG-20260713-007]
+  // Reason: 텍스트 검수 중 타이밍 UI가 "지금 고쳐야 하나?" 불안을 만듦 — 고령
+  //         검수자 기준으로 화면을 단계별로 단순화 (내용/타이밍 모드 + 잘 안
+  //         들림 보류 + 흘려듣기).
+  // Related: ADR-0009 / CHANGELOG CHG-20260713-007.
+  // work mode: 내용 검수 hides every timing affordance; 타이밍 검수 is
+  // the full editor. Default derives from where the video is in the flow, but
+  // the tabs never lock — a reviewer can always switch.
+  const [mode, setMode] = useState<"text" | "timing">(koComplete ? "timing" : "text");
+  // 흘려듣기: video keeps playing, the active cue follows centered, Enter (outside
+  // a text box) confirms it — passive listening for long lectures
+  const [follow, setFollow] = useState(() => localStorage.getItem("jamak.follow") !== "0");
+  useEffect(() => localStorage.setItem("jamak.follow", follow ? "1" : "0"), [follow]);
   const [showKeys, setShowKeys] = useState(true);
   const [focusedId, setFocusedId] = useState<number | null>(null);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
@@ -1084,6 +1130,8 @@ export function Editor({
     runRepair,
     runTighten,
     runAbsorb,
+    hold,
+    confirmActive,
     seekTo,
     seekBy,
     play,
@@ -1092,6 +1140,7 @@ export function Editor({
     pauseOnType,
     playing,
     words,
+    mode,
   });
   H.current = {
     save,
@@ -1106,6 +1155,8 @@ export function Editor({
     runRepair,
     runTighten,
     runAbsorb,
+    hold,
+    confirmActive,
     seekTo,
     seekBy,
     play,
@@ -1114,6 +1165,7 @@ export function Editor({
     pauseOnType,
     playing,
     words,
+    mode,
   };
 
   // stable Row props (identity never changes → MemoRow can actually skip)
@@ -1150,6 +1202,7 @@ export function Editor({
   }, []);
   const onFocusRowCb = useCallback((id: number) => H.current.markFocused(id), []);
   const onOpenRowCb = useCallback((seg: Segment) => H.current.focusSegment(seg), []);
+  const onHoldCb = useCallback((seg: Segment) => H.current.hold(seg), []);
   const onDragActiveCb = useCallback((a: boolean) => {
     dragFreezeRef.current = a;
   }, []);
@@ -1278,6 +1331,25 @@ export function Editor({
   const nReviewed = segments.filter((s) => s.reviewed).length;
   const nRemaining = Math.max(0, segments.length - nReviewed);
   const nSafe = segments.filter((s) => s.safe && !s.reviewed).length;
+  const nHold = segments.filter((s) => s.review_flag === "hold" && !s.reviewed).length;
+  const textMode = mode === "text";
+  // 타이밍 모드 문제 큐: cues a human should look at — too fast to read, or an
+  // implausible duration (자동 정리가 대부분 없애고, 남은 것만 순회)
+  const issues = useMemo(
+    () =>
+      segments.filter(
+        (s) => s.too_fast || s.end - s.start > 7.05 || s.end - s.start < 0.34,
+      ),
+    [segments],
+  );
+  function nextIssue() {
+    if (!issues.length) return;
+    const from = focusedIdRef.current;
+    const i = from != null ? segments.findIndex((s) => s.id === from) : -1;
+    const target =
+      segments.slice(i + 1).find((s) => issues.includes(s)) ?? issues[0];
+    focusSegment(target);
+  }
   const reviewedPct = segments.length ? Math.round((nReviewed / segments.length) * 100) : 0;
   const langLabel = langs.find((l) => l.code === lang)?.label ?? lang;
   const isKo = lang === "ko";
@@ -1344,7 +1416,12 @@ export function Editor({
     if (!list.length) return undefined;
     const fromIndex = fromId != null ? list.findIndex((s) => s.id === fromId) : -1;
     const startIndex = fromIndex >= 0 ? fromIndex + 1 : 0;
+    // 보류(잘 안 들림) rows are deliberately postponed — visit every fresh cue
+    // first, and only land on held ones when nothing else is left
+    const fresh = (s: Segment) => !s.reviewed && s.review_flag !== "hold";
     return (
+      list.slice(startIndex).find(fresh) ??
+      list.find(fresh) ??
       list.slice(startIndex).find((s) => !s.reviewed) ??
       list.find((s) => !s.reviewed) ??
       (fromIndex >= 0 ? list[fromIndex + 1] : undefined) ??
@@ -1368,6 +1445,62 @@ export function Editor({
     window.setTimeout(() => rowsRef.current.get(seg.id)?.focus(), 0);
   }
 
+
+  // 잘 안 들림/보류 toggle (ADR-0009): mark, skip to the next fresh cue, come
+  // back later. Confirming a cue clears the flag server-side.
+  function hold(seg: Segment | undefined) {
+    if (!seg || seg.reviewed) return;
+    const before = segmentsRef.current.find((s) => s.id === seg.id);
+    if (!before) return;
+    const flag = before.review_flag === "hold" ? "" : "hold";
+    pushOpUndo(flag ? "보류 표시" : "보류 해제", [before]);
+    applyRows([{ ...before, review_flag: flag }]);
+    void queueSave(seg.id, async () => {
+      try {
+        const updated = await updateSegment(seg.id, { review_flag: flag });
+        applyRows([updated]);
+      } catch (e) {
+        applyRows([before]);
+        setError(String(e));
+      }
+    });
+    if (flag) {
+      setStatusMsg("🙉 나중에 다시 듣기로 표시 — 다음 자막으로");
+      focusSegment(nextWorkTarget(segmentsRef.current, seg.id));
+    } else {
+      setStatusMsg("보류를 해제했습니다");
+    }
+  }
+
+  // 흘려듣기: Enter outside a text box confirms the cue the video is playing,
+  // without pausing — the reviewer just keeps listening
+  function confirmActive() {
+    const segs = segmentsRef.current;
+    const t = currentTimeRef.current;
+    const cur = segs.find((s) => t >= s.start && t < s.end);
+    if (!cur || cur.reviewed) return;
+    void save(cur.id, displayText(cur), true, false);
+    setStatusMsg("확인 완료 ✓ — 계속 재생");
+  }
+
+  // revisit held cues with a listening preset: slower + looped
+  function replayHolds() {
+    const list = segmentsRef.current;
+    const from = focusedIdRef.current;
+    const fromIndex = from != null ? list.findIndex((s) => s.id === from) : -1;
+    const held =
+      list.slice(fromIndex + 1).find((s) => s.review_flag === "hold" && !s.reviewed) ??
+      list.find((s) => s.review_flag === "hold" && !s.reviewed);
+    if (!held) return;
+    setRate(0.75);
+    setLoopSeg(true);
+    // focus WITHOUT grabbing the textarea (focusSegment would fire onTyping →
+    // pause-on-edit and immediately stop the playback we're starting)
+    markFocused(held.id);
+    seekTo(held.start);
+    play();
+    setStatusMsg("보류 자막 — 0.75배속 · 구간반복으로 다시 들려드려요");
+  }
 
   // replay the subtitle you're on, from its start (works while typing)
   function replayCurrent() {
@@ -1494,6 +1627,23 @@ export function Editor({
         return;
       }
 
+      // 흘려듣기 (내용 모드): Enter outside a text box = confirm the cue the
+      // video is playing, without pausing. Inside a text box Enter keeps its
+      // usual meaning (확인+다음) via the textarea handler.
+      if (
+        e.key === "Enter" &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !e.shiftKey &&
+        !e.metaKey &&
+        !isTypingTarget(e.target) &&
+        H.current.mode === "text"
+      ) {
+        e.preventDefault();
+        H.current.confirmActive();
+        return;
+      }
+
       // ===== PLAYBACK & NAVIGATION — arrows and Tab NEVER edit data, so a
       // mis-press or a slipped Shift can only move the playhead/selection =====
       if (e.key === "Tab" && !e.ctrlKey && !e.altKey) {
@@ -1582,6 +1732,7 @@ export function Editor({
           g: () => void H.current.runRepair(),
           m: () => void H.current.runTighten(),
           k: () => void H.current.runAbsorb(),
+          h: () => H.current.hold(currentRow()),
         };
         const act = actions[e.key.toLowerCase()];
         if (act) {
@@ -1888,6 +2039,40 @@ export function Editor({
     }
   }
 
+  // ✨ 자동 정리 (ADR-0009): server does absorb → snap → split → extend and
+  // returns before-rows + created ids, so the whole cleanup is ONE undo step
+  async function runAutoTiming() {
+    if (
+      !window.confirm(
+        "자막 시간을 실제 말소리에 맞추고, 너무 긴 자막은 나누고, 너무 빠른 자막은 표시 시간을 늘립니다.\n" +
+          "글 내용과 확인 완료 상태는 그대로 유지됩니다. Alt+Z(↶)로 전체 되돌릴 수 있어요.\n\n진행할까요?",
+      )
+    )
+      return;
+    await flushAll();
+    try {
+      const r = await autoTiming(videoId, lang);
+      if (r.before.length) {
+        pushEntry({
+          label: "자동 정리",
+          kind: "op",
+          segId: null,
+          focusedId: focusedIdRef.current,
+          upsert: r.before,
+          deleteIds: r.created_ids,
+        });
+      }
+      applyRows(r.segments);
+      setStatusMsg(
+        r.tightened || r.split
+          ? `✨ 자동 정리 완료 — 말소리에 맞춤 ${r.tightened}개 · 나눔 ${r.split}개 (Alt+Z로 되돌리기)`
+          : "이미 잘 정리되어 있습니다",
+      );
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   async function runTighten() {
     await flushAll();
     try {
@@ -2058,6 +2243,19 @@ export function Editor({
               />
               편집 시작 시 멈춤
             </label>
+            {textMode && (
+              <label
+                className="pc-toggle"
+                title="영상을 계속 틀어두면 지금 나오는 자막이 화면 가운데로 따라옵니다. 맞으면 Enter만 누르세요 (확인+계속 재생)"
+              >
+                <input
+                  type="checkbox"
+                  checked={follow}
+                  onChange={(e) => setFollow(e.target.checked)}
+                />
+                🎧 자동 따라가기
+              </label>
+            )}
             <label
               className="pc-toggle"
               title="미리보기(극장) 모드 — 영상을 크게, 자막을 영상 위에 얹고, 재생 중인 자막을 화면 가운데로 따라 스크롤. 최종 확인용 (편집은 끄고) (Alt+P)"
@@ -2085,24 +2283,27 @@ export function Editor({
             <em>{focusedSeg ? `${fmt(focusedSeg.start)} → ${fmt(focusedSeg.end)}` : ""}</em>
           </div>
         </div>
-        <TimingStrip
-          segments={segments}
-          currentTime={currentTime}
-          activeId={activeId}
-          focusedId={focusedId}
-          playing={playing}
-          onSeek={seekTo}
-          onBoundaryDrag={(segId, time, which) => {
-            const seg = segmentsRef.current.find((s) => s.id === segId);
-            // hybrid: free in a gap, pushes the neighbour once it crosses the
-            // shared wall (pull a start earlier than the prev cue's end → that
-            // end follows; drag an end past the next start → that start follows)
-            if (seg) void edgeDragCommit(seg, which, time);
-          }}
-          onDragActive={(a) => {
-            dragFreezeRef.current = a;
-          }}
-        />
+        {/* 내용 모드에선 타임라인 자체를 치움 — 시간을 만질 일이 없다는 시각적 약속 */}
+        {!textMode && (
+          <TimingStrip
+            segments={segments}
+            currentTime={currentTime}
+            activeId={activeId}
+            focusedId={focusedId}
+            playing={playing}
+            onSeek={seekTo}
+            onBoundaryDrag={(segId, time, which) => {
+              const seg = segmentsRef.current.find((s) => s.id === segId);
+              // hybrid: free in a gap, pushes the neighbour once it crosses the
+              // shared wall (pull a start earlier than the prev cue's end → that
+              // end follows; drag an end past the next start → that start follows)
+              if (seg) void edgeDragCommit(seg, which, time);
+            }}
+            onDragActive={(a) => {
+              dragFreezeRef.current = a;
+            }}
+          />
+        )}
         {/* subtle, non-interruptive status (autosave-style) */}
         <div className="statusbar" aria-live="polite">
           <span className={"save-dot" + (statusMsg ? " busy" : "")} />
@@ -2137,9 +2338,24 @@ export function Editor({
                 <span style={{ width: `${reviewedPct}%` }} />
               </div>
               <div className="flow-remain">
-                <span>{nRemaining ? `${nRemaining}개 남음` : "모두 확인 🎉"}</span>
+                <span>
+                  {nRemaining
+                    ? nHold && nRemaining === nHold
+                      ? `남은 건 보류 ${nHold}개뿐`
+                      : `${nRemaining}개 남음${nHold ? ` (보류 ${nHold})` : ""}`
+                    : "모두 확인 🎉"}
+                </span>
                 {eta && <em className="flow-eta">{eta}</em>}
               </div>
+              {nHold > 0 && (
+                <button
+                  className="hold-replay"
+                  title="잘 안 들려서 보류한 자막을 0.75배속 + 구간반복으로 다시 들려드립니다"
+                  onClick={() => replayHolds()}
+                >
+                  🙉 보류 {nHold}개 다시 듣기
+                </button>
+              )}
             </div>
             <button
               className="continue-btn"
@@ -2164,13 +2380,24 @@ export function Editor({
               ✅ 안심 {nSafe}개 확인
             </button>
           )}
-          <button
-            className="tool"
-            title="자막을 실제 발화 시작~끝 구간에 딱 맞춰 다듬어 침묵 구간엔 자막이 안 보이게 함 (텍스트·검수 상태는 그대로, API 사용 안 함) (Alt+M)"
-            onClick={() => void runTighten()}
-          >
-            ✂ 무음 다듬기
-          </button>
+          {!textMode && (
+            <button
+              className="tool accent"
+              title="타이밍을 기계가 먼저 정리 — 말소리에 맞추고, 너무 긴 자막은 나누고, 너무 빠른 자막은 표시 시간을 늘림 (되돌리기 가능)"
+              onClick={() => void runAutoTiming()}
+            >
+              ✨ 타이밍 자동 정리
+            </button>
+          )}
+          {!textMode && (
+            <button
+              className="tool"
+              title="자막을 실제 발화 시작~끝 구간에 딱 맞춰 다듬어 침묵 구간엔 자막이 안 보이게 함 (텍스트·검수 상태는 그대로, API 사용 안 함) (Alt+M)"
+              onClick={() => void runTighten()}
+            >
+              ✂ 무음 다듬기
+            </button>
+          )}
           <button
             className="tool"
             title="음성인식이 놓치거나 잘못 뱉은 구간을 유튜브 자막으로 복구·보충 (API 사용 안 함) (Alt+G)"
@@ -2190,7 +2417,7 @@ export function Editor({
 
         {/* export footer */}
         <div className="export-footer">
-          {(isKo || forked) && (
+          {(isKo || forked) && !textMode && (
             <label
               className={"timing-done" + ((isKo ? timingDone : langTimingDone) ? " on" : "")}
               title="자막 시간(타이밍)까지 조정을 끝냈으면 체크 — 텍스트 검수와 별개로, 트랙(언어)별로 목록에 표시됩니다"
@@ -2269,6 +2496,46 @@ export function Editor({
         </div>
       </div>
       <div className="right">
+        {/* 작업 모드 탭 (ADR-0009) — 큰 글씨, 두 개뿐, 항상 전환 가능 */}
+        {(isKo || forked) && (
+          <div className="mode-tabs" role="tablist" aria-label="검수 단계">
+            <button
+              role="tab"
+              aria-selected={textMode}
+              className={"mode-tab" + (textMode ? " on" : "")}
+              title="말한 내용과 자막 글이 맞는지만 봅니다 — 시간은 신경 쓰지 마세요"
+              onClick={() => setMode("text")}
+            >
+              <strong>① 내용 확인</strong>
+              <span>
+                {segments.length
+                  ? nReviewed === segments.length
+                    ? "완료 ✓"
+                    : `${nReviewed}/${segments.length}`
+                  : ""}
+              </span>
+            </button>
+            <button
+              role="tab"
+              aria-selected={!textMode}
+              className={"mode-tab" + (!textMode ? " on" : "")}
+              title="자막이 뜨고 사라지는 시간을 맞춥니다 — 내용 확인이 끝난 뒤에"
+              onClick={() => setMode("timing")}
+            >
+              <strong>② 타이밍</strong>
+              <span>{(isKo ? timingDone : langTimingDone) ? "완료 ✓" : "자막 시간 맞추기"}</span>
+            </button>
+          </div>
+        )}
+        {/* 타이밍 모드: 남은 문제 자막만 골라 순회 */}
+        {(isKo || forked) && !textMode && issues.length > 0 && (
+          <div className="issue-bar">
+            <span>⏱ 다듬을 자막 {issues.length}개 (너무 빠르거나 길거나 짧음)</span>
+            <button className="issue-next" onClick={() => nextIssue()}>
+              다음 문제 →
+            </button>
+          </div>
+        )}
         {(isKo || forked) && (
           <div className={"findbar" + (findOpen ? " open" : "")}>
             {findOpen ? (
@@ -2371,7 +2638,10 @@ export function Editor({
               seg={seg}
               active={seg.id === activeId}
               focused={seg.id === focusedId}
-              preview={showPreview}
+              // 흘려듣기: follow-along centering reuses the preview behaviour
+              // (active cue centered + expanded) without the theater layout
+              preview={showPreview || (textMode && follow)}
+              textMode={textMode}
               // only the row that actually shows the playhead re-renders per
               // player tick — the rest get a constant and MemoRow skips them
               currentTime={seg.id === activeId || seg.id === focusedId ? currentTime : -1}
@@ -2397,6 +2667,7 @@ export function Editor({
               onTyping={onTypingCb}
               onFocusRow={onFocusRowCb}
               onOpenRow={onOpenRowCb}
+              onHold={onHoldCb}
               onDragActive={onDragActiveCb}
             />
             ))}

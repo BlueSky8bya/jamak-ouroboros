@@ -42,4 +42,5 @@ export interface Segment {
   low_conf?: string; // whisper's least-confident words (fallback when no YouTube)
   suspect?: string; // words to double-check: whisper↔YouTube disagreement (2-engine)
   too_fast?: boolean; // reading speed above the comfortable CPS limit
+  review_flag?: string; // "" | "hold" — 잘 안 들림/보류, cleared on confirm (ADR-0009)
 }

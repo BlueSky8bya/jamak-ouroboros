@@ -1,16 +1,24 @@
 # Current State
 
-Last Updated: 2026-07-13 (프로토콜 260712 마이그레이션 + ▶버튼 재생 픽스)
-Project Version: 0.2.1
+Last Updated: 2026-07-13 (v0.3.0 — 검수 모드 분리 + 자동 타이밍, ADR-0009)
+Project Version: 0.3.0
 Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATION.md)
 
 ## Current Objective
 
-**라이브 운영 중**: https://hky-jamak.com (Railway 앱+Postgres, Singapore 리전). 검수자 다인(≤50명) 동시 협업 안전. 관리자 PC는 영상 만들 때만(`jamak worker`). 다음: 실사용 다회차 검수로 CER 추이 확인, 검수자 실제 온보딩.
+**라이브 운영 중**: https://hky-jamak.com (Railway 앱+Postgres, Singapore 리전). 검수자 다인(≤50명) 동시 협업 안전. 관리자 PC는 영상 만들 때만(`jamak worker`). 다음: 검수자(고령 다수) 실제 온보딩 + 새 내용/타이밍 모드 실사용 피드백, 다회차 검수로 CER 추이 확인.
 
 ## Pending (사용자 액션)
 
-- **▶버튼 실재생 확인** (b8cd8b2 배포됨) — DELEGATED, 사용자 브라우저에서.
+- **v0.3.0 실사용 확인** — DELEGATED (인앱 브라우저가 YT iframe 못 열어 재생 연동 미검증): ① 흘려듣기(영상 재생 중 자막 따라오기 + 입력칸 밖 Enter 확인), ② ▶버튼 실재생(b8cd8b2), ③ 자동 정리 결과가 실제 영상에서 자연스러운지.
+
+## Recent Additions (2026-07-13 — v0.3.0, ADR-0009, CHG-20260713-006~007)
+
+- **검수 모드 2개**: 에디터 상단 큰 탭 ① 내용 확인 / ② 타이밍. 기본값 상태 파생(ko 미완→내용), 잠금 없음. 내용 모드는 타이밍 UI 전부 숨김(시간=읽기전용 라벨) — 고령 검수자 기준 "볼 것만 보이게".
+- **🙉 잘 안 들림(보류)**: `Segment.review_flag`("hold", additive 컬럼) — Alt+H/버튼 → 건너뛰고 뒤로, 확인 시 자동 해제, "남은 건 보류 N개뿐" + 0.75×+구간반복 재청취 프리셋. 보류는 완료를 막음(정직한 완료).
+- **흘려듣기**(내용 모드 기본 ON): 재생 따라 자막 중앙 스크롤 + 입력칸 밖 Enter=확인(안 멈춤).
+- **✨ 타이밍 자동 정리**: absorb→발화 스냅→36자/7초 초과 분할(최대 침묵 지점)→빠른 자막 끝 연장(cps 해법). reviewed 보존, Alt+Z 한 방 되돌리기(restore-rows 재사용). 실브라우저 844→1264→undo 844 검증.
+- **타이밍 문제 큐**: ⏱ 다듬을 자막 N개 + "다음 문제 →" 순회.
 
 ## Recent (2026-07-13 — 폴더 rename asdf→jamak-ouroboros 완료)
 

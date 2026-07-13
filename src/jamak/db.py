@@ -77,6 +77,10 @@ class Segment(SQLModel, table=True):
     # segments track edits via text_final vs stage text, so this is translation-side.
     edited: bool = False
     low_conf: str = ""  # whisper's least-confident words here (comma-sep) — review hint
+    # human review marker (ADR-0009): "" = none, "hold" = 잘 안 들림/보류 — the
+    # reviewer couldn't confirm this segment yet and wants to come back to it.
+    # Cleared automatically when the segment is confirmed (reviewed=True).
+    review_flag: str = ""
 
 
 class Track(SQLModel, table=True):
@@ -244,6 +248,7 @@ def _ensure_columns(engine) -> None:
             "low_conf": "VARCHAR DEFAULT ''",
             "lang": "VARCHAR DEFAULT 'ko'",
             "edited": f"BOOLEAN DEFAULT {bt}",
+            "review_flag": "VARCHAR DEFAULT ''",
         },
     }
     insp = inspect(engine)
