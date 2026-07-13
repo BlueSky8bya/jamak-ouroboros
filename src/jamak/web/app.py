@@ -13,6 +13,7 @@ import secrets
 import subprocess
 import sys
 import re
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -1560,12 +1561,26 @@ def _best_ko(seg: Segment) -> str:
     return seg.text_final or seg.text_llm or seg.text_whisper
 
 
+# one full-track translation at a time per (video, lang). In-memory is enough:
+# the app runs as a single Railway instance, and this only guards the button.
+_translate_running: set[tuple[str, str]] = set()
+_translate_running_guard = threading.Lock()
+
+
 @app.post("/api/jobs/{video_id}/translate")
-def make_translations(video_id: str, lang: str) -> dict:
+def make_translations(video_id: str, lang: str, batch: int = 0) -> dict:
     """Generate (context-aware, cached) translations for every segment.
 
     Gated on the Korean review being complete — translating a draft wastes
     API cost and forces re-translation after the Korean is fixed.
+
+    [WH-CHANGE v0.5.2 | FIX | 2026-07-14 | CHG-20260714-009]
+    Reason: a 2h video (~1500 cues) is ~25 sequential Claude calls; as one
+      synchronous request the Railway proxy times out with a 502 and nothing
+      is committed. `batch` translates only that many uncached cues per
+      request (commit included), so the frontend loops short requests and
+      shows progress; a duplicate click 409s instead of double-spending.
+    Related: CHANGELOG CHG-20260714-009.
     """
     from ..pipeline.translate import LANGUAGES, translate_segments
 
@@ -1604,13 +1619,33 @@ def make_translations(video_id: str, lang: str) -> dict:
             "번역 기능이 이 서버에 아직 설정되지 않았습니다(ANTHROPIC_API_KEY 없음). "
             "관리자에게 문의하세요.",
         )
+    key = (video_id, lang)
+    with _translate_running_guard:
+        if key in _translate_running:
+            raise HTTPException(
+                409, "이 영상의 번역이 이미 진행 중입니다 — 잠시 후 다시 시도하세요."
+            )
+        _translate_running.add(key)
     try:
-        translated = translate_segments(seg_dicts, "ko", lang)
+        translated = translate_segments(
+            seg_dicts, "ko", lang, limit=batch if batch > 0 else None
+        )
     except HTTPException:
         raise
     except Exception as e:  # API/auth/network error -> clean JSON, not a 500
         raise HTTPException(502, f"번역 API 오류: {e}")
-    return {"lang": lang, "translated": len(translated), "segments": len(seg_dicts)}
+    finally:
+        with _translate_running_guard:
+            _translate_running.discard(key)
+    n_sources = sum(1 for d in seg_dicts if (d["ko"] or "").strip())
+    remaining = max(0, n_sources - len(translated))
+    return {
+        "lang": lang,
+        "translated": len(translated),
+        "segments": len(seg_dicts),
+        "remaining": remaining,
+        "done": remaining == 0,
+    }
 
 
 @app.get("/api/jobs/{video_id}/translations")

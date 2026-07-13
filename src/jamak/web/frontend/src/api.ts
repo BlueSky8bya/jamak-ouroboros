@@ -427,8 +427,12 @@ export interface TranslationRow {
 export async function makeTranslations(
   videoId: string,
   lang: string,
-): Promise<{ lang: string; translated: number; segments: number }> {
-  const r = await fetch(`/api/jobs/${videoId}/translate?lang=${lang}`, { method: "POST" });
+  batch = 0, // >0: translate at most this many uncached cues (short request, committed)
+): Promise<{ lang: string; translated: number; segments: number; remaining: number; done: boolean }> {
+  const r = await fetch(
+    `/api/jobs/${videoId}/translate?lang=${lang}${batch > 0 ? `&batch=${batch}` : ""}`,
+    { method: "POST" },
+  );
   if (!r.ok) {
     // the body may be plain text (e.g. a raw 500) — don't crash parsing it as JSON
     let msg = `translate: ${r.status}`;

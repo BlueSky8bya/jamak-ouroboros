@@ -331,10 +331,19 @@ def retranslate_span(
     }
 
 
-def translate_segments(seg_dicts: list[dict], text_key: str, lang: str, console=None) -> dict[int, str]:
+def translate_segments(
+    seg_dicts: list[dict],
+    text_key: str,
+    lang: str,
+    console=None,
+    limit: int | None = None,
+) -> dict[int, str]:
     """Translate segments (given stage text) with per-segment cache.
 
-    Returns {segment_id: translated_text}.
+    Returns {segment_id: translated_text}. `limit` caps how many UNCACHED
+    segments are translated this call (cached ones are always all returned) —
+    the web endpoint uses it to translate long videos in small commits instead
+    of one proxy-timeout-length request.
     """
     sources = {
         d["id"]: (d.get(text_key) or "").strip() for d in seg_dicts if (d.get(text_key) or "").strip()
@@ -376,6 +385,8 @@ def translate_segments(seg_dicts: list[dict], text_key: str, lang: str, console=
             else:
                 todo.append((seg_id, text))
 
+    if todo and limit is not None and limit > 0:
+        todo = todo[:limit]
     if todo:
         budgeted = [
             (sid, txt, max(10, int(17 * dur.get(sid, 3.0)))) for sid, txt in todo

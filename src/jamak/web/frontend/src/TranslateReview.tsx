@@ -136,6 +136,7 @@ export function TranslateReview({
   const [rows, setRows] = useState<TranslationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [translating, setTranslating] = useState(false);
+  const [tprog, setTprog] = useState(""); // "번역됨/전체" while the batch loop runs
   const [error, setError] = useState("");
   const seekTo = onSeek;
 
@@ -161,14 +162,26 @@ export function TranslateReview({
   async function generate() {
     setTranslating(true);
     setError("");
+    setTprog("");
     try {
-      await makeTranslations(videoId, lang);
+      // 60 cues per request = one model call — a 2h video as ONE request blows
+      // past the proxy timeout (502) with nothing saved. Each batch commits,
+      // so an interruption keeps all finished batches.
+      let guard = 0;
+      for (;;) {
+        const r = await makeTranslations(videoId, lang, 60);
+        setTprog(`${r.translated}/${r.segments}`);
+        if (r.done) break;
+        if (++guard > 300) throw new Error("번역 반복 한도 초과 — 다시 시도해주세요");
+      }
       await load();
       onGenerated?.();
     } catch (e) {
       setError(String(e));
+      await load(); // partial batches are already saved — show them
     } finally {
       setTranslating(false);
+      setTprog("");
     }
   }
 
@@ -220,7 +233,11 @@ export function TranslateReview({
           <strong>{langLabel}</strong> 번역이 아직 없습니다. 한국어 원문을 문맥에 맞게 번역합니다.
         </p>
         <button className="export" disabled={translating} onClick={generate}>
-          {translating ? "번역 만드는 중... (1~2분)" : `${langLabel} 번역 만들기`}
+          {translating
+            ? tprog
+              ? `번역 만드는 중... ${tprog}`
+              : "번역 만드는 중..."
+            : `${langLabel} 번역 만들기`}
         </button>
         {error && <div className="error">{error}</div>}
       </div>
