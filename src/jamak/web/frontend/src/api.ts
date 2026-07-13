@@ -442,12 +442,16 @@ export async function makeTranslations(
   return r.json();
 }
 
-// re-translate ONE stale cue in context (원문이 바뀐 셀만 다시 번역)
+// re-translate the clicked cue + the contiguous stale/empty cues around it,
+// in one context-aware call (한국어 재분할 뒤 생긴 빈칸·stale 뭉치를 한 번에)
 export async function retranslateSegment(
   videoId: string,
   lang: string,
   segmentId: number,
-): Promise<{ segment_id: number; text: string; reviewed: boolean; stale: boolean }> {
+): Promise<{
+  updated: { segment_id: number; text: string; reviewed: boolean; stale: boolean }[];
+  count: number;
+}> {
   const r = await fetch(
     `/api/jobs/${videoId}/retranslate?lang=${lang}&segment_id=${segmentId}`,
     { method: "POST" },

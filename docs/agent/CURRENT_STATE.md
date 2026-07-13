@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-14 (v0.4.0 — 따라하기 6코스 + 연습용 영상)
-Project Version: 0.4.0
+Last Updated: 2026-07-14 (v0.4.1 — 클러스터 재번역 + 잘림·저장 500 수정)
+Project Version: 0.4.1
 Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATION.md)
 
 ## Current Objective

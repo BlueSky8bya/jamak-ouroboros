@@ -1665,6 +1665,11 @@ class TranslationUpdate(BaseModel):
 
 @app.put("/api/translations/{segment_id}")
 def update_translation(segment_id: int, lang: str, body: TranslationUpdate) -> dict:
+    # local import to match the module's convention (translate helpers are
+    # imported where used); without it the text-change branch NameError'd →
+    # every manual translation edit 500'd (CHG-20260714-003 during-work find)
+    from ..pipeline.translate import _hash
+
     with get_session() as session:
         seg = session.get(Segment, segment_id)
         if seg is None:
@@ -1702,17 +1707,25 @@ def update_translation(segment_id: int, lang: str, body: TranslationUpdate) -> d
         return {"segment_id": segment_id, "text": t.text, "reviewed": t.reviewed}
 
 
-# [WH-CHANGE v0.3.3 | FEAT | 2026-07-13 | CHG-20260713-010]
-# Reason: 원문(한국어)이 바뀌어 stale 표시된 번역 셀만, 앞뒤 문맥과 함께 한 번의
-#         API 호출로 재번역 — 전체 트랙 재번역 없이 그 셀만 갱신.
-# Related: ADR-0006 / CHANGELOG CHG-20260713-010.
+# [WH-CHANGE v0.4.1 | FEAT | 2026-07-14 | CHG-20260714-003]
+# Reason: 번역 후 한국어를 재분할/재타이밍하면 그 언저리 여러 셀이 한꺼번에
+#         stale/빈칸이 됨 — 클릭한 셀만이 아니라 그 주변의 연속된 stale·빈
+#         셀들을 묶어 한 번의 문맥 번역으로 채움 (셀별 번역은 문장 흐름이 끊김).
+# Related: ADR-0006 / CHANGELOG CHG-20260714-003 (CHG-20260713-010 확장).
 @app.post("/api/jobs/{video_id}/retranslate")
 def retranslate_segment(request: Request, video_id: str, lang: str, segment_id: int) -> dict:
-    """Re-translate ONE cue against the current Korean, with its neighbours as
-    context (the stale-row "다시 번역" button). Overwrites the segment's cached
-    translation with source_hash = current Korean, reviewed=False, edited=False,
-    so it stops showing stale and can be re-confirmed."""
-    from ..pipeline.translate import LANGUAGES, _hash, retranslate_one
+    """Re-translate the clicked cue PLUS the contiguous run of stale/empty
+    neighbours around it, in one context-aware call.
+
+    Cluster rule: starting at the clicked cue, expand left/right while the
+    neighbour needs work — no translation / blank text, or stale (source_hash
+    no longer matches the current Korean) and not human-edited. Human-edited
+    (`edited`) and fresh rows stop the expansion; the clicked cue itself is
+    always included (explicit request wins even over an edited row). Capped at
+    6 cues each side. Every re-translated row is written with source_hash =
+    current Korean, reviewed=False, edited=False — stale clears, 재확인 대상.
+    """
+    from ..pipeline.translate import LANGUAGES, _hash, retranslate_span
 
     if lang == "ko" or lang not in LANGUAGES:
         raise HTTPException(400, f"unsupported language {lang}")
@@ -1734,45 +1747,83 @@ def retranslate_segment(request: Request, video_id: str, lang: str, segment_id: 
         i = next((k for k, s in enumerate(segs) if s.id == segment_id), None)
         if i is None:
             raise HTTPException(404, "segment not found on the Korean track")
-        target = segs[i]
-        ko = _best_ko(target).strip()
-        if not ko:
+        if not _best_ko(segs[i]).strip():
             raise HTTPException(400, "빈 원문은 번역할 수 없습니다")
-        ctx_before = [_best_ko(s) for s in segs[max(0, i - 4) : i]]
-        ctx_after = [_best_ko(s) for s in segs[i + 1 : i + 5]]
-        budget = max(10, int(17 * max(0.5, target.end - target.start)))
+
+        tr_rows = session.exec(
+            select(Translation).where(
+                Translation.segment_id.in_([s.id for s in segs]),
+                Translation.lang == lang,
+            )
+        ).all()
+        by_seg = {t.segment_id: t for t in tr_rows}
+
+        def needs_work(seg: Segment) -> bool:
+            """빈칸이거나 stale(사람이 손대지 않은)이면 클러스터에 포함."""
+            if not _best_ko(seg).strip():
+                return False  # 원문이 비면 번역할 게 없음
+            t = by_seg.get(seg.id)
+            if t is None or not (t.text or "").strip():
+                return True  # 재분할로 생긴 빈 셀
+            if t.edited:
+                return False  # 사람이 쓴 번역은 절대 자동으로 안 건드림
+            return t.source_hash != _hash(_best_ko(seg).strip())  # stale
+
+        lo = i
+        while lo > 0 and i - (lo - 1) <= 6 and needs_work(segs[lo - 1]):
+            lo -= 1
+        hi = i
+        while hi < len(segs) - 1 and (hi + 1) - i <= 6 and needs_work(segs[hi + 1]):
+            hi += 1
+
+        cluster = [s for s in segs[lo : hi + 1] if _best_ko(s).strip()]
+        # 클릭한 셀은 항상 포함; 이웃은 손볼 필요가 있는 것만
+        cluster = [s for s in cluster if s.id == segment_id or needs_work(s)]
+        items = [
+            (
+                s.id,
+                _best_ko(s).strip(),
+                max(10, int(17 * max(0.5, s.end - s.start))),
+            )
+            for s in cluster
+        ]
+        ctx_before = [_best_ko(s) for s in segs[max(0, lo - 4) : lo]]
+        ctx_after = [_best_ko(s) for s in segs[hi + 1 : hi + 5]]
+        ko_by_id = {s.id: _best_ko(s).strip() for s in cluster}
 
     try:
-        new_text = retranslate_one(ko, ctx_before, ctx_after, lang, budget)
+        translated = retranslate_span(items, ctx_before, ctx_after, lang)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(502, f"번역 API 오류: {e}")
-    if not new_text.strip():
+    if not translated.get(segment_id, "").strip():
         raise HTTPException(502, "번역 결과가 비어 있습니다. 다시 시도해 주세요.")
 
+    updated: list[dict] = []
     with get_session() as session:
-        # replace any cached row for this cue+lang (drop stale/reviewed; the
-        # reviewer explicitly asked to redo it, so an old edited row is replaced
-        # too — this is a deliberate overwrite, not the automatic re-translate)
-        for old in session.exec(
-            select(Translation).where(
-                Translation.segment_id == segment_id, Translation.lang == lang
+        for seg_id, new_text in translated.items():
+            for old in session.exec(
+                select(Translation).where(
+                    Translation.segment_id == seg_id, Translation.lang == lang
+                )
+            ).all():
+                session.delete(old)
+            session.add(
+                Translation(
+                    segment_id=seg_id,
+                    lang=lang,
+                    text=new_text,
+                    source_hash=_hash(ko_by_id[seg_id]),
+                    reviewed=False,
+                    edited=False,
+                )
             )
-        ).all():
-            session.delete(old)
-        session.add(
-            Translation(
-                segment_id=segment_id,
-                lang=lang,
-                text=new_text,
-                source_hash=_hash(ko),
-                reviewed=False,
-                edited=False,
+            updated.append(
+                {"segment_id": seg_id, "text": new_text, "reviewed": False, "stale": False}
             )
-        )
         session.commit()
-    return {"segment_id": segment_id, "text": new_text, "reviewed": False, "stale": False}
+    return {"updated": updated, "count": len(updated)}
 
 
 @app.post("/api/jobs/{video_id}/repair-stt")

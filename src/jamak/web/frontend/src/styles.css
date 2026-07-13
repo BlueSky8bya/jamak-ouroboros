@@ -3184,11 +3184,12 @@ kbd {
 .pc-settings {
   flex: 1 0 100%;
   display: flex;
+  flex-wrap: wrap; /* 토글 4개가 좁은 패널에서 좌우로 잘리지 않게 줄바꿈 */
   justify-content: center;
-  gap: 14px;
+  gap: 2px 10px;
   margin-top: 1px;
 }
-.pc-settings .pc-toggle { flex: 0 0 auto; margin: 0; padding: 3px 4px; }
+.pc-settings .pc-toggle { flex: 0 0 auto; margin: 0; padding: 3px 4px; white-space: nowrap; }
 
 /* ===== finished rows fold into one quiet line (progressive disclosure) =====
    the list shrinks as you work — momentum + far less scrolling. The textarea

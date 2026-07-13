@@ -1,5 +1,11 @@
 # Agent Change Log
 
+## v0.4.1 — 2026-07-14 (클러스터 재번역 + 잘림·저장 500 수정)
+
+### CHG-20260714-003 — FEAT/FIX — 다시 번역이 주변의 이어진 stale·빈 셀까지 문맥 번역
+Change: (a) **클러스터 재번역**: 번역 후 한국어를 재분할/재타이밍하면 그 언저리 셀들이 stale/빈칸이 되는데, `POST /retranslate`가 클릭한 셀 + **연속된 stale·빈 이웃**(각 방향 최대 6, 사람이 편집한(edited) 행과 fresh 행에서 확장 중단)을 묶어 **한 번의 문맥 호출**(`retranslate_span` — 앞뒤 4행 컨텍스트, `retranslate_one` 대체)로 재번역 → `{updated:[...]}` 반환, 프론트가 여러 행 패치. 빈 셀에도 "🔄 다시 번역" 버튼("번역이 비어 있어요 — 주변 문맥으로 채울 수 있어요"). (b) **FIX: 번역 수동 편집 저장 500** — `update_translation`의 source_hash 스탬프 브랜치가 `_hash` import 누락으로 NameError → 텍스트가 바뀌는 모든 수동 저장·빈칸 삭제가 500이던 실버그(이전 세션 유입), local import로 수정. (c) **FIX: 재생 토글줄 잘림** — `.pc-settings`에 flex-wrap 없어 좁은 패널에서 🔁구간반복·미리보기가 좌우로 잘림 → wrap+nowrap 토글.
+Validation: 합성 5셀(fresh|stale|빈칸|stale|edited) 실 API 스모크 — 클릭(빈칸)→클러스터 정확히 stale+빈 3셀, 문장 흐름 이어짐, fresh·edited 불가침, hash=현재 ko·미검수. 실브라우저 E2E — 편집 저장 200(기존 500), 빈 셀 배너+버튼→클릭→문맥 채움, 토글 4개 경계 안(overflow 0), 콘솔 에러 0.
+
 ## v0.4.0 — 2026-07-14 (따라하기 6코스 + 연습용 영상)
 
 ### CHG-20260714-002 — FEAT — 따라하기 레슨 6코스 (전 기능) + 🎓 연습용 영상

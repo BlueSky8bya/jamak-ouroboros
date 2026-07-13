@@ -58,9 +58,16 @@ function Row({
         <div className="tko" title="한국어 원문 (확정)">
           <span className="tlabel ko">한국어</span> {row.ko}
         </div>
-        {row.stale && (
-          <div className="tstale" title="번역을 만든 뒤 한국어 원문이 바뀌었습니다. 바뀐 원문에 맞춰 이 자막만 다시 번역할 수 있어요.">
-            <span>⚠️ 원문이 바뀜 — 이 자막만 다시 번역할 수 있어요</span>
+        {(row.stale || !text.trim()) && (
+          <div
+            className="tstale"
+            title="한국어를 나누거나 고친 뒤 생긴 빈칸·달라진 번역을, 이 자막과 주변의 이어진 문제 자막까지 문맥을 살려 한 번에 다시 번역해요."
+          >
+            <span>
+              {row.stale
+                ? "⚠️ 원문이 바뀜 — 주변 문맥까지 살려 다시 번역할 수 있어요"
+                : "⚠️ 번역이 비어 있어요 — 주변 문맥으로 채울 수 있어요"}
+            </span>
             <button
               className="tretranslate"
               disabled={retranslating}
@@ -169,12 +176,16 @@ export function TranslateReview({
     setError("");
     try {
       const r = await retranslateSegment(videoId, lang, segId);
+      // the server may have re-translated a cluster (clicked cue + contiguous
+      // stale/empty neighbours) — patch every returned row
+      const byId = new Map(r.updated.map((u) => [u.segment_id, u]));
       setRows((prev) =>
-        prev.map((row) =>
-          row.segment_id === segId
-            ? { ...row, text: r.text, reviewed: r.reviewed, stale: r.stale, has_translation: true }
-            : row,
-        ),
+        prev.map((row) => {
+          const u = byId.get(row.segment_id);
+          return u
+            ? { ...row, text: u.text, reviewed: u.reviewed, stale: u.stale, has_translation: true }
+            : row;
+        }),
       );
       onGenerated?.();
     } catch (e) {

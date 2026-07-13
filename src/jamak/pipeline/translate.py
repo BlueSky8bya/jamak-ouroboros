@@ -261,27 +261,29 @@ def translate_texts(
     return out
 
 
-def retranslate_one(
-    ko_text: str,
+def retranslate_span(
+    items: list[tuple[int, str, int]],
     context_before: list[str],
     context_after: list[str],
     lang: str,
-    char_budget: int,
-) -> str:
-    """Re-translate a SINGLE Korean cue with surrounding context (both sides).
+) -> dict[int, str]:
+    """Re-translate a small CONTIGUOUS run of cues with context on both sides.
 
-    Used when the reviewer edited the Korean of one cue and wants just that
-    translation refreshed in-context — not a whole-track re-translate. One
-    Claude call. The before/after lines are shown as read-only context so the
-    model keeps pronouns, terms, and tone coherent with its neighbours.
+    Used by the editor's "다시 번역": after the reviewer re-splits/retimes the
+    Korean, a cluster of neighbouring cues ends up stale or empty — translating
+    them together (one Claude call) keeps the sentence flow coherent across the
+    new cue boundaries, which per-cue re-translation can't do.
+
+    items: [(key, korean, char_budget)] in track order (keys are opaque —
+    the caller passes segment ids). Returns {key: translated}.
     """
     import anthropic
 
     if lang not in LANGUAGES:
         raise ValueError(f"unsupported language: {lang}")
-    ko_text = ko_text.strip()
-    if not ko_text:
-        return ""
+    items = [(k, t.strip(), b) for k, t, b in items if t.strip()]
+    if not items:
+        return {}
 
     client = anthropic.Anthropic()
     lines: list[str] = []
@@ -290,7 +292,7 @@ def retranslate_one(
         lines.extend(f"  {t}" for t in context_before if t.strip())
         lines.append("")
     lines.append("### 번역 대상 세그먼트 (idx, 권장 최대 글자수, 원문):")
-    lines.append(f"[0] (≤{char_budget}자) {ko_text}")
+    lines.extend(f"[{i}] (≤{b}자) {t}" for i, (_, t, b) in enumerate(items))
     if context_after:
         lines.append("")
         lines.append("### 뒤 문맥 (번역 대상 아님):")
@@ -298,7 +300,7 @@ def retranslate_one(
 
     response = client.messages.create(
         model=TRANSLATE_MODEL,
-        max_tokens=2000,
+        max_tokens=4000,
         thinking={"type": "disabled"},
         system=[
             {
@@ -311,8 +313,12 @@ def retranslate_one(
         messages=[{"role": "user", "content": "\n".join(lines)}],
     )
     text = next(b.text for b in response.content if b.type == "text")
-    out = {t["idx"]: t["text"] for t in json.loads(text)["translations"]}
-    return out.get(0, "")
+    by_pos = {t["idx"]: t["text"] for t in json.loads(text)["translations"]}
+    return {
+        key: by_pos[i].strip()
+        for i, (key, _, _) in enumerate(items)
+        if by_pos.get(i, "").strip()
+    }
 
 
 def translate_segments(seg_dicts: list[dict], text_key: str, lang: str, console=None) -> dict[int, str]:
