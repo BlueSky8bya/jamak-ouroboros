@@ -437,6 +437,109 @@ function WordMap({
   );
 }
 
+/* [WH-CHANGE v0.3.1 | FEAT | 2026-07-13 | CHG-20260713-008]
+   Reason: 벤치마킹(Descript/Otter/Auphonic) — 소리와 글자를 눈으로 잇는 카라오케
+           하이라이트 + 단어 단위 재청취 + 의심 단어 인라인이 고령 검수자의
+           눈 이동·판단 부담을 가장 크게 줄임.
+   Related: ADR-0009 / CHANGELOG CHG-20260713-008.
+
+   Read view for 내용 모드 (Descript/Otter pattern): unfocused rows show their
+   text as word spans instead of a textarea. While the video plays over this
+   cue the current word lights up (karaoke follow — proportional mapping from
+   the whisper word timestamps onto the possibly-edited text), suspect words
+   carry a wavy red underline inline (no separate warning line to cross-
+   reference), and clicking any word replays from that word. Clicking empty
+   space switches the row into the normal textarea for editing. */
+function ReadText({
+  seg,
+  text,
+  words,
+  currentTime,
+  onWordPlay,
+  onEdit,
+}: {
+  seg: Segment;
+  text: string;
+  words: WordTime[];
+  currentTime: number;
+  onWordPlay: (t: number) => void;
+  onEdit: () => void;
+}) {
+  const inside = useMemo(
+    () =>
+      words.filter((w) => {
+        const m = (w.start + w.end) / 2;
+        return seg.start <= m && m < seg.end;
+      }),
+    [words, seg.start, seg.end],
+  );
+  const tokens = useMemo(() => text.split(/(\s+)/), [text]);
+  const suspectSet = useMemo(() => {
+    const norm = (s: string) => s.replace(/[^\w가-힣]/g, "");
+    return new Set(
+      (seg.suspect ?? "")
+        .split(",")
+        .map((t) => norm(t.trim()))
+        .filter((t) => t.length >= 2),
+    );
+  }, [seg.suspect]);
+
+  const wordTokens = tokens.filter((t) => t.trim() !== "").length;
+  const M = inside.length;
+  // which text token the speaker is on right now (edited text no longer maps
+  // 1:1 onto whisper words, so map proportionally — close enough to follow)
+  let activeOrd = -1;
+  if (M > 0 && wordTokens > 0 && currentTime >= seg.start && currentTime < seg.end) {
+    let k = inside.findIndex((w) => currentTime < w.end);
+    if (k < 0) k = M - 1;
+    activeOrd =
+      wordTokens > 1 ? Math.round((k / Math.max(1, M - 1)) * (wordTokens - 1)) : 0;
+  }
+  const timeFor = (ord: number) => {
+    if (M > 0) {
+      const k = Math.min(
+        M - 1,
+        Math.round((ord / Math.max(1, wordTokens - 1)) * (M - 1)),
+      );
+      return inside[k].start;
+    }
+    // no recognized speech here (e.g. a gap-fill row) — char-ratio fallback
+    const span = Math.max(0, seg.end - seg.start - 0.2);
+    return seg.start + (wordTokens > 1 ? (ord / (wordTokens - 1)) * span : 0);
+  };
+
+  let ord = -1;
+  return (
+    <div
+      className="read-text"
+      title="단어를 누르면 그 부분부터 다시 들려요 · 빈 곳을 누르면 고치기"
+      onClick={onEdit}
+    >
+      {tokens.map((tok, i) => {
+        if (tok.trim() === "") return tok;
+        ord += 1;
+        const o = ord;
+        const norm = tok.replace(/[^\w가-힣]/g, "");
+        const sus = norm.length >= 2 && suspectSet.has(norm);
+        return (
+          <span
+            key={i}
+            className={"rt-w" + (o === activeOrd ? " on" : "") + (sus ? " sus" : "")}
+            title={sus ? "기계들이 서로 다르게 들은 단어 — 확인해 보세요" : undefined}
+            onClick={(e) => {
+              e.stopPropagation();
+              onWordPlay(timeFor(o));
+            }}
+          >
+            {tok}
+          </span>
+        );
+      })}
+      {text.trim() === "" && <span className="rt-empty">(빈 자막 — 눌러서 입력)</span>}
+    </div>
+  );
+}
+
 /* one editable time field (click, type, Enter/blur to apply) */
 function TimeField({
   value,
@@ -621,6 +724,13 @@ function Row({
     }
   }, [active, preview]);
 
+  // 내용 모드: the textarea only exists while this row is focused (ReadText
+  // otherwise), so grab the caret as soon as the swap renders — the parent's
+  // setTimeout(0) focus can fire before the textarea is in the DOM
+  useEffect(() => {
+    if (focused && textMode) taRef.current?.focus({ preventScroll: true });
+  }, [focused, textMode]);
+
   // show the reference panel whenever a machine source actually differs from
   // the working text — not only when the crosscheck flag fired. The flag uses a
   // lenient token-similarity threshold, so segments that disagree on key words
@@ -728,6 +838,22 @@ function Row({
           </>
         )}
         <span className="badges">
+          {!textMode && text.trim() !== "" && (
+            // 읽기 속도 신호등 (Ooona/EZTitles 관례): 숫자 대신 색 —
+            // 초록=편안, 주황=한계선, 빨강=너무 빠름(고치기)
+            <span
+              className={
+                "cps-dot " + (cps > 17 ? "red" : cps > 14 ? "amber" : "green")
+              }
+              title={`읽기 속도 ${cps.toFixed(0)}자/초 — ${
+                cps > 17
+                  ? "너무 빨라요: 나누거나 시간을 늘리세요"
+                  : cps > 14
+                    ? "한계선이에요"
+                    : "편안해요"
+              }`}
+            />
+          )}
           {seg.flagged && (
             <span className="badge flag" title="음성인식과 유튜브 자막이 서로 다르게 들은 구간">
               서로 다름
@@ -771,6 +897,16 @@ function Row({
           <span className="ko-ref-text">{koRef}</span>
         </div>
       )}
+      {textMode && !focused ? (
+        <ReadText
+          seg={seg}
+          text={text}
+          words={words}
+          currentTime={currentTime}
+          onWordPlay={onPlayFrom}
+          onEdit={() => onOpenRow(seg)}
+        />
+      ) : (
       <textarea
         ref={taRef}
         value={text}
@@ -807,6 +943,7 @@ function Row({
         }}
         onBlur={() => void flush()}
       />
+      )}
       {focused && !textMode && words.length > 0 && (
         <WordMap
           seg={seg}
@@ -1070,6 +1207,9 @@ export function Editor({
   // a text box) confirms it — passive listening for long lectures
   const [follow, setFollow] = useState(() => localStorage.getItem("jamak.follow") !== "0");
   useEffect(() => localStorage.setItem("jamak.follow", follow ? "1" : "0"), [follow]);
+  // 큰 글씨 (고령 검수자): 자막 글자·주요 버튼 확대. 세션 간 유지.
+  const [bigType, setBigType] = useState(() => localStorage.getItem("jamak.bigtype") === "1");
+  useEffect(() => localStorage.setItem("jamak.bigtype", bigType ? "1" : "0"), [bigType]);
   const [showKeys, setShowKeys] = useState(true);
   const [focusedId, setFocusedId] = useState<number | null>(null);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
@@ -2141,7 +2281,7 @@ export function Editor({
   }
 
   return (
-    <div className={"editor" + (showPreview ? " preview" : "")}>
+    <div className={"editor" + (showPreview ? " preview" : "") + (bigType ? " bigtype" : "")}>
       <div className="left">
         <div className="left-top">
           <button
@@ -2152,6 +2292,13 @@ export function Editor({
             }}
           >
             ← 목록
+          </button>
+          <button
+            className={"bigtype-btn" + (bigType ? " on" : "")}
+            title="자막 글씨와 버튼을 크게/보통으로"
+            onClick={() => setBigType((v) => !v)}
+          >
+            {bigType ? "가 보통" : "가 크게"}
           </button>
           <ThemeToggle />
         </div>

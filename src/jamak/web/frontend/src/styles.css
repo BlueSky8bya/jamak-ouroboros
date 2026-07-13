@@ -3336,3 +3336,72 @@ kbd {
   white-space: nowrap;
 }
 .issue-bar .issue-next:hover { filter: brightness(1.08); }
+
+/* ---- 읽기 뷰 (카라오케·단어 클릭·의심 단어) + 신호등 + 큰 글씨 ------------- */
+
+/* read view mirrors the textarea's box so mode swaps don't shift the layout */
+.read-text {
+  width: 100%;
+  min-height: 74px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.8;
+  cursor: text;
+  white-space: pre-wrap;
+  word-break: keep-all;
+}
+.read-text:hover { border-color: var(--line-strong); }
+.rt-w {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 1px 1px;
+  transition: background var(--dur-fast) var(--ease);
+}
+.rt-w:hover { background: var(--blue-soft); color: var(--blue-ink); }
+/* karaoke: the word being spoken right now */
+.rt-w.on { background: var(--blue-soft); color: var(--blue-ink); font-weight: 700; }
+/* suspect word: engines disagreed here — look at this one */
+.rt-w.sus {
+  text-decoration: underline wavy var(--rose);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+}
+.rt-empty { color: var(--faint); }
+
+/* 읽기 속도 신호등 (타이밍 모드) */
+.cps-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  align-self: center;
+}
+.cps-dot.green { background: var(--green); }
+.cps-dot.amber { background: var(--amber); }
+.cps-dot.red { background: var(--rose); box-shadow: 0 0 0 3px var(--rose-soft); }
+
+/* 큰 글씨 모드 — 자막 텍스트와 자주 누르는 것들만 키움 (레이아웃 유지) */
+.bigtype-btn {
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.bigtype-btn.on { background: var(--blue); border-color: var(--blue); color: var(--ink-invert); }
+.editor.bigtype .row textarea,
+.editor.bigtype .read-text { font-size: 19px; line-height: 1.9; }
+.editor.bigtype .collapsed-preview .cp-text { font-size: 15px; }
+.editor.bigtype .reviewed-check { font-size: 1.05rem; }
+.editor.bigtype .reviewed-check input { width: 20px; height: 20px; }
+.editor.bigtype .hold-btn { font-size: 1rem; padding: 6px 16px; }
+.editor.bigtype .mode-tab strong { font-size: 1.2rem; }
+.editor.bigtype .sources .src-text { font-size: 15px; }
+.editor.bigtype .badges .badge { font-size: 0.85rem; }

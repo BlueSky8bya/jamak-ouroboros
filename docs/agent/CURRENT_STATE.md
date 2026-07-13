@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-13 (v0.3.0 — 검수 모드 분리 + 자동 타이밍, ADR-0009)
-Project Version: 0.3.0
+Last Updated: 2026-07-13 (v0.3.1 — 읽기 뷰·신호등·큰 글씨 벤치마킹 배치)
+Project Version: 0.3.1
 Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATION.md)
 
 ## Current Objective
@@ -10,7 +10,13 @@ Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATI
 
 ## Pending (사용자 액션)
 
-- **v0.3.0 실사용 확인** — DELEGATED (인앱 브라우저가 YT iframe 못 열어 재생 연동 미검증): ① 흘려듣기(영상 재생 중 자막 따라오기 + 입력칸 밖 Enter 확인), ② ▶버튼 실재생(b8cd8b2), ③ 자동 정리 결과가 실제 영상에서 자연스러운지.
+- **v0.3.0~1 실사용 확인** — DELEGATED (인앱 브라우저가 YT iframe 못 열어 재생 연동 미검증): ① 흘려듣기(영상 재생 중 자막 따라오기 + 입력칸 밖 Enter 확인), ② 카라오케 단어 하이라이트가 실제 말과 잘 맞는지(비례 매핑 근사), ③ 단어 클릭 재생 체감, ④ 자동 정리 결과가 실제 영상에서 자연스러운지, ⑤ ▶버튼 실재생(b8cd8b2).
+
+## Recent Additions (2026-07-13 — v0.3.1, CHG-20260713-008)
+
+- **읽기 뷰**(내용 모드 비포커스 행): 재생 중 단어 카라오케 하이라이트 + 단어 클릭=그 단어부터 재생 + 의심 단어 인라인 빨강 밑줄. 빈 곳 클릭=편집.
+- **cps 신호등**(타이밍 모드): 행마다 초록/주황/빨강 점.
+- **가 크게**: 자막 글자·버튼 확대 토글 (고령 검수자).
 
 ## Recent Additions (2026-07-13 — v0.3.0, ADR-0009, CHG-20260713-006~007)
 
