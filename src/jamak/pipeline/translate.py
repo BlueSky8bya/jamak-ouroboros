@@ -14,7 +14,7 @@ import json
 from sqlmodel import or_, select
 
 from ..config import TRANSLATE_MODEL
-from ..db import Segment, Translation, get_session
+from ..db import Job, Segment, Translation, get_session
 
 # display order = rough global usage order (user-facing list)
 # English labels here are the translation TARGET names given to the model.
@@ -84,13 +84,19 @@ def translation_examples(lang: str, max_pairs: int = 14) -> list[tuple[str, str]
     out: list[tuple[str, str]] = []
     seen: set[str] = set()
     with get_session() as session:
+        # [WH-CHANGE v0.4.3 | FIX | 2026-07-14 | CHG-20260714-005]
+        # Reason: practice(연습용) jobs must not feed few-shot examples —
+        #   tutorial drills would teach wrong terminology to real translations.
+        # Related: docs/tutorial/PLAN.md Codex review BLOCKER-3.
         # non-forked tracks: the reviewed/edited Translation rows joined to ko
         rows = session.exec(
             select(Translation, Segment)
             .join(Segment, Translation.segment_id == Segment.id)
+            .join(Job, Segment.job_id == Job.id)
             .where(
                 Translation.lang == lang,
                 or_(Translation.reviewed == True, Translation.edited == True),  # noqa: E712
+                Job.practice == False,  # noqa: E712
             )
         ).all()
         for t, seg in rows:
@@ -104,8 +110,12 @@ def translation_examples(lang: str, max_pairs: int = 14) -> list[tuple[str, str]
         # reviewed translation lives in Segment.text_final (lang != "ko"). Match
         # each to its Korean source by time overlap (idx diverges after a fork).
         forked = session.exec(
-            select(Segment).where(
-                Segment.lang == lang, Segment.reviewed == True  # noqa: E712
+            select(Segment)
+            .join(Job, Segment.job_id == Job.id)
+            .where(
+                Segment.lang == lang,
+                Segment.reviewed == True,  # noqa: E712
+                Job.practice == False,  # noqa: E712
             )
         ).all()
         if forked:

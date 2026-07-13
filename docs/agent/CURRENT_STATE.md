@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-14 (v0.4.2 — 투어 커버리지 100% + 연습 영상 계획)
-Project Version: 0.4.2
+Last Updated: 2026-07-14 (v0.4.3 — Codex 감사 반영: practice 누수 차단 + PLAN v2)
+Project Version: 0.4.3
 Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATION.md)
 
 ## Current Objective
@@ -11,6 +11,13 @@ Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATI
 ## Pending (사용자 액션)
 
 - **v0.3.0~1 실사용 확인** — DELEGATED (인앱 브라우저가 YT iframe 못 열어 재생 연동 미검증): ① 흘려듣기(영상 재생 중 자막 따라오기 + 입력칸 밖 Enter 확인), ② 카라오케 단어 하이라이트가 실제 말과 잘 맞는지(비례 매핑 근사), ③ 단어 클릭 재생 체감, ④ 자동 정리 결과가 실제 영상에서 자연스러운지, ⑤ ▶버튼 실재생(b8cd8b2).
+
+## Recent Additions (2026-07-14 — v0.4.0~0.4.3, CHG-20260714-001~006)
+
+- **따라하기 투어 6코스** (v0.3.5→v0.4.0~2): 실제 동작해야 진행(`tourEvent` 훅 ~28곳), 🎓 코스 메뉴 + 완료 ✓(localStorage `jamak.tour.<id>`), 주요 단축키·기능 커버리지 100%(MAPPING.md). 중도 이탈("그만 볼래요")은 완료로 기록 안 함(v0.4.3).
+- **연습용 영상**(`Job.practice`): 관리자 🎓 지정, 에디터 배너. **모든 학습·평가 경로에서 제외**(v0.4.3, CHG-20260714-005): absorb + 줄길이 학습 + 번역 few-shot + 학습 export 2종 + CER.
+- **클러스터 재번역**(v0.4.1): 🔄 다시 번역이 클릭 셀 + 연속 stale·빈 이웃(±6, edited/fresh에서 중단)을 한 번의 문맥 호출로. 부수 수정: 번역 수동 저장 500(`_hash` import 누락).
+- **연습 영상 파이프라인 계획**: `docs/tutorial/PLAN.md` **v2** (Codex 외부 감사 20 finding 반영 — §9 disposition 표). 다음 작업 = **P2 렌더 파이프라인**(`tools/tutorial-video/`: edge-tts + PCM 합성 + Remotion `practice-1~6` → mp4 6개). 이후 P3 업로드(사용자)→P4 앱 연결(스냅샷·초기화+seek 앵커+tourEvent 성공 후 발생)→P5 리허설(미끼 predicate 표).
 
 ## Recent Additions (2026-07-13 — v0.3.3, CHG-20260713-010~011)
 

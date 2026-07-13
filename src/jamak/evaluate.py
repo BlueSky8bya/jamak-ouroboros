@@ -43,6 +43,8 @@ def evaluate_all() -> list[dict]:
     with get_session() as session:
         jobs = session.exec(select(Job).order_by(Job.created_at)).all()
         for job in jobs:
+            if job.practice:  # tutorial sandbox — synthetic TTS, skews CER
+                continue
             segs = session.exec(
                 select(Segment).where(
                     Segment.job_id == job.id,

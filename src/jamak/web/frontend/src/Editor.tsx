@@ -1657,7 +1657,8 @@ const COURSES: TourCourse[] = [
           <>
             <b>📚 학습</b>(<K c="Alt" />+<K c="K" />)을 눌러보세요. 여러분이 고친 걸
             기계가 외워서, 다음 영상부터는 같은 실수를 덜 해요. 검수를 마칠 때마다
-            눌러주면 좋아요.
+            눌러주면 좋아요. (연습용 영상에서는 "0개"라고 떠요 — 연습이라 진짜로
+            배우지는 않는 게 정상이에요.)
           </>
         ),
         missingHint: "내용 모드에서 보여요 — ① 내용 확인 탭으로 가보세요.",
@@ -1761,9 +1762,15 @@ export function Editor({
       (id === "basic" && localStorage.getItem("jamak.tourDone") === "1")
     );
   }
-  function endTour() {
+  // [WH-CHANGE v0.4.3 | FIX | 2026-07-14 | CHG-20260714-006]
+  // Reason: "그만 볼래요" (mid-course exit) used to write the done flag too,
+  //   so an aborted course showed ✓ in the menu and couldn't be told apart
+  //   from a finished one. Exit now closes without marking done.
+  // Related: docs/tutorial/PLAN.md Codex review (exit ≠ complete).
+  function endTour(markDone: boolean) {
     const t = tourRef.current;
-    if (t) localStorage.setItem(`jamak.tour.${COURSES[t.course].id}`, "1");
+    if (markDone && t)
+      localStorage.setItem(`jamak.tour.${COURSES[t.course].id}`, "1");
     setTour(null);
   }
   function startCourse(i: number) {
@@ -3597,9 +3604,9 @@ export function Editor({
         <Tour
           steps={COURSES[tour.course].steps}
           step={tour.step}
-          onExit={endTour}
+          onExit={() => endTour(false)}
           onSkipStep={skipTourStep}
-          onFinish={endTour}
+          onFinish={() => endTour(true)}
         />
       )}
       {/* 🎓 코스 선택 메뉴 */}

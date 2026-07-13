@@ -34,16 +34,23 @@ def learned_line_budget() -> tuple[int, int] | None:
     """
     from sqlmodel import select
 
-    from ..db import Segment, get_session
+    from ..db import Job, Segment, get_session
 
     with get_session() as session:
         rows = session.exec(
-            select(Segment.text_final).where(
+            # [WH-CHANGE v0.4.3 | FIX | 2026-07-14 | CHG-20260714-005]
+            # Reason: practice(연습용) jobs are a sandbox — tutorial edits must not
+            #   feed any ouroboros learning path, not just absorb_job().
+            # Related: docs/tutorial/PLAN.md Codex review BLOCKER-3.
+            select(Segment.text_final)
+            .join(Job, Segment.job_id == Job.id)
+            .where(
                 # ko only: this is the Korean line-length budget. Forked
                 # translation segments (non-ko text_final, ADR-0006) run longer
                 # per cue and would inflate the budget, over-splitting Korean.
                 Segment.lang == "ko",
                 Segment.reviewed == True,  # noqa: E712
+                Job.practice == False,  # noqa: E712
             )
         ).all()
     lengths = sorted(len(t.strip()) for t in rows if t and t.strip())

@@ -57,6 +57,12 @@ def export_training_data(out_dir: Path = TRAINING_DIR, make_clips: bool = True) 
     with get_session() as session:
         jobs = session.exec(select(Job)).all()
         for job in jobs:
+            # [WH-CHANGE v0.4.3 | FIX | 2026-07-14 | CHG-20260714-005]
+            # Reason: practice(연습용) jobs are tutorial sandboxes — their
+            #   "reviewed" segments are drills, not STT supervision.
+            # Related: docs/tutorial/PLAN.md Codex review BLOCKER-3.
+            if job.practice:
+                continue
             audio = JOBS_DIR / job.video_id / "audio.wav"
             segs = session.exec(
                 select(Segment)
@@ -131,6 +137,8 @@ def export_correction_pairs(out_dir: Path = CORRECTIONS_DIR) -> dict:
     with get_session() as session:
         jobs = session.exec(select(Job)).all()
         for job in jobs:
+            if job.practice:  # tutorial sandbox — not correction supervision
+                continue
             segs = session.exec(
                 select(Segment)
                 .where(

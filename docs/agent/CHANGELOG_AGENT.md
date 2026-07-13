@@ -1,5 +1,18 @@
 # Agent Change Log
 
+## v0.4.3 — 2026-07-14 (Codex 감사 반영: practice 누수 차단 + 투어 완료 semantics)
+
+### CHG-20260714-005 — FIX — practice Job이 모든 우로보로스 학습·평가 경로에서 제외
+Change: 연습용(practice) Job의 "검수된" 세그먼트는 튜토리얼 드릴이지 감독 데이터가 아닌데, 차단이 `absorb_job`에만 있었음(Codex 감사 BLOCKER). 추가 차단 4곳: `learned_line_budget`(줄 길이 학습 — Job join+필터), `translation_examples`(번역 few-shot — 비포크·포크 쿼리 둘 다), `training.py` STT·교정 학습 export 2종(`if job.practice: continue`), `evaluate.py` CER 평가(합성 TTS가 지표 왜곡). PLAN.md §4.5에 회귀 테스트 항목 추가.
+Validation: scratch SQLite 스모크 — 긴 문장 60행 practice Job이 budget/CER에 안 들어옴(budget (18,24) 유지), practice=False로 뒤집으면 (25,34)로 상승(필터가 정확히 practice 플래그 기준임 확인), "SMOKE OK".
+
+### CHG-20260714-006 — FIX — 투어 "그만 볼래요"가 완료로 기록되던 것 분리
+Change: `endTour()`가 이탈·완주 구분 없이 완료 플래그를 써서 중도 포기 코스도 메뉴에 ✓ 표시(Codex 감사). `endTour(markDone)`으로 분리 — onExit=false(플래그 안 씀), onFinish=true. 건너뛰기로 마지막 단계 도달 후 완료는 유지(의식적 완주 간주). 부수: 코스6 📚 학습 버블에 "연습 영상은 0개가 정상" 문구(absorb no-op을 고장으로 오해 방지).
+Validation: 프론트 빌드 클린(tsc+vite). 실브라우저 회귀는 다음 배포 확인에 포함.
+
+### (문서) PLAN.md v2 — Codex 감사 20개 finding 처리
+docs/tutorial/PLAN.md 전면 개정: PCM 샘플 오프셋 렌더 계약, Remotion `practice-N` id+calculateMetadata, edge-tts 재현성(버전 고정·캐시·재시도·atomic), 스냅샷·초기화(`PracticeSnapshot`+practice-reset — 다중 사용자 연습 재료 보호), 코스5 결정적 결함 주입, timing.json 기반 seek 앵커, tourEvent 성공 후 발생(P4), YouTube 단일 장애점(체크리스트+onError 게이트), 미끼별 predicate 표(화면 초안 기준, hotwords 충돌 경고), 완료 기준 측정화, 76대사 정정, README supersede. §9에 finding별 수용/부분 수용/기각 기록.
+
 ## v0.4.2 — 2026-07-14 (투어 커버리지 100% + 연습 영상 파이프라인 계획)
 
 ### CHG-20260714-004 — FEAT/DOCS — 미커버 단축키 3종 투어 편입 + PLAN.md
