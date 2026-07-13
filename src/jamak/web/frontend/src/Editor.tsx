@@ -525,6 +525,7 @@ function Row({
   words,
   onRegister,
   onSeek,
+  onPlayFrom,
   onSave,
   onTime,
   onSetTimes,
@@ -546,6 +547,7 @@ function Row({
   onDragActive?: (active: boolean) => void;
   onRegister: (id: number, h: RowHandle | null) => void;
   onSeek: (t: number) => void;
+  onPlayFrom: (t: number) => void;
   onSave: (id: number, text: string, reviewed: boolean | null, next: boolean) => Promise<void>;
   onTime: (seg: Segment, field: "start" | "end", value: number) => void;
   onSetTimes: (seg: Segment, start: number, end: number) => void;
@@ -660,7 +662,9 @@ function Row({
         <span className="cp-time">{fmt(seg.start)}</span>
       </button>
       <div className="row-head">
-        <button className="time" onClick={() => onSeek(seg.start)} title="이 구간 재생">
+        {/* seek AND play — with seek-only this button looked dead whenever the
+            video was paused (it only moved the playhead) */}
+        <button className="time" onClick={() => onPlayFrom(seg.start)} title="이 구간 재생">
           ▶
         </button>
         <span className="time-edit">
@@ -1136,6 +1140,10 @@ export function Editor({
     [],
   );
   const onSeekCb = useCallback((t: number) => H.current.seekTo(t), []);
+  const onPlayFromCb = useCallback((t: number) => {
+    H.current.seekTo(t);
+    H.current.play();
+  }, []);
   const onTypingCb = useCallback(() => {
     // pause once when editing starts — reads live values via H
     if (H.current.pauseOnType && H.current.playing) H.current.pause();
@@ -2380,6 +2388,7 @@ export function Editor({
               words={words}
               onRegister={onRegisterCb}
               onSeek={onSeekCb}
+              onPlayFrom={onPlayFromCb}
               onSave={onSaveCb}
               onTime={onTimeCb}
               onSetTimes={onSetTimesCb}
