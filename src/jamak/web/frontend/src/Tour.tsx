@@ -24,6 +24,8 @@ export interface TourStep {
   missingHint?: string;
   /** final step shows a big finish button instead of waiting for an action */
   final?: boolean;
+  /** action event (tourEvent name) that completes this step */
+  on?: string;
 }
 
 const PAD = 8; // spotlight breathing room around the target

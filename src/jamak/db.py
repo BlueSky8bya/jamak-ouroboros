@@ -40,6 +40,10 @@ class Job(SQLModel, table=True):
     # Reviewers log in with a free-form name (password-based roles), so this is
     # just that name — no fixed roster needed.
     assignee: str = ""
+    # 연습용 영상 (tutorial sandbox): reviewers practice the tour lessons here
+    # without fear. Its edits never feed the ouroboros (absorb is a no-op) so
+    # practice typos can't pollute corrections/glossary.
+    practice: bool = False
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
@@ -243,6 +247,7 @@ def _ensure_columns(engine) -> None:
             "upload_date": "VARCHAR DEFAULT ''",
             "timing_done": f"BOOLEAN DEFAULT {bt}",
             "assignee": "VARCHAR DEFAULT ''",
+            "practice": f"BOOLEAN DEFAULT {bt}",
         },
         "segment": {
             "low_conf": "VARCHAR DEFAULT ''",

@@ -11,6 +11,7 @@ import {
   logout,
   retranscribe,
   setAssignee,
+  setPractice,
   undoSrt,
   type Me,
   type QueueItem,
@@ -183,6 +184,7 @@ function JobCard({
   onSrtFile,
   onUndoSrt,
   onAssign,
+  onPractice,
 }: {
   job: JobSummary;
   query: string;
@@ -197,6 +199,7 @@ function JobCard({
   onSrtFile: (videoId: string, file: File) => void;
   onUndoSrt: (videoId: string) => void;
   onAssign: (videoId: string, current: string) => void;
+  onPractice: (e: ReactMouseEvent, j: JobSummary) => void;
 }) {
   const [lang, setLang] = useState("ko");
   const [dragOver, setDragOver] = useState(false);
@@ -276,6 +279,11 @@ function JobCard({
         {j.duration_seconds > 0 && j.duration_seconds <= SHORT_MAX && (
           <span className="thumb-form">쇼츠</span>
         )}
+        {j.practice && (
+          <span className="thumb-practice" title="연습용 영상 — 마음껏 만져도 실제 작업에 영향 없어요">
+            🎓 연습용
+          </span>
+        )}
         {j.duration_seconds > 0 && (
           <span className="thumb-dur">
             {j.duration_seconds < 60
@@ -327,6 +335,20 @@ function JobCard({
             >
               🔗 링크
             </span>
+            {canIngest && (
+              <span
+                className={"qa" + (j.practice ? " qa-on" : "")}
+                role="button"
+                tabIndex={0}
+                title={j.practice ? "연습용 지정 해제" : "이 영상을 연습용(튜토리얼)으로 지정 — 검수자들이 마음껏 연습"}
+                onClick={(e) => onPractice(e, j)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") onPractice(e as unknown as ReactMouseEvent, j);
+                }}
+              >
+                🎓 연습용
+              </span>
+            )}
             {canIngest && (
               <span
                 className="qa"
@@ -731,6 +753,17 @@ export function App() {
     }
   }
 
+  async function togglePractice(e: ReactMouseEvent, j: JobSummary) {
+    e.stopPropagation();
+    setError("");
+    try {
+      await setPractice(j.video_id, !j.practice);
+      await refresh();
+    } catch (err) {
+      setError(`연습용 지정 실패: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
   async function undoSrtImport(videoId: string) {
     if (!window.confirm(".srt 적용을 취소하고 이전 상태로 되돌릴까요?")) return;
     setError("");
@@ -877,6 +910,7 @@ export function App() {
         timingDone={jobs.find((j) => j.video_id === selected)?.timing_done ?? false}
         initialLang={selectedLang}
         languages={jobs.find((j) => j.video_id === selected)?.languages ?? []}
+        practice={jobs.find((j) => j.video_id === selected)?.practice ?? false}
       />
     );
 
@@ -1294,6 +1328,7 @@ export function App() {
               onSrtFile={onSrtFile}
               onUndoSrt={undoSrtImport}
               onAssign={assignReviewer}
+              onPractice={togglePractice}
               onOpen={(v, l) => {
                 setSelectedLang(l);
                 setSelected(v);

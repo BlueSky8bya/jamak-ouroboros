@@ -574,6 +574,7 @@ def list_jobs() -> list[dict]:
                     "running": j.video_id in running,
                     "srt_undo": j.video_id in srt_undo_ids,
                     "assignee": j.assignee,
+                    "practice": j.practice,
                 }
             )
         # pipeline just launched, no DB row yet — show a placeholder card
@@ -2420,6 +2421,28 @@ def undo_srt(request: Request, video_id: str) -> dict:
         session.delete(bk)
         session.commit()
     return {"restored": restored}
+
+
+class PracticeBody(BaseModel):
+    on: bool
+
+
+@app.post("/api/jobs/{video_id}/practice")
+def set_practice(request: Request, video_id: str, body: PracticeBody) -> dict:
+    """Mark (or unmark) a video as the 연습용 tutorial sandbox (admin).
+
+    Practice videos are for tour lessons: reviewers can edit freely, and
+    absorb_job skips them so drills never feed corrections/glossary."""
+    _require_admin(request)
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+        job.practice = body.on
+        job.updated_at = utcnow()
+        session.add(job)
+        session.commit()
+    return {"video_id": video_id, "practice": body.on}
 
 
 class AssigneeBody(BaseModel):

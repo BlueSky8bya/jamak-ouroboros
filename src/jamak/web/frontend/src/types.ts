@@ -23,6 +23,7 @@ export interface JobSummary {
   running: boolean;
   srt_undo?: boolean; // an applied .srt import can be reverted
   assignee?: string; // reviewer who claimed this video ('' = unassigned)
+  practice?: boolean; // 연습용 튜토리얼 영상 (마음껏 편집, absorb 제외)
 }
 
 export interface Segment {

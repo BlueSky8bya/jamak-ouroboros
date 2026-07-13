@@ -1165,82 +1165,494 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
   },
 ];
 
-/* [WH-CHANGE v0.3.5 | FEAT | 2026-07-14 | CHG-20260714-001]
-   Reason: 어르신 검수자 온보딩 — 읽는 설명(📖 사용법)만으론 손에 안 익음.
-           실제 화면에서 한 동작씩 직접 해봐야 진행되는 따라하기 투어.
-   Related: ADR-0009 / CHANGELOG CHG-20260714-001.
+/* [WH-CHANGE v0.4.0 | FEAT | 2026-07-14 | CHG-20260714-002]
+   Reason: 어르신 검수자 온보딩 — 기능 전부를 코스별로 하나씩 직접 해보며 익히는
+           따라하기 레슨(6개 코스). 각 단계는 실제 그 동작이 일어나야 진행
+           (동작 지점마다 tourEvent(이름) 훅). 연습용(🎓) 영상에서 마음껏 연습.
+   Related: ADR-0009 / CHANGELOG CHG-20260714-002.
 
-   따라하기 투어 단계. Each step spotlights a REAL control and advances only
-   when the reviewer performs the action (hooks at the real action sites:
-   play click, save(reviewed), read-text click, hold(), undoLast()). */
-const TOUR_STEPS: TourStep[] = [
+   TourStep.on = 이 단계를 통과시키는 실제 동작 이벤트 이름. */
+interface TourCourse {
+  id: string; // localStorage 완료 키
+  icon: string;
+  title: string;
+  desc: string;
+  steps: TourStep[];
+}
+
+const K = ({ c }: { c: string }) => <kbd className="g-key">{c}</kbd>;
+
+const COURSES: TourCourse[] = [
   {
-    target: ".pc-btn.play",
-    title: "① 영상을 틀어볼게요",
-    body: (
-      <>
-        여기 밝게 보이는 <b>▶ 재생</b> 버튼을 <b>직접 눌러보세요</b>.
-      </>
-    ),
+    id: "basic",
+    icon: "1️⃣",
+    title: "기본기 — 듣고, 확인하고, 고치기",
+    desc: "재생 · Enter 확인 · 글 고치기 · 🙉 · 되돌리기",
+    steps: [
+      {
+        target: ".pc-btn.play",
+        title: "영상을 틀어볼게요",
+        body: <>여기 밝게 보이는 <b>▶ 재생</b> 버튼을 <b>직접 눌러보세요</b>.</>,
+        on: "play",
+      },
+      {
+        target: ".row:not(.collapsed)",
+        title: "자막을 듣고, 맞으면 Enter",
+        body: (
+          <>
+            자막 줄 왼쪽의 작은 <b>▶</b>를 누르면 그 자막부터 들려드려요. 말과 글이
+            맞으면 <K c="Enter" /> — 확인 ✓ 되고 다음으로 넘어가요.
+          </>
+        ),
+        missingHint: "확인 안 된 자막이 남아 있어야 진행돼요.",
+        on: "confirm",
+      },
+      {
+        target: ".row:not(.collapsed) .read-text",
+        title: "글자가 틀렸으면? 글을 누르세요",
+        body: (
+          <>
+            고치고 싶은 <b>자막 글을 한 번 눌러보세요</b>. 고칠 수 있는 칸으로 바뀌어요.
+            (고친 뒤에도 <K c="Enter" />면 확인+다음)
+          </>
+        ),
+        missingHint: "확인 안 된 자막이 남아 있으면 여기 글이 보여요.",
+        on: "open-row",
+      },
+      {
+        target: ".hold-btn",
+        title: "잘 안 들리면 🙉",
+        body: (
+          <>
+            지금은 못 정하겠으면 <b>🙉 잘 안 들림</b>을 눌러보세요. 건너뛰고 나중에
+            <b> 느리게</b> 다시 들려드려요.
+          </>
+        ),
+        missingHint: "자막 글을 누르면 그 자막 아래에 🙉 버튼이 나와요.",
+        on: "hold",
+      },
+      {
+        target: ".undo-mini",
+        title: "실수해도 괜찮아요 — 되돌리기",
+        body: (
+          <>
+            방금 🙉 표시를 되돌려 볼게요. <K c="Alt" />+<K c="Z" /> 를 누르거나 여기{" "}
+            <b>↶</b> 버튼. 무엇을 하든 이걸로 되돌아가요.
+          </>
+        ),
+        on: "undo",
+      },
+      {
+        target: null,
+        final: true,
+        title: "🎉 기본기 끝!",
+        body: (
+          <>
+            <b>듣고 → 맞으면 Enter → 틀리면 눌러 고치고 Enter.</b> 이거면 끝까지 가요.
+            왼쪽 위 <b>🎓 따라하기</b>에 다른 연습(재생 조작, 나누기, 타이밍…)도 있어요.
+          </>
+        ),
+      },
+    ],
   },
   {
-    target: ".row:not(.collapsed)",
-    title: "② 자막을 듣고, 맞으면 Enter",
-    body: (
-      <>
-        자막 줄 왼쪽의 작은 <b>▶</b>를 누르면 그 자막부터 들려드려요. 들리는 말과
-        글이 맞으면 키보드의 <kbd className="g-key">Enter</kbd>를 눌러보세요 —
-        확인 ✓ 되고 다음 자막으로 넘어가요.
-      </>
-    ),
-    missingHint: "자막 목록이 오른쪽에 보이면 진행할 수 있어요.",
+    id: "playback",
+    icon: "2️⃣",
+    title: "재생 다루기 — 키보드로 자유롭게",
+    desc: "Tab · 3초/10초 이동 · 구간 처음 · 느리게 · 반복",
+    steps: [
+      {
+        target: ".pc-btn.play",
+        title: "Tab = 재생/멈춤",
+        body: (
+          <>
+            키보드 <K c="Tab" />을 눌러보세요. 재생↔멈춤이 번갈아요. (글자 쓰는 중에도
+            돼요 — 스페이스는 글자 입력용이라 안 써요.)
+          </>
+        ),
+        on: "play",
+      },
+      {
+        target: ".play-controls",
+        title: "방금 말을 놓쳤다? 3초 뒤로",
+        body: (
+          <>
+            <K c="Shift" />+<K c="Tab" /> 또는 <K c="Ctrl" />+<K c="←" /> 를 눌러보세요.
+            3초 뒤로 갑니다.
+          </>
+        ),
+        on: "seek-back",
+      },
+      {
+        target: ".play-controls",
+        title: "3초 앞으로",
+        body: (
+          <>
+            <K c="Ctrl" />+<K c="→" /> — 3초 앞으로. 조용한 구간은 이걸로 훌쩍.
+          </>
+        ),
+        on: "seek-fwd",
+      },
+      {
+        target: ".play-controls",
+        title: "10초씩 크게 이동",
+        body: (
+          <>
+            <K c="Ctrl" />+<K c="Shift" />+<K c="←" /> 또는 <K c="→" /> — 10초씩 성큼.
+          </>
+        ),
+        on: "seek-10",
+      },
+      {
+        target: ".pc-btn",
+        title: "이 자막 처음부터 다시",
+        body: (
+          <>
+            한 번 더 듣고 싶으면 <K c="Ctrl" />+<K c="\\" /> (또는 ⏮ 구간처음). 지금
+            자막의 처음으로 돌아가 재생해요.
+          </>
+        ),
+        on: "replay",
+      },
+      {
+        target: ".pc-speed",
+        title: "빠른 말은 천천히",
+        body: <>여기서 <b>0.75×</b>를 눌러보세요. 말이 빠른 구간은 느리게 들어요.</>,
+        on: "rate",
+      },
+      {
+        target: ".pc-toggle-loop",
+        title: "구간 반복",
+        body: (
+          <>
+            <b>🔁 구간반복</b>을 켜보세요(<K c="Alt" />+<K c="R" />). 편집 중인 자막
+            구간을 계속 반복해서 들려줘요 — 손 안 대고 여러 번 듣기.
+          </>
+        ),
+        on: "loop",
+      },
+      {
+        target: null,
+        final: true,
+        title: "🎉 재생 조작 끝!",
+        body: (
+          <>
+            정리: <K c="Tab" /> 재생/멈춤 · <K c="Ctrl" />+<K c="←→" /> 3초 ·{" "}
+            <K c="Ctrl" />+<K c="\\" /> 구간 처음 · 0.75× 느리게 · 🔁 반복. 손이
+            키보드에서 안 떠나면 두 배 빨라져요.
+          </>
+        ),
+      },
+    ],
   },
   {
-    target: ".row:not(.collapsed) .read-text",
-    title: "③ 글자가 틀렸으면? 글을 누르세요",
-    body: (
-      <>
-        고치고 싶은 <b>자막 글을 한 번 눌러보세요</b>. 고칠 수 있는 칸으로
-        바뀝니다. (고친 뒤에도 <kbd className="g-key">Enter</kbd>면 확인+다음이에요.)
-      </>
-    ),
-    missingHint: "확인 안 된 자막이 남아 있으면 여기 글이 보여요.",
+    id: "fast",
+    icon: "3️⃣",
+    title: "빠르게 훑기 — 멈추지 않는 검수",
+    desc: "멈춤 끄기 · 따라가기 조절 · 안심 일괄확인 · 찾기·바꾸기",
+    steps: [
+      {
+        target: ".pc-toggle-pause",
+        title: "'편집 시작 시 멈춤' 끄기",
+        body: (
+          <>
+            이 체크를 <b>꺼보세요</b>(<K c="Alt" />+<K c="S" />). 끄면 자막 칸을 눌러도
+            영상이 계속 흘러요 — <b>들으면서 바로바로</b> 고칠 때 좋아요. 차분히 볼 땐
+            다시 켜세요.
+          </>
+        ),
+        on: "pausetype",
+      },
+      {
+        target: ".pc-toggle-follow",
+        title: "'자동 따라가기'는 언제 끄나",
+        body: (
+          <>
+            한 번 <b>껐다 켜보세요</b>. <b>켜기</b>: 쭉 들으며 확인할 때(화면이 알아서
+            따라옴). <b>끄기</b>: 한 자막을 붙잡고 오래 고칠 때(화면이 안 움직여서 편함).
+          </>
+        ),
+        on: "follow",
+      },
+      {
+        target: ".tool-safe",
+        title: "쉬운 자막은 한꺼번에 — 안심 확인",
+        body: (
+          <>
+            기계 둘이 똑같이 들은 쉬운 자막은 <b>✅ 안심 확인</b>으로 한 번에 넘기고,
+            어려운 것만 보세요. 눌러보세요.
+          </>
+        ),
+        missingHint: "이 영상엔 지금 안심 구간이 없어요 — '건너뛰기'를 누르세요.",
+        on: "confirm-safe",
+      },
+      {
+        target: ".findbar",
+        title: "같은 오타가 반복되면 — 찾기·바꾸기",
+        body: (
+          <>
+            <b>🔎 찾기·바꾸기</b>를 열어보세요(<K c="Alt" />+<K c="B" />). 같은 잘못이
+            100번 나와도 한 번에 다 바꿔요.
+          </>
+        ),
+        on: "find",
+      },
+      {
+        target: null,
+        final: true,
+        title: "🎉 훑기 요령 끝!",
+        body: (
+          <>
+            요령: 완벽하게 하려고 멈추지 말고, 애매하면 🙉으로 넘기고 계속 가세요.
+            쉬운 건 ✅ 안심으로 한꺼번에, 반복 오타는 🔎로 한 번에.
+          </>
+        ),
+      },
+    ],
   },
   {
-    target: ".hold-btn",
-    title: "④ 잘 안 들리면 🙉",
-    body: (
-      <>
-        지금은 못 정하겠다 싶으면 <b>🙉 잘 안 들림</b>을 눌러보세요. 건너뛰고,
-        나중에 <b>느리게</b> 다시 들려드려요. 억지로 정하지 않아도 돼요.
-      </>
-    ),
-    missingHint: "자막 글을 누르면(③) 그 자막 아래에 🙉 버튼이 나타나요.",
+    id: "structure",
+    icon: "4️⃣",
+    title: "나누기·합치기 — 자막 모양 다듬기",
+    desc: "Ctrl+Enter 나누기 · Ctrl+Shift+Enter 합치기 · 복구",
+    steps: [
+      {
+        target: ".row:not(.collapsed) .read-text",
+        title: "먼저 자막 글을 누르세요",
+        body: <>연습할 <b>자막 글을 한 번 눌러</b> 고치기 칸을 여세요.</>,
+        missingHint: "확인 안 된 자막이 남아 있으면 여기 글이 보여요.",
+        on: "open-row",
+      },
+      {
+        target: ".row.focused",
+        title: "자막이 너무 길면 — 나누기",
+        body: (
+          <>
+            나누고 싶은 곳에 <b>커서를 두고</b> <K c="Ctrl" />+<K c="Enter" />. 그
+            자리에서 자막이 둘로 나뉘어요. 해보세요.
+          </>
+        ),
+        missingHint: "자막 글을 눌러 고치기 칸이 열려 있어야 해요.",
+        on: "split",
+      },
+      {
+        target: ".undo-mini",
+        title: "연습이니까 되돌려요",
+        body: (
+          <>
+            <K c="Alt" />+<K c="Z" /> (또는 ↶) — 방금 나눈 게 도로 붙어요.
+          </>
+        ),
+        on: "undo",
+      },
+      {
+        target: ".row.focused",
+        title: "너무 잘게 나뉘었으면 — 합치기",
+        body: (
+          <>
+            <K c="Ctrl" />+<K c="Shift" />+<K c="Enter" /> — 아래 자막과 합쳐져요.
+            해보세요.
+          </>
+        ),
+        missingHint: "자막 글을 눌러 고치기 칸을 먼저 여세요.",
+        on: "merge",
+      },
+      {
+        target: ".undo-mini",
+        title: "이것도 되돌려요",
+        body: (
+          <>
+            <K c="Alt" />+<K c="Z" /> — 합친 게 도로 나뉘어요.
+          </>
+        ),
+        on: "undo",
+      },
+      {
+        target: null,
+        final: true,
+        title: "🎉 모양 다듬기 끝!",
+        body: (
+          <>
+            나누기 <K c="Ctrl" />+<K c="Enter" /> · 합치기 <K c="Ctrl" />+<K c="Shift" />+
+            <K c="Enter" /> · 지우기 <K c="Alt" />+<K c="Delete" /> (전부 <K c="Alt" />+
+            <K c="Z" />로 복구). 박수 소리만 있는 자막은 지워도 돼요.
+          </>
+        ),
+      },
+    ],
   },
   {
-    target: ".undo-mini",
-    title: "⑤ 실수해도 괜찮아요 — 되돌리기",
-    body: (
-      <>
-        방금 🙉 표시를 되돌려 볼게요. 키보드 <kbd className="g-key">Alt</kbd>+
-        <kbd className="g-key">Z</kbd> 를 누르거나, 여기 <b>↶</b> 버튼을
-        눌러보세요. 무엇을 하든 이걸로 되돌아가니 마음 편히 하세요.
-      </>
-    ),
+    id: "timing",
+    icon: "5️⃣",
+    title: "타이밍 — 자막이 뜨는 시간 맞추기",
+    desc: "② 탭 · ✨ 자동 정리 · Alt+[ ] \\ · 타임라인 · 무음 다듬기",
+    steps: [
+      {
+        target: ".mode-tabs",
+        title: "② 타이밍 탭으로",
+        body: (
+          <>
+            내용(글자) 검수가 끝나면 시간을 봐요. 위의 <b>② 타이밍</b> 탭을 눌러보세요.
+          </>
+        ),
+        on: "mode-timing",
+      },
+      {
+        target: ".tool-auto",
+        title: "기계가 먼저 — ✨ 자동 정리",
+        body: (
+          <>
+            <b>✨ 타이밍 자동 정리</b>를 눌러보세요. 말소리에 맞추고, 긴 자막은 나누고,
+            빠른 자막은 시간을 늘려줘요. (<K c="Alt" />+<K c="Z" />로 전체 되돌리기 가능)
+          </>
+        ),
+        on: "auto-timing",
+      },
+      {
+        target: ".issue-bar",
+        title: "남은 문제만 골라 보기",
+        body: <><b>다음 문제 →</b>를 눌러보세요. 손볼 자막으로 바로 데려다줘요.</>,
+        missingHint: "문제 자막이 없네요 — '건너뛰기'를 누르세요.",
+        on: "next-issue",
+      },
+      {
+        target: ".timing-tools",
+        title: "여기서 시작 — Alt+[",
+        body: (
+          <>
+            자막 글을 누른 뒤, 영상을 듣다가 <b>말이 시작되는 순간</b>{" "}
+            <K c="Alt" />+<K c="[" /> — 지금 재생 위치가 자막의 시작이 돼요.
+          </>
+        ),
+        missingHint: "자막 글을 누르면 아래에 시간 도구가 나와요.",
+        on: "start-here",
+      },
+      {
+        target: ".timing-tools",
+        title: "여기서 넘김 — Alt+]",
+        body: (
+          <>
+            말이 끝나는 순간 <K c="Alt" />+<K c="]" /> — 여기서 자막을 끝내고 다음으로
+            넘겨요.
+          </>
+        ),
+        missingHint: "자막 글을 누르면 아래에 시간 도구가 나와요.",
+        on: "next-here",
+      },
+      {
+        target: ".timing-tools",
+        title: "발화 맞춤 — Alt+\\",
+        body: (
+          <>
+            <K c="Alt" />+<K c="\\" /> (또는 ⤢ 발화 맞춤) — 이 자막을 실제 말소리
+            시작~끝에 자동으로 딱 맞춰요. 제일 편한 버튼이에요.
+          </>
+        ),
+        missingHint: "자막 글을 누르면 아래에 시간 도구가 나와요.",
+        on: "set-times",
+      },
+      {
+        target: ".timing-strip",
+        title: "타임라인 손잡이 끌기",
+        body: (
+          <>
+            여기 타임라인의 <b>밝은 손잡이를 좌우로 끌어보세요</b> — 자막의 시작/끝이
+            따라 움직여요. 미세조정은 이걸로.
+          </>
+        ),
+        on: "edge-drag",
+      },
+      {
+        target: ".tool-tighten",
+        title: "무음 다듬기",
+        body: (
+          <>
+            <b>✂ 무음 다듬기</b>(<K c="Alt" />+<K c="M" />) — 조용한 구간에 자막이
+            안 남게 전체를 한 번에 다듬어요. 눌러보세요.
+          </>
+        ),
+        on: "tighten",
+      },
+      {
+        target: null,
+        final: true,
+        title: "🎉 타이밍 끝!",
+        body: (
+          <>
+            순서: ✨ 자동 정리 → 문제만 순회 → <K c="Alt" />+<K c="[" />/<K c="]" />/
+            <K c="\\" />로 손보기. 다 되면 아래 <b>⏱ 타이밍 검수 완료</b>에 체크하세요.
+          </>
+        ),
+      },
+    ],
   },
   {
-    target: null,
-    final: true,
-    title: "🎉 이게 전부예요!",
-    body: (
-      <>
-        <b>듣고 → 맞으면 Enter → 틀리면 눌러서 고치고 Enter.</b> 이 세 가지면
-        끝까지 갈 수 있어요. 자막 시간(타이밍)은 나중에 <b>② 타이밍</b> 탭에서
-        해요 — 지금은 신경 안 쓰셔도 돼요. 더 자세한 건 목록 화면의{" "}
-        <b>📖 사용법</b>에 있어요. 이 연습은 왼쪽 위 <b>🎓 따라하기</b>로 언제든
-        다시 볼 수 있어요.
-      </>
-    ),
+    id: "finish",
+    icon: "6️⃣",
+    title: "마무리 도구 — 미리보기·복구·학습·내보내기",
+    desc: "Alt+P 미리보기 · 복구·채우기 · 학습 · 자막 받기(점검표)",
+    steps: [
+      {
+        target: ".pc-toggle-preview",
+        title: "영화 보듯 최종 확인 — 미리보기",
+        body: (
+          <>
+            <b>💬 미리보기 모드</b>를 켜보세요(<K c="Alt" />+<K c="P" />). 영상이
+            커지고 자막이 영상 위에 얹혀요 — 시청자가 보게 될 모습 그대로. 확인 후
+            다시 끄세요.
+          </>
+        ),
+        on: "preview",
+      },
+      {
+        target: ".tool-repair",
+        title: "🛠 복구·채우기",
+        body: (
+          <>
+            음성인식이 놓친 구간을 유튜브 자막으로 채워줘요. 눌러보세요. (관리자
+            전용이라 안 되면 '건너뛰기')
+          </>
+        ),
+        missingHint: "내용 모드에서 보여요 — ① 내용 확인 탭으로 가보세요.",
+        on: "repair",
+      },
+      {
+        target: ".tool-absorb",
+        title: "📚 학습 — 기계가 배워요",
+        body: (
+          <>
+            <b>📚 학습</b>(<K c="Alt" />+<K c="K" />)을 눌러보세요. 여러분이 고친 걸
+            기계가 외워서, 다음 영상부터는 같은 실수를 덜 해요. 검수를 마칠 때마다
+            눌러주면 좋아요.
+          </>
+        ),
+        missingHint: "내용 모드에서 보여요 — ① 내용 확인 탭으로 가보세요.",
+        on: "absorb",
+      },
+      {
+        target: ".export-footer .export",
+        title: "자막 받기 — 점검표가 먼저 떠요",
+        body: (
+          <>
+            <b>자막 받기 (.srt)</b>를 눌러보세요. 빠진 곳·문제를 먼저 알려주는 점검표가
+            떠요. 그냥 닫아도 돼요 — 진짜 받는 건 다 끝났을 때.
+          </>
+        ),
+        on: "export-check",
+      },
+      {
+        target: null,
+        final: true,
+        title: "🎉 전부 다 배우셨어요!",
+        body: (
+          <>
+            점검표에서 <b>보기→</b>로 문제 자막에 바로 갈 수 있고, <b>✏️ 맞춤법
+            검사</b>로 오타도 잡아줘요. 이제 진짜 영상에서 시작하세요 — 막히면 언제든{" "}
+            <b>🎓 따라하기</b>와 <b>📖 사용법</b>이 있어요.
+          </>
+        ),
+      },
+    ],
   },
 ];
 
@@ -1251,6 +1663,7 @@ export function Editor({
   timingDone: initialTimingDone,
   initialLang = "ko",
   languages = [],
+  practice = false,
 }: {
   videoId: string;
   onBack: () => void;
@@ -1258,6 +1671,7 @@ export function Editor({
   timingDone: boolean;
   initialLang?: string;
   languages?: { code: string; forked: boolean; timing_done: boolean }[];
+  practice?: boolean;
 }) {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [timingDone, setTimingDoneState] = useState(initialTimingDone);
@@ -1292,27 +1706,45 @@ export function Editor({
   // 큰 글씨 (고령 검수자): 자막 글자·주요 버튼 확대. 세션 간 유지.
   const [bigType, setBigType] = useState(() => localStorage.getItem("jamak.bigtype") === "1");
   useEffect(() => localStorage.setItem("jamak.bigtype", bigType ? "1" : "0"), [bigType]);
-  // 따라하기 투어: null = off, n = current step. Auto-starts once on the first
-  // editor visit (text mode); restartable via the 🎓 button.
-  const [tourStep, setTourStep] = useState<number | null>(null);
-  const tourStepRef = useRef<number | null>(null);
-  tourStepRef.current = tourStep;
-  /** advance only when the CURRENT step's real action happened */
-  function tourAdvance(expected: number) {
-    if (tourStepRef.current === expected) setTourStep(expected + 1);
+  // 따라하기 레슨: {course, step} = active lesson, null = off. 🎓 → 코스 메뉴.
+  // Each step passes only when its real action fires (tourEvent at action sites).
+  const [tour, setTour] = useState<{ course: number; step: number } | null>(null);
+  const [tourMenu, setTourMenu] = useState(false);
+  const tourRef = useRef<typeof tour>(null);
+  tourRef.current = tour;
+  /** an instrumented action happened — advance if it's what the step waits for */
+  function tourEvent(name: string) {
+    const t = tourRef.current;
+    if (!t) return;
+    const step = COURSES[t.course].steps[t.step];
+    if (step?.on !== name) return;
+    setTour({ course: t.course, step: t.step + 1 });
+  }
+  function courseDone(id: string): boolean {
+    // legacy: jamak.tourDone was the old single-course flag → counts as basic
+    return (
+      localStorage.getItem(`jamak.tour.${id}`) === "1" ||
+      (id === "basic" && localStorage.getItem("jamak.tourDone") === "1")
+    );
   }
   function endTour() {
-    localStorage.setItem("jamak.tourDone", "1");
-    setTourStep(null);
+    const t = tourRef.current;
+    if (t) localStorage.setItem(`jamak.tour.${COURSES[t.course].id}`, "1");
+    setTour(null);
+  }
+  function startCourse(i: number) {
+    setTourMenu(false);
+    setMode("text"); // 모든 코스는 내용 모드에서 출발 (타이밍 코스는 탭 전환부터 가르침)
+    setTour({ course: i, step: 0 });
   }
   function skipTourStep() {
-    setTourStep((s) => {
-      if (s === null) return null;
-      if (s >= TOUR_STEPS.length - 1) {
-        localStorage.setItem("jamak.tourDone", "1");
+    setTour((t) => {
+      if (!t) return null;
+      if (t.step >= COURSES[t.course].steps.length - 1) {
+        localStorage.setItem(`jamak.tour.${COURSES[t.course].id}`, "1");
         return null;
       }
-      return s + 1;
+      return { course: t.course, step: t.step + 1 };
     });
   }
   // 내보내기 전 점검 모달 (QC + 선택적 AI 맞춤법). null = closed.
@@ -1384,6 +1816,7 @@ export function Editor({
     runAbsorb,
     hold,
     confirmActive,
+    tourEvent,
     seekTo,
     seekBy,
     play,
@@ -1409,6 +1842,7 @@ export function Editor({
     runAbsorb,
     hold,
     confirmActive,
+    tourEvent,
     seekTo,
     seekBy,
     play,
@@ -1455,7 +1889,7 @@ export function Editor({
   const onFocusRowCb = useCallback((id: number) => H.current.markFocused(id), []);
   const onOpenRowCb = useCallback((seg: Segment) => {
     H.current.focusSegment(seg);
-    tourAdvance(2); // 투어 ③: 사용자가 자막 글을 직접 눌렀을 때만
+    tourEvent("open-row"); // 사용자가 자막 글을 직접 눌렀을 때만 (프로그램 포커스 제외)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const onHoldCb = useCallback((seg: Segment) => H.current.hold(seg), []);
@@ -1598,21 +2032,22 @@ export function Editor({
       ),
     [segments],
   );
-  // 따라하기 자동 시작: 첫 에디터 방문(기록 없음) + 내용 모드 + 자막 있는 트랙
+  // 따라하기 자동 시작: 첫 에디터 방문(기본기 미완료) + 내용 모드 + 자막 있는 트랙
   useEffect(() => {
     if (
-      tourStep === null &&
+      tour === null &&
       segments.length > 0 &&
       (isKo || forked) &&
       mode === "text" &&
-      !localStorage.getItem("jamak.tourDone")
+      !courseDone("basic")
     )
-      setTourStep(0);
+      setTour({ course: 0, step: 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [segments.length]);
 
   function nextIssue() {
     if (!issues.length) return;
+    tourEvent("next-issue");
     const from = focusedIdRef.current;
     const i = from != null ? segments.findIndex((s) => s.id === from) : -1;
     const target =
@@ -1721,7 +2156,7 @@ export function Editor({
     if (!seg || seg.reviewed) return;
     const before = segmentsRef.current.find((s) => s.id === seg.id);
     if (!before) return;
-    tourAdvance(3); // 투어 ④: 🙉를 실제로 눌렀을 때
+    tourEvent("hold");
     const flag = before.review_flag === "hold" ? "" : "hold";
     pushOpUndo(flag ? "보류 표시" : "보류 해제", [before]);
     applyRows([{ ...before, review_flag: flag }]);
@@ -1774,6 +2209,7 @@ export function Editor({
 
   // replay the subtitle you're on, from its start (works while typing)
   function replayCurrent() {
+    tourEvent("replay");
     const segs = segmentsRef.current;
     const t = currentTimeRef.current;
     const cur =
@@ -1851,7 +2287,7 @@ export function Editor({
       focusedIdRef.current = entry.focusedId;
       setFocusedId(entry.focusedId);
       setStatusMsg(`${entry.label} 되돌림`);
-      tourAdvance(4); // 투어 ⑤: 되돌리기가 실제로 실행됐을 때
+      tourEvent("undo");
       if (entry.focusedId) {
         window.setTimeout(() => rowsRef.current.get(entry.focusedId ?? -1)?.focus(), 0);
       }
@@ -1919,13 +2355,19 @@ export function Editor({
       // mis-press or a slipped Shift can only move the playhead/selection =====
       if (e.key === "Tab" && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
-        if (e.shiftKey) H.current.seekBy(-3);
-        else H.current.playPause();
+        if (e.shiftKey) {
+          H.current.seekBy(-3);
+          H.current.tourEvent("seek-back");
+        } else {
+          H.current.playPause();
+          H.current.tourEvent("play");
+        }
         return;
       }
       if (e.code === "Space" && !e.ctrlKey && !e.altKey && !isTypingTarget(e.target)) {
         e.preventDefault();
         H.current.playPause();
+        H.current.tourEvent("play");
         return;
       }
       // seek: Ctrl+←/→ = ∓3s, Ctrl+Shift+←/→ = ∓10s. On Ctrl (not Alt) so it can
@@ -1940,6 +2382,9 @@ export function Editor({
         e.preventDefault();
         const step = e.shiftKey ? 10 : 3;
         H.current.seekBy(e.key === "ArrowLeft" ? -step : step);
+        H.current.tourEvent(
+          e.shiftKey ? "seek-10" : e.key === "ArrowLeft" ? "seek-back" : "seek-fwd",
+        );
         return;
       }
       // swallow Alt+←/→ entirely so a stray press can't send Chrome back/forward
@@ -1996,10 +2441,22 @@ export function Editor({
       // mode toggles + left-panel tools (Alt + letter) — safe while typing
       if (e.altKey && !e.ctrlKey && !e.shiftKey && /^[a-z]$/i.test(e.key)) {
         const actions: Record<string, () => void> = {
-          r: () => setLoopSeg((v) => !v),
-          s: () => setPauseOnType((v) => !v),
-          p: () => setShowPreview((v) => !v),
-          b: () => setFindOpen((v) => !v),
+          r: () => {
+            setLoopSeg((v) => !v);
+            H.current.tourEvent("loop");
+          },
+          s: () => {
+            setPauseOnType((v) => !v);
+            H.current.tourEvent("pausetype");
+          },
+          p: () => {
+            setShowPreview((v) => !v);
+            H.current.tourEvent("preview");
+          },
+          b: () => {
+            setFindOpen((v) => !v);
+            H.current.tourEvent("find");
+          },
           g: () => void H.current.runRepair(),
           m: () => void H.current.runTighten(),
           k: () => void H.current.runAbsorb(),
@@ -2050,7 +2507,7 @@ export function Editor({
   // Optimistic: the UI (and Enter's jump to the next cue) reacts instantly;
   // the PUT runs in the background and the server row reconciles when it lands.
   function save(id: number, text: string, reviewed: boolean | null, next: boolean): Promise<void> {
-    if (reviewed) tourAdvance(1); // 투어 ②: 진짜 Enter 확인이 일어났을 때만 진행
+    if (reviewed) tourEvent("confirm");
     const before = segmentsRef.current.find((s) => s.id === id);
     if (!before) return Promise.resolve();
     const changed =
@@ -2110,6 +2567,7 @@ export function Editor({
   // The response carries the changed rows (this cue + maybe the pushed
   // neighbour) — patch them in, no track refetch.
   async function edgeDragCommit(seg: Segment, which: "start" | "end", time: number) {
+    tourEvent("edge-drag");
     try {
       // let any queued background PUT for this segment land first (ordering)
       await (saveQueuesRef.current.get(seg.id) ?? Promise.resolve());
@@ -2127,6 +2585,7 @@ export function Editor({
 
   // set both bounds at once (speech-map drag / 발화 맞춤) — one undo step
   function setTimes(seg: Segment, start: number, end: number) {
+    tourEvent("set-times");
     const list = segmentsRef.current;
     const i = list.findIndex((s) => s.id === seg.id);
     if (i < 0) return;
@@ -2157,6 +2616,7 @@ export function Editor({
   }
 
   async function timing(action: "start-here" | "next-here", seg: Segment, atTime?: number) {
+    tourEvent(action); // "start-here" | "next-here"
     try {
       const t = atTime ?? currentTimeRef.current;
       await (saveQueuesRef.current.get(seg.id) ?? Promise.resolve());
@@ -2177,6 +2637,7 @@ export function Editor({
   }
 
   async function structure(action: "split" | "merge" | "delete", seg: Segment, position?: number) {
+    tourEvent(action); // "split" | "merge" | "delete"
     try {
       const label = action === "split" ? "나누기" : action === "merge" ? "합치기" : "삭제";
       await (saveQueuesRef.current.get(seg.id) ?? Promise.resolve());
@@ -2293,6 +2754,7 @@ export function Editor({
   }
 
   async function runRepair() {
+    tourEvent("repair");
     await flushAll();
     try {
       const r = await repairStt(videoId);
@@ -2321,6 +2783,7 @@ export function Editor({
       )
     )
       return;
+    tourEvent("auto-timing");
     await flushAll();
     try {
       const r = await autoTiming(videoId, lang);
@@ -2346,6 +2809,7 @@ export function Editor({
   }
 
   async function runTighten() {
+    tourEvent("tighten");
     await flushAll();
     try {
       const r = await tightenTiming(videoId);
@@ -2361,6 +2825,7 @@ export function Editor({
   }
 
   async function runConfirmSafe() {
+    tourEvent("confirm-safe");
     await flushAll();
     try {
       const r = await confirmSafe(videoId);
@@ -2374,6 +2839,7 @@ export function Editor({
   }
 
   async function runAbsorb() {
+    tourEvent("absorb");
     await flushAll();
     try {
       const r = await absorbFeedback(videoId);
@@ -2393,6 +2859,7 @@ export function Editor({
   // "자막 받기" now goes through a pre-export check first (ADR-0009 follow-up):
   // rule QC is free and instant; AI 맞춤법 is an opt-in button inside the modal.
   async function openExportCheck() {
+    tourEvent("export-check");
     if (!(isKo || forked)) {
       // inherited translation view has no own segments to QC — export directly
       void doExport();
@@ -2512,16 +2979,19 @@ export function Editor({
           </button>
           <button
             className="tour-btn"
-            title="화면에서 한 단계씩 직접 해보는 연습 (언제든 다시)"
-            onClick={() => {
-              setMode("text");
-              setTourStep(0);
-            }}
+            title="화면에서 한 단계씩 직접 해보는 연습 (코스 6개, 언제든 다시)"
+            onClick={() => setTourMenu(true)}
           >
             🎓 따라하기
           </button>
           <ThemeToggle />
         </div>
+        {practice && (
+          <div className="practice-banner" title="연습용 영상 — 여기서의 편집은 학습 데이터에 반영되지 않아요">
+            🎓 <b>연습용 영상</b>이에요 — 마음껏 눌러보고 고쳐보세요. 실제 작업에
+            영향이 없어요.
+          </div>
+        )}
         <div className="player-wrap">
           <div id="yt-player" />
           {showPreview &&
@@ -2565,20 +3035,34 @@ export function Editor({
           >
             ⏮ 구간처음
           </button>
-          <button className="pc-btn" title="3초 뒤로 (Ctrl+← 또는 Shift+Tab)" onClick={() => seekBy(-3)}>
+          <button
+            className="pc-btn"
+            title="3초 뒤로 (Ctrl+← 또는 Shift+Tab)"
+            onClick={() => {
+              seekBy(-3);
+              tourEvent("seek-back");
+            }}
+          >
             ⟲ 3초
           </button>
           <button
             className="pc-btn play"
             title="재생 / 일시정지 (Tab, 또는 편집칸 밖에서 Space)"
             onClick={() => {
-              tourAdvance(0); // 투어 ①: 재생 버튼을 실제로 눌렀을 때
+              tourEvent("play");
               playPause();
             }}
           >
             {playing ? "⏸ 멈춤" : "▶ 재생"}
           </button>
-          <button className="pc-btn" title="3초 앞으로 (Ctrl+→)" onClick={() => seekBy(3)}>
+          <button
+            className="pc-btn"
+            title="3초 앞으로 (Ctrl+→)"
+            onClick={() => {
+              seekBy(3);
+              tourEvent("seek-fwd");
+            }}
+          >
             3초 ⟳
           </button>
           <div className="pc-speed" title="재생 속도 — 느리게 하면 타이밍·발음 검수가 쉬워요">
@@ -2587,53 +3071,68 @@ export function Editor({
                 key={r}
                 type="button"
                 className={"pc-speed-btn" + (rate === r ? " on" : "")}
-                onClick={() => setRate(r)}
+                onClick={() => {
+                  setRate(r);
+                  tourEvent("rate");
+                }}
               >
                 {r}×
               </button>
             ))}
           </div>
           <div className="pc-settings">
-            <label className="pc-toggle" title="편집 중인 구간의 소리를 반복 재생 (되감기 없이 다시 듣기) (Alt+R)">
+            <label className="pc-toggle pc-toggle-loop" title="편집 중인 구간의 소리를 반복 재생 (되감기 없이 다시 듣기) (Alt+R)">
               <input
                 type="checkbox"
                 checked={loopSeg}
-                onChange={(e) => setLoopSeg(e.target.checked)}
+                onChange={(e) => {
+                  setLoopSeg(e.target.checked);
+                  tourEvent("loop");
+                }}
               />
               🔁 구간반복
             </label>
             <label
-              className="pc-toggle"
+              className="pc-toggle pc-toggle-pause"
               title="구간을 클릭해 편집을 시작할 때 영상을 한 번 멈춤 (타이핑·백스페이스로는 안 멈춰서 재생·구간반복 들으며 편집 가능) (Alt+S)"
             >
               <input
                 type="checkbox"
                 checked={pauseOnType}
-                onChange={(e) => setPauseOnType(e.target.checked)}
+                onChange={(e) => {
+                  setPauseOnType(e.target.checked);
+                  tourEvent("pausetype");
+                }}
               />
               편집 시작 시 멈춤
             </label>
             {textMode && (
               <label
-                className="pc-toggle"
+                className="pc-toggle pc-toggle-follow"
                 title="영상을 계속 틀어두면 지금 나오는 자막이 화면 가운데로 따라옵니다. 맞으면 Enter만 누르세요 (확인+계속 재생)"
               >
                 <input
                   type="checkbox"
                   checked={follow}
-                  onChange={(e) => setFollow(e.target.checked)}
+                  onChange={(e) => {
+                    setFollow(e.target.checked);
+                    tourEvent("follow");
+                  }}
                 />
                 🎧 자동 따라가기
               </label>
             )}
             <label
-              className="pc-toggle"
+              className="pc-toggle pc-toggle-preview"
               title="미리보기(극장) 모드 — 영상을 크게, 자막을 영상 위에 얹고, 재생 중인 자막을 화면 가운데로 따라 스크롤. 최종 확인용 (편집은 끄고) (Alt+P)"
             >
               <input
                 type="checkbox"
                 checked={showPreview}
-                onChange={(e) => setShowPreview(e.target.checked)}
+                onChange={(e) => {
+                  setShowPreview(e.target.checked);
+                  tourEvent("preview");
+                }}
               />
               💬 미리보기 모드
             </label>
@@ -2743,7 +3242,7 @@ export function Editor({
         <div className="tools">
           {nSafe > 0 && (
             <button
-              className="tool accent"
+              className="tool accent tool-safe"
               title="두 음성인식이 일치하고 어려운 용어도 없는 '안심' 구간을 한번에 확인. 나머지에만 집중하세요."
               onClick={() => void runConfirmSafe()}
             >
@@ -2752,7 +3251,7 @@ export function Editor({
           )}
           {!textMode && (
             <button
-              className="tool accent"
+              className="tool accent tool-auto"
               title="타이밍을 기계가 먼저 정리 — 말소리에 맞추고, 너무 긴 자막은 나누고, 너무 빠른 자막은 표시 시간을 늘림 (되돌리기 가능)"
               onClick={() => void runAutoTiming()}
             >
@@ -2761,7 +3260,7 @@ export function Editor({
           )}
           {!textMode && (
             <button
-              className="tool"
+              className="tool tool-tighten"
               title="자막을 실제 발화 시작~끝 구간에 딱 맞춰 다듬어 침묵 구간엔 자막이 안 보이게 함 (텍스트·검수 상태는 그대로, API 사용 안 함) (Alt+M)"
               onClick={() => void runTighten()}
             >
@@ -2769,14 +3268,14 @@ export function Editor({
             </button>
           )}
           <button
-            className="tool"
+            className="tool tool-repair"
             title="음성인식이 놓치거나 잘못 뱉은 구간을 유튜브 자막으로 복구·보충 (API 사용 안 함) (Alt+G)"
             onClick={() => void runRepair()}
           >
             🛠 복구·채우기
           </button>
           <button
-            className="tool"
+            className="tool tool-absorb"
             title="이번에 고친 내용을 뒤쪽 미검수 자막에 반영하고 다음 실행에도 기억 (Alt+K)"
             onClick={() => void runAbsorb()}
           >
@@ -2894,7 +3393,10 @@ export function Editor({
               aria-selected={!textMode}
               className={"mode-tab" + (!textMode ? " on" : "")}
               title="자막이 뜨고 사라지는 시간을 맞춥니다 — 내용 확인이 끝난 뒤에"
-              onClick={() => setMode("timing")}
+              onClick={() => {
+                setMode("timing");
+                tourEvent("mode-timing");
+              }}
             >
               <strong>② 타이밍</strong>
               <span>{(isKo ? timingDone : langTimingDone) ? "완료 ✓" : "자막 시간 맞추기"}</span>
@@ -2959,7 +3461,10 @@ export function Editor({
               <button
                 className="find-toggle"
                 title="반복되는 오인식을 전체 자막에서 한 번에 교정 (Alt+B)"
-                onClick={() => setFindOpen(true)}
+                onClick={() => {
+                  setFindOpen(true);
+                  tourEvent("find");
+                }}
               >
                 🔎 찾기·바꾸기
               </button>
@@ -3048,14 +3553,51 @@ export function Editor({
         )}
       </div>
       {/* 따라하기 투어 — 실제 컨트롤을 하나씩 밝혀 직접 해보게 함 */}
-      {tourStep !== null && (
+      {tour !== null && (
         <Tour
-          steps={TOUR_STEPS}
-          step={tourStep}
+          steps={COURSES[tour.course].steps}
+          step={tour.step}
           onExit={endTour}
           onSkipStep={skipTourStep}
           onFinish={endTour}
         />
+      )}
+      {/* 🎓 코스 선택 메뉴 */}
+      {tourMenu && (
+        <div
+          className="srt-modal-back"
+          onMouseDown={(e) => e.target === e.currentTarget && setTourMenu(false)}
+        >
+          <div className="srt-modal tour-menu" onClick={(e) => e.stopPropagation()}>
+            <h3>🎓 따라하기 — 무엇을 연습할까요?</h3>
+            <p className="srt-summary">
+              실제 화면에서 한 단계씩 직접 해보는 연습이에요. 순서대로 하셔도 되고,
+              필요한 것만 골라 하셔도 돼요.
+              {practice
+                ? " 이 영상은 연습용이라 마음껏 만져도 돼요."
+                : " 연습은 🎓 연습용 영상에서 하는 걸 권해요. (모든 연습은 Alt+Z로 되돌릴 수 있어요)"}
+            </p>
+            <div className="tour-courses">
+              {COURSES.map((c, i) => (
+                <button key={c.id} className="tour-course" onClick={() => startCourse(i)}>
+                  <span className="tc-icon">{c.icon}</span>
+                  <span className="tc-body">
+                    <strong>{c.title}</strong>
+                    <span>{c.desc}</span>
+                  </span>
+                  <span className={"tc-state" + (courseDone(c.id) ? " done" : "")}>
+                    {courseDone(c.id) ? "다시 하기 ✓" : `${c.steps.length - 1}단계`}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="srt-actions">
+              <button className="srt-cancel" onClick={() => setTourMenu(false)}>
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {/* 내보내기 전 점검 (QC + AI 맞춤법) — reuses the .srt modal styling */}
       {qcModal && (

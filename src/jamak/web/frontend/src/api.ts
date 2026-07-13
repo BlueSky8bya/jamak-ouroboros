@@ -34,6 +34,15 @@ export interface SrtPreview {
   sample: { idx: number; old: string; new: string }[];
 }
 
+export async function setPractice(videoId: string, on: boolean): Promise<void> {
+  const r = await fetch(`/api/jobs/${videoId}/practice`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ on }),
+  });
+  if (!r.ok) throw new Error(`practice: ${r.status}`);
+}
+
 export async function setAssignee(videoId: string, name: string): Promise<void> {
   await fetch(`/api/jobs/${videoId}/assignee`, {
     method: "POST",

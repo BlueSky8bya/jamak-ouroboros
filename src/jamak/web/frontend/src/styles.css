@@ -3833,3 +3833,60 @@ kbd {
 }
 .tour-finish:hover { filter: brightness(1.08); }
 .tour-bubble.final { text-align: left; }
+
+/* ===== 따라하기 코스 메뉴 + 연습용 영상 =================================== */
+.tour-menu { max-width: 620px; }
+.tour-courses { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.tour-course {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 15px;
+}
+.tour-course:hover { border-color: var(--blue); background: var(--blue-soft); }
+.tc-icon { font-size: 1.4rem; flex: 0 0 auto; }
+.tc-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tc-body strong { font-size: 1.02rem; }
+.tc-body span { color: var(--muted); font-size: 0.85rem; }
+.tc-state {
+  flex: 0 0 auto;
+  font-size: 0.8rem;
+  color: var(--faint);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+.tc-state.done { color: var(--green); border-color: var(--green); background: var(--green-soft); }
+
+.practice-banner {
+  margin: 8px 0 2px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px dashed var(--blue);
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+  font-size: 0.92rem;
+}
+
+.thumb-practice {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  z-index: 1;
+}
+.qa.qa-on { background: var(--blue); color: #fff; }

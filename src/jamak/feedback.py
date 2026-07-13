@@ -106,6 +106,18 @@ def absorb_job(video_id: str) -> dict:
         job = session.exec(select(Job).where(Job.video_id == video_id)).first()
         if job is None:
             raise ValueError(f"no job for {video_id}")
+        # 연습용 영상 (tutorial sandbox, ADR-0009 후속): its edits are drills,
+        # not review — absorbing them would pollute corrections/glossary.
+        if job.practice:
+            return {
+                "reviewed_segments": 0,
+                "new_pairs": 0,
+                "bumped": 0,
+                "applied": 0,
+                "propagated_segments": 0,
+                "propagated_replacements": 0,
+                "propagation_pairs": 0,
+            }
         total_segments = len(
             session.exec(
                 select(Segment.id).where(
