@@ -10,17 +10,11 @@ Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATI
 
 ## Pending (사용자 액션)
 
-- **backup-cloud 스케줄 태스크 재등록**: 폴더 rename 후 태스크가 여전히 `C:\Projects\asdf\deploy\backup-cloud.cmd`를 가리킴(경로 소멸 → 백업 안 돎). 사용자가 아래 실행 (권한 정책상 에이전트가 태스크 재등록 불가):
-  ```powershell
-  schtasks /query /tn "jamak-backup-cloud" /xml > "$env:TEMP\jamak-task.xml"
-  (Get-Content "$env:TEMP\jamak-task.xml" -Raw) -replace 'C:\\Projects\\asdf','C:\Projects\jamak-ouroboros' | Set-Content "$env:TEMP\jamak-task.xml" -Encoding Unicode
-  schtasks /create /tn "jamak-backup-cloud" /xml "$env:TEMP\jamak-task.xml" /f
-  ```
 - **▶버튼 실재생 확인** (b8cd8b2 배포됨) — DELEGATED, 사용자 브라우저에서.
 
 ## Recent (2026-07-13 — 폴더 rename asdf→jamak-ouroboros 완료)
 
-- 사용자가 rename 스크립트 실행. 에이전트 검증: settings.json 훅 경로 ✓(스크립트가 넣은 UTF-8 BOM 제거), backup-cloud.cmd ✓, 워커 새 venv 경로로 가동 중 ✓, 워커 autostart ✓, Claude 메모리 이전 ✓. 추가 패치: deploy/start-serve.cmd·restart-serve.cmd(스크립트 누락분, 잉여 스크립트지만 경로 정정). 남은 것: 위 스케줄 태스크만.
+- 사용자가 rename 스크립트 실행. 에이전트 검증: settings.json 훅 경로 ✓(스크립트가 넣은 UTF-8 BOM 제거), backup-cloud.cmd ✓, 워커 새 venv 경로로 가동 중 ✓, 워커 autostart ✓, Claude 메모리 이전 ✓. 추가 패치: deploy/start-serve.cmd·restart-serve.cmd(스크립트 누락분, 잉여 스크립트지만 경로 정정). 스케줄 태스크 `jamak-backup-cloud` 재등록 완료(사용자 실행, 경로 새로+매주 일 03:00 유지, Ready). rename 마무리 완전 종료.
 
 ## Recent Additions (2026-07-13 — v0.2.1, CHANGELOG CHG-20260713-001~005)
 
