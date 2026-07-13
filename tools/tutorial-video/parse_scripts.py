@@ -14,7 +14,7 @@ from pathlib import Path
 SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "docs" / "tutorial" / "scripts"
 STYLES = {"보통", "빠르게", "느리게", "웅얼", "침묵"}
 # PLAN.md §2.2: total spoken-line count contract. Update together with scripts.
-EXPECTED_TOTAL = 76
+EXPECTED_TOTAL = 77
 
 
 @dataclass
