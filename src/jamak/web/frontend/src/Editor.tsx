@@ -2730,8 +2730,12 @@ export function Editor({
         </div>
       </div>
       <div className="right">
-        {/* 작업 모드 탭 (ADR-0009) — 큰 글씨, 두 개뿐, 항상 전환 가능 */}
+        {/* sticky right-panel header — mode tabs + issue queue + find bar in ONE
+            opaque sticky container. Before, .mode-tabs and .findbar were each
+            `sticky; top:0` (and the closed findbar was transparent), so they
+            overlapped and rows bled through above the tabs. */}
         {(isKo || forked) && (
+          <div className="right-head">
           <div className="mode-tabs" role="tablist" aria-label="검수 단계">
             <button
               role="tab"
@@ -2760,17 +2764,15 @@ export function Editor({
               <span>{(isKo ? timingDone : langTimingDone) ? "완료 ✓" : "자막 시간 맞추기"}</span>
             </button>
           </div>
-        )}
-        {/* 타이밍 모드: 남은 문제 자막만 골라 순회 */}
-        {(isKo || forked) && !textMode && issues.length > 0 && (
-          <div className="issue-bar">
-            <span>⏱ 다듬을 자막 {issues.length}개 (너무 빠르거나 길거나 짧음)</span>
-            <button className="issue-next" onClick={() => nextIssue()}>
-              다음 문제 →
-            </button>
-          </div>
-        )}
-        {(isKo || forked) && (
+          {/* 타이밍 모드: 남은 문제 자막만 골라 순회 */}
+          {!textMode && issues.length > 0 && (
+            <div className="issue-bar">
+              <span>⏱ 다듬을 자막 {issues.length}개 (너무 빠르거나 길거나 짧음)</span>
+              <button className="issue-next" onClick={() => nextIssue()}>
+                다음 문제 →
+              </button>
+            </div>
+          )}
           <div className={"findbar" + (findOpen ? " open" : "")}>
             {findOpen ? (
               <>
@@ -2826,6 +2828,7 @@ export function Editor({
                 🔎 찾기·바꾸기
               </button>
             )}
+          </div>
           </div>
         )}
         {!isKo && !forked ? (

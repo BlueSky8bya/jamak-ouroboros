@@ -1297,8 +1297,15 @@ img.broken { opacity: 0; }
 .right {
   min-width: 0;
   overflow-y: auto;
-  padding: 16px 18px 28px;
+  /* no top padding: a `position:sticky` child sticks to the scroll container's
+     PADDING box, so a padding-top would leave that many px above the sticky
+     header where scrolling rows show through. The top spacing lives on the
+     header (.right-head) / first child instead. */
+  padding: 0 18px 28px;
 }
+/* first children get back the top breathing room the container used to give */
+.right > .right-head,
+.right > .track-review { padding-top: 16px; }
 
 .back {
   align-self: flex-start;
@@ -2396,7 +2403,7 @@ kbd {
   }
 
   .right {
-    padding: 12px;
+    padding: 0 12px 12px; /* keep top padding off — see .right note (sticky header) */
   }
 
   .landing-header {
@@ -2964,13 +2971,9 @@ kbd {
 
 /* ===== find & replace bar — collapsed to a quiet link, expands on demand ===== */
 .findbar {
-  position: sticky;
-  top: 0;
-  z-index: 5;
   display: flex;
   align-items: center;
   gap: 7px;
-  margin-bottom: 8px;
   padding: 6px;
   border-radius: 10px;
 }
@@ -3234,17 +3237,30 @@ kbd {
 
 /* ---- 검수 모드 탭 + 잘 안 들림 + 자동 정리 (ADR-0009) -------------------- */
 
+/* Sticky right-panel header holding the mode tabs, the timing issue bar, and
+   the find/replace bar. ONE opaque sticky container so scrolling subtitle rows
+   can't bleed through and the bars can't overlap. Before, both .mode-tabs and
+   .findbar were each `sticky; top:0` and the closed .findbar was transparent —
+   they stacked at the same offset and rows showed through above the tabs. Rows
+   and this header share .right's horizontal padding, so the opaque background
+   already covers the row band; no negative margins (they'd only shift the
+   sticky stick-point and leave a gap above the bar). */
+.right-head {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  background: var(--bg);
+  padding-bottom: 8px;
+  margin-bottom: 6px;
+}
+
 /* two big, plain-language tabs — the only navigation an elderly reviewer
    needs. The active one is unmistakable (filled, bold, check state). */
 .mode-tabs {
   display: flex;
   gap: 8px;
-  margin-bottom: 10px;
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  background: var(--bg);
-  padding: 4px 0 6px;
+  margin-bottom: 8px;
+  padding: 0;
 }
 .mode-tab {
   flex: 1;
