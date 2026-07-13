@@ -3737,3 +3737,99 @@ kbd {
   .g-panel { padding: 16px 16px 24px; font-size: 16px; }
   .g-kcol { min-width: 120px; }
 }
+
+/* ===== 따라하기 투어 (interactive walkthrough) =========================== */
+.tour-btn {
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.tour-btn:hover { border-color: var(--blue); color: var(--blue); }
+
+.tour { position: fixed; inset: 0; z-index: 200; pointer-events: none; }
+.tour-dim {
+  position: fixed;
+  background: rgba(8, 12, 18, 0.62);
+  pointer-events: auto; /* block clicks outside the spotlight hole */
+}
+.tour-ring {
+  position: fixed;
+  border: 3px solid var(--blue);
+  border-radius: 12px;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.35), 0 0 22px rgba(37, 99, 235, 0.5);
+  pointer-events: none;
+  animation: tour-pulse 1.6s ease-in-out infinite;
+}
+@keyframes tour-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.35), 0 0 22px rgba(37, 99, 235, 0.5); }
+  50% { box-shadow: 0 0 0 8px rgba(37, 99, 235, 0.18), 0 0 30px rgba(37, 99, 235, 0.65); }
+}
+@media (prefers-reduced-motion: reduce) { .tour-ring { animation: none; } }
+
+.tour-bubble {
+  position: fixed;
+  width: 380px;
+  max-width: calc(100vw - 24px);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lift);
+  padding: 16px 18px;
+  pointer-events: auto;
+  color: var(--text);
+  font-size: 16.5px;
+  line-height: 1.65;
+}
+.tour-bubble h3 { margin: 6px 0 8px; font-size: 1.2rem; }
+.tour-bubble .g-key { font-size: 0.95em; }
+.tour-progress { display: flex; align-items: center; gap: 5px; }
+.tour-progress em { margin-left: auto; font-style: normal; color: var(--faint); font-size: 0.8rem; }
+.tour-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line-strong); }
+.tour-dot.done { background: var(--green); }
+.tour-dot.on { background: var(--blue); transform: scale(1.25); }
+.tour-missing {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.tour-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; }
+.tour-exit {
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 6px 4px;
+}
+.tour-exit:hover { color: var(--rose); }
+.tour-skip {
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.tour-skip:hover { border-color: var(--blue); color: var(--blue); }
+.tour-finish {
+  border: none;
+  border-radius: 10px;
+  background: var(--blue);
+  color: #fff;
+  padding: 11px 20px;
+  cursor: pointer;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+.tour-finish:hover { filter: brightness(1.08); }
+.tour-bubble.final { text-align: left; }

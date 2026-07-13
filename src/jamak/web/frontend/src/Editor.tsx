@@ -28,6 +28,7 @@ import {
 import type { QcReport, SpellSuggestion, WordTime } from "./api";
 import { Dropdown } from "./Dropdown";
 import { ThemeToggle } from "./theme";
+import { Tour, type TourStep } from "./Tour";
 import { TranslateReview } from "./TranslateReview";
 import type { Segment } from "./types";
 import { usePlayer } from "./usePlayer";
@@ -1164,6 +1165,85 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
   },
 ];
 
+/* [WH-CHANGE v0.3.5 | FEAT | 2026-07-14 | CHG-20260714-001]
+   Reason: 어르신 검수자 온보딩 — 읽는 설명(📖 사용법)만으론 손에 안 익음.
+           실제 화면에서 한 동작씩 직접 해봐야 진행되는 따라하기 투어.
+   Related: ADR-0009 / CHANGELOG CHG-20260714-001.
+
+   따라하기 투어 단계. Each step spotlights a REAL control and advances only
+   when the reviewer performs the action (hooks at the real action sites:
+   play click, save(reviewed), read-text click, hold(), undoLast()). */
+const TOUR_STEPS: TourStep[] = [
+  {
+    target: ".pc-btn.play",
+    title: "① 영상을 틀어볼게요",
+    body: (
+      <>
+        여기 밝게 보이는 <b>▶ 재생</b> 버튼을 <b>직접 눌러보세요</b>.
+      </>
+    ),
+  },
+  {
+    target: ".row:not(.collapsed)",
+    title: "② 자막을 듣고, 맞으면 Enter",
+    body: (
+      <>
+        자막 줄 왼쪽의 작은 <b>▶</b>를 누르면 그 자막부터 들려드려요. 들리는 말과
+        글이 맞으면 키보드의 <kbd className="g-key">Enter</kbd>를 눌러보세요 —
+        확인 ✓ 되고 다음 자막으로 넘어가요.
+      </>
+    ),
+    missingHint: "자막 목록이 오른쪽에 보이면 진행할 수 있어요.",
+  },
+  {
+    target: ".row:not(.collapsed) .read-text",
+    title: "③ 글자가 틀렸으면? 글을 누르세요",
+    body: (
+      <>
+        고치고 싶은 <b>자막 글을 한 번 눌러보세요</b>. 고칠 수 있는 칸으로
+        바뀝니다. (고친 뒤에도 <kbd className="g-key">Enter</kbd>면 확인+다음이에요.)
+      </>
+    ),
+    missingHint: "확인 안 된 자막이 남아 있으면 여기 글이 보여요.",
+  },
+  {
+    target: ".hold-btn",
+    title: "④ 잘 안 들리면 🙉",
+    body: (
+      <>
+        지금은 못 정하겠다 싶으면 <b>🙉 잘 안 들림</b>을 눌러보세요. 건너뛰고,
+        나중에 <b>느리게</b> 다시 들려드려요. 억지로 정하지 않아도 돼요.
+      </>
+    ),
+    missingHint: "자막 글을 누르면(③) 그 자막 아래에 🙉 버튼이 나타나요.",
+  },
+  {
+    target: ".undo-mini",
+    title: "⑤ 실수해도 괜찮아요 — 되돌리기",
+    body: (
+      <>
+        방금 🙉 표시를 되돌려 볼게요. 키보드 <kbd className="g-key">Alt</kbd>+
+        <kbd className="g-key">Z</kbd> 를 누르거나, 여기 <b>↶</b> 버튼을
+        눌러보세요. 무엇을 하든 이걸로 되돌아가니 마음 편히 하세요.
+      </>
+    ),
+  },
+  {
+    target: null,
+    final: true,
+    title: "🎉 이게 전부예요!",
+    body: (
+      <>
+        <b>듣고 → 맞으면 Enter → 틀리면 눌러서 고치고 Enter.</b> 이 세 가지면
+        끝까지 갈 수 있어요. 자막 시간(타이밍)은 나중에 <b>② 타이밍</b> 탭에서
+        해요 — 지금은 신경 안 쓰셔도 돼요. 더 자세한 건 목록 화면의{" "}
+        <b>📖 사용법</b>에 있어요. 이 연습은 왼쪽 위 <b>🎓 따라하기</b>로 언제든
+        다시 볼 수 있어요.
+      </>
+    ),
+  },
+];
+
 export function Editor({
   videoId,
   onBack,
@@ -1212,6 +1292,29 @@ export function Editor({
   // 큰 글씨 (고령 검수자): 자막 글자·주요 버튼 확대. 세션 간 유지.
   const [bigType, setBigType] = useState(() => localStorage.getItem("jamak.bigtype") === "1");
   useEffect(() => localStorage.setItem("jamak.bigtype", bigType ? "1" : "0"), [bigType]);
+  // 따라하기 투어: null = off, n = current step. Auto-starts once on the first
+  // editor visit (text mode); restartable via the 🎓 button.
+  const [tourStep, setTourStep] = useState<number | null>(null);
+  const tourStepRef = useRef<number | null>(null);
+  tourStepRef.current = tourStep;
+  /** advance only when the CURRENT step's real action happened */
+  function tourAdvance(expected: number) {
+    if (tourStepRef.current === expected) setTourStep(expected + 1);
+  }
+  function endTour() {
+    localStorage.setItem("jamak.tourDone", "1");
+    setTourStep(null);
+  }
+  function skipTourStep() {
+    setTourStep((s) => {
+      if (s === null) return null;
+      if (s >= TOUR_STEPS.length - 1) {
+        localStorage.setItem("jamak.tourDone", "1");
+        return null;
+      }
+      return s + 1;
+    });
+  }
   // 내보내기 전 점검 모달 (QC + 선택적 AI 맞춤법). null = closed.
   const [qcModal, setQcModal] = useState<null | {
     report: QcReport | null; // null while loading
@@ -1350,7 +1453,11 @@ export function Editor({
     if (H.current.pauseOnType && H.current.playing) H.current.pause();
   }, []);
   const onFocusRowCb = useCallback((id: number) => H.current.markFocused(id), []);
-  const onOpenRowCb = useCallback((seg: Segment) => H.current.focusSegment(seg), []);
+  const onOpenRowCb = useCallback((seg: Segment) => {
+    H.current.focusSegment(seg);
+    tourAdvance(2); // 투어 ③: 사용자가 자막 글을 직접 눌렀을 때만
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const onHoldCb = useCallback((seg: Segment) => H.current.hold(seg), []);
   const onDragActiveCb = useCallback((a: boolean) => {
     dragFreezeRef.current = a;
@@ -1491,6 +1598,19 @@ export function Editor({
       ),
     [segments],
   );
+  // 따라하기 자동 시작: 첫 에디터 방문(기록 없음) + 내용 모드 + 자막 있는 트랙
+  useEffect(() => {
+    if (
+      tourStep === null &&
+      segments.length > 0 &&
+      (isKo || forked) &&
+      mode === "text" &&
+      !localStorage.getItem("jamak.tourDone")
+    )
+      setTourStep(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [segments.length]);
+
   function nextIssue() {
     if (!issues.length) return;
     const from = focusedIdRef.current;
@@ -1601,6 +1721,7 @@ export function Editor({
     if (!seg || seg.reviewed) return;
     const before = segmentsRef.current.find((s) => s.id === seg.id);
     if (!before) return;
+    tourAdvance(3); // 투어 ④: 🙉를 실제로 눌렀을 때
     const flag = before.review_flag === "hold" ? "" : "hold";
     pushOpUndo(flag ? "보류 표시" : "보류 해제", [before]);
     applyRows([{ ...before, review_flag: flag }]);
@@ -1730,6 +1851,7 @@ export function Editor({
       focusedIdRef.current = entry.focusedId;
       setFocusedId(entry.focusedId);
       setStatusMsg(`${entry.label} 되돌림`);
+      tourAdvance(4); // 투어 ⑤: 되돌리기가 실제로 실행됐을 때
       if (entry.focusedId) {
         window.setTimeout(() => rowsRef.current.get(entry.focusedId ?? -1)?.focus(), 0);
       }
@@ -1928,6 +2050,7 @@ export function Editor({
   // Optimistic: the UI (and Enter's jump to the next cue) reacts instantly;
   // the PUT runs in the background and the server row reconciles when it lands.
   function save(id: number, text: string, reviewed: boolean | null, next: boolean): Promise<void> {
+    if (reviewed) tourAdvance(1); // 투어 ②: 진짜 Enter 확인이 일어났을 때만 진행
     const before = segmentsRef.current.find((s) => s.id === id);
     if (!before) return Promise.resolve();
     const changed =
@@ -2387,6 +2510,16 @@ export function Editor({
           >
             {bigType ? "글씨 보통" : "글씨 크게"}
           </button>
+          <button
+            className="tour-btn"
+            title="화면에서 한 단계씩 직접 해보는 연습 (언제든 다시)"
+            onClick={() => {
+              setMode("text");
+              setTourStep(0);
+            }}
+          >
+            🎓 따라하기
+          </button>
           <ThemeToggle />
         </div>
         <div className="player-wrap">
@@ -2438,7 +2571,10 @@ export function Editor({
           <button
             className="pc-btn play"
             title="재생 / 일시정지 (Tab, 또는 편집칸 밖에서 Space)"
-            onClick={() => playPause()}
+            onClick={() => {
+              tourAdvance(0); // 투어 ①: 재생 버튼을 실제로 눌렀을 때
+              playPause();
+            }}
           >
             {playing ? "⏸ 멈춤" : "▶ 재생"}
           </button>
@@ -2911,6 +3047,16 @@ export function Editor({
           </>
         )}
       </div>
+      {/* 따라하기 투어 — 실제 컨트롤을 하나씩 밝혀 직접 해보게 함 */}
+      {tourStep !== null && (
+        <Tour
+          steps={TOUR_STEPS}
+          step={tourStep}
+          onExit={endTour}
+          onSkipStep={skipTourStep}
+          onFinish={endTour}
+        />
+      )}
       {/* 내보내기 전 점검 (QC + AI 맞춤법) — reuses the .srt modal styling */}
       {qcModal && (
         <div

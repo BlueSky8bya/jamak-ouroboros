@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-13 (v0.3.4 — 어르신 사용법 화면 + 워커 무창 자동시작)
-Project Version: 0.3.4
+Last Updated: 2026-07-14 (v0.3.5 — 따라하기 투어)
+Project Version: 0.3.5
 Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATION.md)
 
 ## Current Objective
