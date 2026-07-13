@@ -9,6 +9,7 @@ import {
   deleteSegment,
   exportUrl,
   fetchLanguages,
+  fetchQc,
   fetchSegments,
   fetchTranslations,
   fetchWords,
@@ -18,12 +19,13 @@ import {
   repairStt,
   replaceText,
   restoreRows,
+  runSpellcheck,
   setTimingDone,
   splitSegment,
   tightenTiming,
   updateSegment,
 } from "./api";
-import type { WordTime } from "./api";
+import type { QcReport, SpellSuggestion, WordTime } from "./api";
 import { Dropdown } from "./Dropdown";
 import { ThemeToggle } from "./theme";
 import { TranslateReview } from "./TranslateReview";
@@ -1210,6 +1212,13 @@ export function Editor({
   // 큰 글씨 (고령 검수자): 자막 글자·주요 버튼 확대. 세션 간 유지.
   const [bigType, setBigType] = useState(() => localStorage.getItem("jamak.bigtype") === "1");
   useEffect(() => localStorage.setItem("jamak.bigtype", bigType ? "1" : "0"), [bigType]);
+  // 내보내기 전 점검 모달 (QC + 선택적 AI 맞춤법). null = closed.
+  const [qcModal, setQcModal] = useState<null | {
+    report: QcReport | null; // null while loading
+    spell: SpellSuggestion[] | null; // null = not run yet
+    spellBusy: boolean;
+    accepted: Set<number>; // segment_ids the reviewer kept checked
+  }>(null);
   const [showKeys, setShowKeys] = useState(true);
   const [focusedId, setFocusedId] = useState<number | null>(null);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
@@ -2258,7 +2267,85 @@ export function Editor({
     }
   }
 
-  async function runExport() {
+  // "자막 받기" now goes through a pre-export check first (ADR-0009 follow-up):
+  // rule QC is free and instant; AI 맞춤법 is an opt-in button inside the modal.
+  async function openExportCheck() {
+    if (!(isKo || forked)) {
+      // inherited translation view has no own segments to QC — export directly
+      void doExport();
+      return;
+    }
+    await flushAll();
+    setQcModal({ report: null, spell: null, spellBusy: false, accepted: new Set() });
+    try {
+      const report = await fetchQc(videoId, lang);
+      setQcModal((m) => (m ? { ...m, report } : m));
+    } catch (e) {
+      setQcModal(null);
+      setError(String(e));
+    }
+  }
+
+  function jumpToQc(ids: number[]) {
+    const target = segmentsRef.current.find((s) => ids.includes(s.id));
+    setQcModal(null);
+    if (target) focusSegment(target);
+  }
+
+  async function runSpell() {
+    setQcModal((m) => (m ? { ...m, spellBusy: true } : m));
+    try {
+      const r = await runSpellcheck(videoId, lang);
+      setQcModal((m) =>
+        m
+          ? {
+              ...m,
+              spellBusy: false,
+              spell: r.suggestions,
+              accepted: new Set(r.suggestions.map((s) => s.segment_id)),
+            }
+          : m,
+      );
+    } catch (e) {
+      setQcModal((m) => (m ? { ...m, spellBusy: false } : m));
+      setError(String(e));
+    }
+  }
+
+  function applySpell() {
+    const m = qcModal;
+    if (!m || !m.spell) return;
+    const chosen = m.spell.filter((s) => m.accepted.has(s.segment_id));
+    if (!chosen.length) {
+      setQcModal(null);
+      return;
+    }
+    const before = segmentsRef.current.filter((s) =>
+      chosen.some((c) => c.segment_id === s.id),
+    );
+    // one undo step for the whole batch — Alt+Z reverts every accepted fix
+    pushOpUndo("맞춤법 적용", before);
+    applyRows(
+      chosen.map((c) => {
+        const old = before.find((s) => s.id === c.segment_id)!;
+        return { ...old, text_final: c.after };
+      }),
+    );
+    for (const c of chosen) {
+      void queueSave(c.segment_id, async () => {
+        try {
+          const updated = await updateSegment(c.segment_id, { text_final: c.after });
+          applyRows([updated]);
+        } catch (e) {
+          setError(String(e));
+        }
+      });
+    }
+    setQcModal(null);
+    setStatusMsg(`✏️ 맞춤법 ${chosen.length}곳 적용 — Alt+Z로 전체 되돌릴 수 있어요`);
+  }
+
+  async function doExport() {
     await flushAll();
     setExporting(true);
     try {
@@ -2598,7 +2685,7 @@ export function Editor({
                 };
               })}
             />
-            <button className="export" disabled={exporting} onClick={() => void runExport()}>
+            <button className="export" disabled={exporting} onClick={() => void openExportCheck()}>
               {exporting
                 ? lang === "ko"
                   ? "저장하는 중..."
@@ -2821,6 +2908,150 @@ export function Editor({
           </>
         )}
       </div>
+      {/* 내보내기 전 점검 (QC + AI 맞춤법) — reuses the .srt modal styling */}
+      {qcModal && (
+        <div
+          className="srt-modal-back"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !qcModal.spellBusy) setQcModal(null);
+          }}
+        >
+          <div className="srt-modal qc-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>📋 내보내기 전 점검</h3>
+            {!qcModal.report ? (
+              <p className="srt-summary">점검하는 중...</p>
+            ) : qcModal.spell !== null ? (
+              // ---- 맞춤법 결과: diff checklist, 선택 적용 ----
+              qcModal.spell.length === 0 ? (
+                <>
+                  <p className="srt-summary">✅ 맞춤법 문제를 찾지 못했습니다.</p>
+                  <div className="srt-actions">
+                    <button className="srt-cancel" onClick={() => setQcModal(null)}>
+                      닫기
+                    </button>
+                    <button
+                      className="srt-apply"
+                      onClick={() => {
+                        setQcModal(null);
+                        void doExport();
+                      }}
+                    >
+                      자막 받기 (.srt)
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="srt-summary">
+                    맞춤법 제안 <strong>{qcModal.spell.length}곳</strong> — 체크한 것만
+                    적용됩니다 (적용 후 Alt+Z로 전체 되돌리기 가능)
+                  </p>
+                  <div className="spell-list">
+                    {qcModal.spell.map((s) => (
+                      <label key={s.segment_id} className="spell-row">
+                        <input
+                          type="checkbox"
+                          checked={qcModal.accepted.has(s.segment_id)}
+                          onChange={(e) =>
+                            setQcModal((m) => {
+                              if (!m) return m;
+                              const next = new Set(m.accepted);
+                              if (e.target.checked) next.add(s.segment_id);
+                              else next.delete(s.segment_id);
+                              return { ...m, accepted: next };
+                            })
+                          }
+                        />
+                        <span className="spell-diff">
+                          <span className="spell-before">{s.before}</span>
+                          <span className="spell-arrow">→</span>
+                          <span className="spell-after">{s.after}</span>
+                        </span>
+                        <span className="spell-time">{fmt(s.start)}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="srt-actions">
+                    <button className="srt-cancel" onClick={() => setQcModal(null)}>
+                      취소
+                    </button>
+                    <button
+                      className="srt-apply"
+                      disabled={qcModal.accepted.size === 0}
+                      onClick={() => applySpell()}
+                    >
+                      선택한 {qcModal.accepted.size}곳 적용
+                    </button>
+                  </div>
+                </>
+              )
+            ) : (
+              // ---- QC 요약 ----
+              <>
+                {qcModal.report.issues === 0 && qcModal.report.unreviewed === 0 ? (
+                  <p className="srt-summary">
+                    ✅ 자막 {qcModal.report.total}개 — 문제를 찾지 못했습니다. 받아도
+                    좋아요.
+                  </p>
+                ) : (
+                  <p className="srt-summary">
+                    자막 {qcModal.report.total}개를 점검했습니다. 아래 항목은 그대로
+                    받아도 되지만, 한 번 보고 받는 걸 권해요.
+                  </p>
+                )}
+                <div className="qc-list">
+                  {(
+                    [
+                      ["미확인 자막", qcModal.report.unreviewed, null],
+                      ["🙉 보류 (잘 안 들림)", qcModal.report.hold.length, qcModal.report.hold],
+                      ["빈 자막", qcModal.report.empty.length, qcModal.report.empty],
+                      ["너무 빠름 (17자/초 초과)", qcModal.report.too_fast.length, qcModal.report.too_fast],
+                      ["두 줄 초과 (36자 넘음)", qcModal.report.too_long_text.length, qcModal.report.too_long_text],
+                      ["너무 짧거나 긴 자막", qcModal.report.bad_duration.length, qcModal.report.bad_duration],
+                      ["중복 공백", qcModal.report.double_space.length, qcModal.report.double_space],
+                    ] as [string, number, number[] | null][]
+                  ).map(([label, count, ids]) => (
+                    <div key={label} className={"qc-row" + (count ? " warn" : "")}>
+                      <span className="qc-mark">{count ? "⚠" : "✓"}</span>
+                      <span className="qc-label">{label}</span>
+                      <span className="qc-count">{count ? `${count}개` : "없음"}</span>
+                      {count > 0 && ids && (
+                        <button className="qc-jump" onClick={() => jumpToQc(ids)}>
+                          보기 →
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="srt-actions">
+                  <button className="srt-cancel" onClick={() => setQcModal(null)}>
+                    닫기
+                  </button>
+                  {isKo && (
+                    <button
+                      className="qc-spell"
+                      disabled={qcModal.spellBusy}
+                      title="AI가 맞춤법·띄어쓰기 오타를 찾아 제안합니다. 제안만 하고, 적용은 직접 고릅니다."
+                      onClick={() => void runSpell()}
+                    >
+                      {qcModal.spellBusy ? "검사 중... (수십 초)" : "✏️ 맞춤법 검사 (AI)"}
+                    </button>
+                  )}
+                  <button
+                    className="srt-apply"
+                    onClick={() => {
+                      setQcModal(null);
+                      void doExport();
+                    }}
+                  >
+                    자막 받기 (.srt)
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

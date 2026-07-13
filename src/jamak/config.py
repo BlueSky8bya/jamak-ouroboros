@@ -40,6 +40,7 @@ WHISPER_COMPUTE = os.environ.get("JAMAK_WHISPER_COMPUTE", "int8_float16")
 CLAUDE_MODEL = os.environ.get("JAMAK_CLAUDE_MODEL", "claude-sonnet-5")
 CORRECT_MODEL = os.environ.get("JAMAK_CORRECT_MODEL", CLAUDE_MODEL)
 TRANSLATE_MODEL = os.environ.get("JAMAK_TRANSLATE_MODEL", CLAUDE_MODEL)
+SPELL_MODEL = os.environ.get("JAMAK_SPELL_MODEL", CLAUDE_MODEL)
 
 # learned pairs confirmed this many times are applied as free string
 # replacement before the LLM sees the text (ouroboros -> fewer API tokens)

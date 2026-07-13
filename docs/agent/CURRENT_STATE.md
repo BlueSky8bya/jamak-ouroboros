@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-13 (v0.3.1 — 읽기 뷰·신호등·큰 글씨 벤치마킹 배치)
-Project Version: 0.3.1
+Last Updated: 2026-07-13 (v0.3.2 — 내보내기 전 QC + AI 맞춤법)
+Project Version: 0.3.2
 Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATION.md)
 
 ## Current Objective
@@ -11,6 +11,11 @@ Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATI
 ## Pending (사용자 액션)
 
 - **v0.3.0~1 실사용 확인** — DELEGATED (인앱 브라우저가 YT iframe 못 열어 재생 연동 미검증): ① 흘려듣기(영상 재생 중 자막 따라오기 + 입력칸 밖 Enter 확인), ② 카라오케 단어 하이라이트가 실제 말과 잘 맞는지(비례 매핑 근사), ③ 단어 클릭 재생 체감, ④ 자동 정리 결과가 실제 영상에서 자연스러운지, ⑤ ▶버튼 실재생(b8cd8b2).
+
+## Recent Additions (2026-07-13 — v0.3.2, CHG-20260713-009)
+
+- **내보내기 전 점검 모달**: "자막 받기" 클릭 시 규칙 QC(미확인/보류/빈/빠름/초과/시간/공백, API 0원) + 카테고리별 "보기→" 점프. 차단 아님(그대로 받기 가능).
+- **✏️ AI 맞춤법**(옵트인, ko): 오타·띄어쓰기만 제안(구어체·사투리 보존), 줄 단위 LlmCache 캐시, diff 체크리스트 선택 적용 + Alt+Z 일괄 원복. 모델 `JAMAK_SPELL_MODEL`(기본 CLAUDE_MODEL).
 
 ## Recent Additions (2026-07-13 — v0.3.1, CHG-20260713-008)
 

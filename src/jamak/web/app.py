@@ -2010,6 +2010,137 @@ def auto_timing(video_id: str, lang: str = "ko") -> dict:
         }
 
 
+# [WH-CHANGE v0.3.2 | FEAT | 2026-07-13 | CHG-20260713-009]
+# Reason: 내보내기 전 자동 점검(QC) + 선택적 AI 맞춤법 — 검수 끝났다고 믿고 받았는데
+#         오탈자/빈 자막이 남는 사고 방지. QC는 순수 규칙(0원), 맞춤법만 API.
+# Related: ADR-0009 / CHANGELOG CHG-20260713-009.
+@app.get("/api/jobs/{video_id}/qc")
+def qc_report(video_id: str, lang: str = "ko") -> dict:
+    """Rule-based pre-export quality check for one track. No API cost.
+
+    Returns per-category segment-id lists so the editor can jump straight to
+    an offending cue. Categories mirror professional subtitle QC (Ooona/
+    EZTitles): empty text, reading speed, 2-line char budget, implausible
+    duration, doubled whitespace — plus this app's own review states
+    (unreviewed, 잘 안 들림 hold).
+    """
+    from ..config import MAX_CHARS_PER_LINE, MAX_LINES, MAX_SEGMENT_SECONDS
+
+    max_chars = MAX_CHARS_PER_LINE * MAX_LINES
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+        segs = session.exec(
+            select(Segment)
+            .where(Segment.job_id == job.id, Segment.lang == lang)
+            .order_by(Segment.idx)
+        ).all()
+
+    empty: list[int] = []
+    too_fast: list[int] = []
+    too_long_text: list[int] = []
+    bad_duration: list[int] = []
+    double_space: list[int] = []
+    hold: list[int] = []
+    unreviewed = 0
+    for s in segs:
+        text = _work_text(s)
+        dur = s.end - s.start
+        if not s.reviewed:
+            unreviewed += 1
+        if s.review_flag == "hold" and not s.reviewed:
+            hold.append(s.id)
+        if not text:
+            empty.append(s.id)
+            continue
+        if _cps(s) > TOO_FAST_CPS:
+            too_fast.append(s.id)
+        if len(text) > max_chars:
+            too_long_text.append(s.id)
+        if dur < 0.35 or dur > MAX_SEGMENT_SECONDS + 0.05:
+            bad_duration.append(s.id)
+        if "  " in text:
+            double_space.append(s.id)
+
+    issues = (
+        len(empty)
+        + len(too_fast)
+        + len(too_long_text)
+        + len(bad_duration)
+        + len(double_space)
+        + len(hold)
+    )
+    return {
+        "total": len(segs),
+        "unreviewed": unreviewed,
+        "issues": issues,
+        "empty": empty,
+        "too_fast": too_fast,
+        "too_long_text": too_long_text,
+        "bad_duration": bad_duration,
+        "double_space": double_space,
+        "hold": hold,
+    }
+
+
+@app.post("/api/jobs/{video_id}/spellcheck")
+def spellcheck(video_id: str, lang: str = "ko") -> dict:
+    """AI 맞춤법 검사 (suggestions only — nothing is written here).
+
+    Checks each cue's working text for spelling/spacing typos the reviewer
+    introduced while editing; the correction stage already handled the machine
+    draft. Korean-only (the prompt is ko-specific). Results are cached per
+    exact text (LlmCache kind="spell"), so re-running re-bills only edited
+    lines. The client applies accepted suggestions through the normal segment
+    PUT, which keeps undo working.
+    """
+    if lang != "ko":
+        raise HTTPException(400, "맞춤법 검사는 한국어 트랙만 지원합니다")
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise HTTPException(
+            503,
+            "맞춤법 검사가 이 서버에 아직 설정되지 않았습니다(ANTHROPIC_API_KEY 없음). "
+            "관리자에게 문의하세요.",
+        )
+    from ..pipeline.spellcheck import spellcheck_lines
+
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+        segs = session.exec(
+            select(Segment)
+            .where(Segment.job_id == job.id, Segment.lang == lang)
+            .order_by(Segment.idx)
+        ).all()
+        lines = [(s.id, _work_text(s)) for s in segs]
+        idx_by_id = {s.id: s.idx for s in segs}
+        start_by_id = {s.id: s.start for s in segs}
+        text_by_id = dict(lines)
+
+    try:
+        fixes, stats = spellcheck_lines(lines)
+    except HTTPException:
+        raise
+    except Exception as e:  # API/auth/network error -> clean JSON, not a 500
+        raise HTTPException(502, f"맞춤법 API 오류: {e}")
+
+    suggestions = [
+        {
+            "segment_id": seg_id,
+            "idx": idx_by_id.get(seg_id, 0),
+            "start": start_by_id.get(seg_id, 0.0),
+            "before": text_by_id.get(seg_id, ""),
+            "after": fixed,
+        }
+        for seg_id, fixed in sorted(
+            fixes.items(), key=lambda kv: idx_by_id.get(kv[0], 0)
+        )
+    ]
+    return {"suggestions": suggestions, **stats}
+
+
 class TimingDoneBody(BaseModel):
     done: bool
 

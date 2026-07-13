@@ -3405,3 +3405,68 @@ kbd {
 .editor.bigtype .mode-tab strong { font-size: 1.2rem; }
 .editor.bigtype .sources .src-text { font-size: 15px; }
 .editor.bigtype .badges .badge { font-size: 0.85rem; }
+
+/* ---- 내보내기 전 점검 (QC + AI 맞춤법) ------------------------------------ */
+.qc-modal { max-width: 640px; }
+.qc-list { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+.qc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--surface-soft);
+  font-size: 0.92rem;
+}
+.qc-row.warn { background: var(--amber-soft); color: var(--amber); }
+.qc-mark { width: 18px; text-align: center; }
+.qc-row:not(.warn) .qc-mark { color: var(--green); }
+.qc-label { flex: 1; }
+.qc-count { font-variant-numeric: tabular-nums; }
+.qc-jump {
+  border: 1px solid var(--amber);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--amber);
+  padding: 3px 10px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.qc-jump:hover { background: var(--amber); color: var(--ink-invert); }
+.qc-spell {
+  border: 1px solid var(--blue);
+  border-radius: 8px;
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+  padding: 8px 14px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.qc-spell:hover:not(:disabled) { filter: brightness(1.05); }
+.qc-spell:disabled { opacity: 0.6; cursor: wait; }
+
+.spell-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 45vh;
+  overflow-y: auto;
+  margin: 10px 0;
+}
+.spell-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--surface-soft);
+  cursor: pointer;
+  font-size: 0.92rem;
+}
+.spell-row:hover { background: var(--surface-strong); }
+.spell-row input { width: 16px; height: 16px; accent-color: var(--blue); flex: 0 0 auto; }
+.spell-diff { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.spell-before { color: var(--rose); text-decoration: line-through; }
+.spell-arrow { color: var(--faint); }
+.spell-after { color: var(--green); font-weight: 600; }
+.spell-time { color: var(--faint); font-size: 0.8rem; font-variant-numeric: tabular-nums; flex: 0 0 auto; }

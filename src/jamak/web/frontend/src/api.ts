@@ -338,6 +338,51 @@ export async function autoTiming(videoId: string, lang = "ko"): Promise<AutoTimi
   return r.json();
 }
 
+// rule-based pre-export quality check (no API cost) — per-category segment ids
+export interface QcReport {
+  total: number;
+  unreviewed: number;
+  issues: number;
+  empty: number[];
+  too_fast: number[];
+  too_long_text: number[];
+  bad_duration: number[];
+  double_space: number[];
+  hold: number[];
+}
+
+export async function fetchQc(videoId: string, lang = "ko"): Promise<QcReport> {
+  const r = await fetch(`/api/jobs/${videoId}/qc?lang=${lang}`);
+  if (!r.ok) throw new Error(`qc: ${r.status}`);
+  return r.json();
+}
+
+// AI 맞춤법: suggestions only — the client applies accepted ones via updateSegment
+export interface SpellSuggestion {
+  segment_id: number;
+  idx: number;
+  start: number;
+  before: string;
+  after: string;
+}
+
+export async function runSpellcheck(
+  videoId: string,
+  lang = "ko",
+): Promise<{ suggestions: SpellSuggestion[]; checked: number; cached: number; sent: number }> {
+  const r = await fetch(`/api/jobs/${videoId}/spellcheck?lang=${lang}`, { method: "POST" });
+  if (!r.ok) {
+    let msg = `spellcheck: ${r.status}`;
+    try {
+      msg = (await r.json()).detail ?? msg;
+    } catch {
+      /* non-JSON */
+    }
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
 export async function tightenTiming(
   videoId: string,
 ): Promise<{ tightened: number; total: number }> {
