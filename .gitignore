@@ -22,3 +22,5 @@ src/jamak/web/frontend/dist/
 Thumbs.db
 Desktop.ini
 data/backups/
+
+data/worker.log
