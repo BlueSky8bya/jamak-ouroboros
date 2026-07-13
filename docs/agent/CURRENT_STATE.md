@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-14 (v0.4.1 — 클러스터 재번역 + 잘림·저장 500 수정)
-Project Version: 0.4.1
+Last Updated: 2026-07-14 (v0.4.2 — 투어 커버리지 100% + 연습 영상 계획)
+Project Version: 0.4.2
 Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATION.md)
 
 ## Current Objective

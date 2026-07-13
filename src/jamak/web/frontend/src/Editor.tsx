@@ -1243,6 +1243,17 @@ const COURSES: TourCourse[] = [
         on: "undo",
       },
       {
+        target: ".bigtype-btn",
+        title: "글씨가 작으면 크게",
+        body: (
+          <>
+            여기 <b>글씨 크게</b> 버튼을 눌러보세요. 자막과 버튼이 커져요. (한 번 더
+            누르면 보통으로)
+          </>
+        ),
+        on: "bigtype",
+      },
+      {
         target: null,
         final: true,
         title: "🎉 기본기 끝!",
@@ -1332,6 +1343,17 @@ const COURSES: TourCourse[] = [
         on: "loop",
       },
       {
+        target: ".row:not(.collapsed)",
+        title: "자막 사이 이동",
+        body: (
+          <>
+            <K c="Alt" />+<K c="↑" /> / <K c="↓" /> — 이전/다음 자막으로 바로 가요.
+            눌러보세요.
+          </>
+        ),
+        on: "nav",
+      },
+      {
         target: null,
         final: true,
         title: "🎉 재생 조작 끝!",
@@ -1396,6 +1418,18 @@ const COURSES: TourCourse[] = [
           </>
         ),
         on: "find",
+      },
+      {
+        target: ".flow-hero",
+        title: "확인 안 한 자막만 골라 다니기",
+        body: (
+          <>
+            <K c="Alt" />+<K c="Shift" />+<K c="↓" /> — 확인한 자막은 건너뛰고 다음{" "}
+            <b>미확인 자막</b>으로 가요. <b>이어서 작업하기</b> 버튼도 같은 일을 해요.
+            둘 중 하나를 해보세요.
+          </>
+        ),
+        on: "nav-unreviewed",
       },
       {
         target: null,
@@ -2222,6 +2256,7 @@ export function Editor({
   }
 
   async function continueWork() {
+    tourEvent("nav-unreviewed"); // "이어서 작업하기"도 미검수 이동과 같은 동작
     await flushAll();
     const target = nextWorkTarget(segmentsRef.current, focusedIdRef.current ?? activeId ?? null);
     focusSegment(target);
@@ -2400,6 +2435,7 @@ export function Editor({
         const dir = e.key === "ArrowDown" ? 1 : -1;
         const cur = currentRow();
         if (e.shiftKey) {
+          H.current.tourEvent("nav-unreviewed");
           const from = cur ? segs.findIndex((s) => s.id === cur.id) : dir === 1 ? -1 : segs.length;
           for (let i = from + dir; i >= 0 && i < segs.length; i += dir) {
             if (!segs[i].reviewed) {
@@ -2409,6 +2445,7 @@ export function Editor({
           }
           return;
         }
+        H.current.tourEvent("nav");
         if (!cur) return;
         const next = segs[segs.findIndex((s) => s.id === cur.id) + dir];
         if (next) H.current.focusSegment(next);
@@ -2973,7 +3010,10 @@ export function Editor({
           <button
             className={"bigtype-btn" + (bigType ? " on" : "")}
             title="자막 글씨와 버튼을 크게/보통으로"
-            onClick={() => setBigType((v) => !v)}
+            onClick={() => {
+              setBigType((v) => !v);
+              tourEvent("bigtype");
+            }}
           >
             {bigType ? "글씨 보통" : "글씨 크게"}
           </button>
