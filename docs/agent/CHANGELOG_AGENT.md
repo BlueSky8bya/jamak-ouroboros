@@ -1,5 +1,11 @@
 # Agent Change Log
 
+## v0.5.0 — 2026-07-14 (P2 렌더 파이프라인 — 연습 영상 6개 산출)
+
+### CHG-20260714-007 — FEAT — tools/tutorial-video: 대본→TTS→PCM→Remotion mp4
+Change: PLAN v3 §2 구현. `parse_scripts.py`(표 파싱, file:line 에러, 76대사 계약 assert) / `tts.py`(edge-tts 7.2.8 고정, 캐시 키=파이프라인 버전+voice+rate+웅얼 필터+텍스트, 재시도 3회 backoff, atomic 쓰기, voice preflight; 웅얼=클린 합성 후 volume 0.35+lowpass 700) / `audio.py`(전 mp3→48kHz mono s16 PCM, 무음은 정확 샘플 수, 큐 타이밍=샘플 오프셋, 머리/꼬리 1.5s) / `build.py`(cp949 안전 로그, 길이 공식·침묵 RMS assert, public/ 복사, --render+ffprobe 검사) / Remotion `practice-1~6`(calculateMetadata가 실제 오디오에서 길이 도출, 화면=배지·진행점·펄스·아이콘만 — 발화 문장 비표시). 목소리 = **InJoon**(사용자가 SunHi/InJoon/Hyunsu 샘플 청취 후 확정).
+Validation: 76대사 파싱 OK, mp4 6개(87~135초) ffprobe 통과(1920×1080/30fps/오디오/길이 wav±1프레임), 멱등 재실행 합성 호출 0회, 렌더 프레임 육안 확인(말하는 중/조용한 구간 상태 전환). 웅얼 가청성은 User 귀 확인 대기(NOT VERIFIED by agent).
+
 ## v0.4.3 — 2026-07-14 (Codex 감사 반영: practice 누수 차단 + 투어 완료 semantics)
 
 ### CHG-20260714-005 — FIX — practice Job이 모든 우로보로스 학습·평가 경로에서 제외

@@ -22,7 +22,8 @@ import edge_tts
 # Bump to invalidate every cached synth (e.g. after changing this module's logic).
 PIPELINE_VERSION = "1"
 
-DEFAULT_VOICE = "ko-KR-SunHiNeural"
+# User decision 2026-07-14: InJoon (male) picked over SunHi/Hyunsu samples.
+DEFAULT_VOICE = "ko-KR-InJoonNeural"
 RATE = {"보통": "-5%", "빠르게": "+40%", "느리게": "-20%", "웅얼": "+30%"}
 # 🙉 bait: quiet + muffled so the line is genuinely hard to make out.
 MUMBLE_FILTER = "volume=0.35,lowpass=f=700"
