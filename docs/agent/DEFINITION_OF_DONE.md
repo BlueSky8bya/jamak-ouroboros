@@ -2,6 +2,24 @@
 
 작업 유형별 완료 기준. "코드 작성"이 아니라 아래 증거가 있어야 완료.
 
+## Verification Capability Boundary (누가 어디서 검증할 수 있는가)
+
+작업 상태는 `IMPLEMENTED → AGENT-VERIFIED → EXTERNAL-VERIFICATION-PENDING → ACCEPTED`로 구분한다.
+AGENT-VERIFIED를 최종 수락(ACCEPTED)처럼 표현하지 않는다.
+
+| 검증 대상 | Capability | Executor | 환경 | 증거 | Blocking |
+|---|---|---|---|---|---|
+| 파이썬 문법·CLI 동작·DB 쿼리 | DIRECT | Agent | 이 PC (uv) | 명령 출력 | Yes |
+| 프론트 타입·빌드 | DIRECT | Agent | npm run build | 빌드 출력 | Yes |
+| 웹 UI 동작 (클릭·저장·undo 등) | DIRECT | Agent | 격리 temp-DB serve + 인앱 브라우저 | JS 측정/스크린샷 | Yes |
+| **YouTube 플레이어 재생/시킹** | DELEGATED | User | 실브라우저 (인앱 브라우저는 YT iframe 차단) | 사용자 확인 | No (보고 필수) |
+| 클라우드 배포 반영 | INDIRECT | Railway + Agent | `/api/version` 폴링 | 배포 SHA 일치 | Yes |
+| GPU 파이프라인 (STT 품질) | DELEGATED | User/Worker | 로컬 GPU PC | worker.log + 검수 화면 | No |
+| 검수 UX 체감 (뚝딱거림 등 정성) | DELEGATED | User/검수자 | 실사용 | 사용자 피드백 | No |
+| CER 정확도 추이 | SHARED | Agent(jamak-eval) + User(검수 축적) | 로컬 | eval 리포트 | No |
+
+DELEGATED 항목은 Done Report에 실행 주체·절차·기대 결과를 명시하고 상태를 EXTERNAL-VERIFICATION-PENDING으로 보고한다.
+
 ## 모든 작업 공통
 
 - [ ] `uv run jamak doctor` PASS

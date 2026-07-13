@@ -1,22 +1,82 @@
-schema_version: "1.0"
-protocol_source: "project-initializing_260710.md"
-protocol_date: "2026-07-10"
+schema_version: "1.1"
+protocol_source: "project-initializing_260712.md"
+protocol_date: "2026-07-12"
 initialized_at: "2026-07-10"
-initialization_mode: "MODE C (existing harness adapted)"
-last_harness_review: "2026-07-10"
+initialization_mode: "MODE C (existing harness adapted); MODE D migration 260710->260712 on 2026-07-13"
+last_harness_review: "2026-07-13"
 
 project:
   name: "jamak-ouroboros"
-  version: "0.1.0"
+  version: "0.2.1"
   type:
     - cli
     - ml-pipeline
-    - web (planned, M3)
-  status: "active development"
+    - web
+  status: "live (https://hky-jamak.com), active development"
 
 risk_profiles:
   - GENERAL
   - ML_EVALUATION
+  - AUTH            # password-role login, signed session cookie (web app)
+  - DESTRUCTIVE_DATA # cloud Postgres is the single source of reviewed work
+
+reference_roots:
+  - "data/seeds/"   # human-reviewed subtitle corpus (irreplaceable)
+
+blocking_rules:
+  - id: "BR-DOCS-001"
+    source: "CLAUDE.md#doc-drift"
+    rule: "CURRENT_STATE.md must not lag src/ code commits by 3 or more"
+    enforcement: "MACHINE"
+    mechanism: ".claude/settings.json PostToolUse(Bash) -> scripts/doc-drift-check.ps1"
+    trigger: "after every Bash tool call in a Claude Code session"
+    activation_check: "run scripts/doc-drift-check.ps1 manually; non-empty JSON when stale"
+    bypass_conditions:
+      - "non-Claude-Code agents (hook is Claude Code specific)"
+      - "machine-specific absolute path in settings.json"
+    manual_gate: null
+    owner: "Agent"
+    evidence: "hook-injected context + updated CURRENT_STATE/CHANGELOG commits"
+
+  - id: "BR-DATA-001"
+    source: "docs/agent/CONSTITUTION.md (protected learning data)"
+    rule: "No destructive operations on data/jamak.db or data/seeds/ (read-only OK); no destructive ops on the cloud Postgres outside reviewed app flows"
+    enforcement: "UNENFORCED"
+    mechanism: null
+    trigger: "before any command or code touching these paths / the cloud DB"
+    manual_gate: "Agent verifies the operation is read-only or additive before running; destructive intent requires explicit user approval in chat."
+    owner: "Agent"
+    evidence: "command transcript in session; backups via jamak backup-cloud"
+
+  - id: "BR-FEEDBACK-001"
+    source: "AGENTS.md (ouroboros non-negotiable)"
+    rule: "A session that produced newly review-completed subtitles must run feedback absorption (diff -> corrections/glossary) before ending"
+    enforcement: "UNENFORCED"
+    mechanism: null
+    trigger: "session end after review-complete subtitles appeared"
+    manual_gate: "Agent checks for newly completed reviews and runs/reports absorb; skipping must be reported as incomplete."
+    owner: "Agent"
+    evidence: "absorb output (new_pairs/bumped) in Done Report"
+
+  - id: "BR-SECRET-001"
+    source: "CLAUDE.md / memory (login-passwords-env-only)"
+    rule: "Real passwords/API keys never written to repo files, docs, or commits (public repo); env vars only"
+    enforcement: "UNENFORCED"
+    mechanism: null
+    trigger: "before committing any file that could carry a secret"
+    manual_gate: "Agent scans the diff for secret-like values before commit; placeholders only in docs."
+    owner: "Agent"
+    evidence: "clean git diff; incident 3db3ad8 (leaked, rotated) is the cautionary case"
+
+  - id: "BR-ADR-001"
+    source: "docs/agent/CONSTITUTION.md (decision preservation)"
+    rule: "Accepted ADRs are never silently overridden; use the supersede procedure"
+    enforcement: "UNENFORCED"
+    mechanism: null
+    trigger: "before changes conflicting with an Accepted ADR"
+    manual_gate: "Agent checks DECISION_INDEX.md for the touched area; conflicts go to the user before code changes."
+    owner: "Agent"
+    evidence: "superseding ADR + DECISION_INDEX update"
 
 entrypoints:
   constitution: "docs/agent/CONSTITUTION.md"
@@ -27,13 +87,19 @@ entrypoints:
   changelog: "docs/agent/CHANGELOG_AGENT.md"
   decision_index: "docs/agent/DECISION_INDEX.md"
   active_plan: "docs/agent/plans/ACTIVE_PLAN.md"
+  harness_migration: "docs/agent/HARNESS_MIGRATION.md"
 
 commands:
   install: "uv sync --extra cuda"
   doctor: "uv run jamak doctor"
   run: "uv run jamak run <youtube-url>"
+  worker: "uv run jamak worker"
+  serve: "uv run jamak serve"
   seed_import: "uv run jamak seed-import <dir>"
   export: "uv run jamak export <video_id>"
+  backup: "uv run jamak backup-cloud"
+  frontend_build: "npm run build (in src/jamak/web/frontend)"
+  verify_harness: "uv run python scripts/agent-harness/verify_harness.py"
   test: null  # UNKNOWN — no test suite yet (see CURRENT_STATE Open Decisions)
   lint: null
 
@@ -46,5 +112,5 @@ agent_policy:
   auto_commit: false
   auto_push: false
   protected_paths:
-    - "data/jamak.db"    # ouroboros learning data — single source of truth
-    - "data/seeds/"      # human-reviewed corpus — irreplaceable
+    - "data/jamak.db"    # ouroboros learning data — local snapshot (BR-DATA-001)
+    - "data/seeds/"      # human-reviewed corpus — irreplaceable (BR-DATA-001)

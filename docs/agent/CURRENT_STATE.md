@@ -1,14 +1,19 @@
 # Current State
 
-Last Updated: 2026-07-13 (동시편집 안전 undo v2 + 편집 반응성 + 담당자 검색)
+Last Updated: 2026-07-13 (프로토콜 260712 마이그레이션 + ▶버튼 재생 픽스)
 Project Version: 0.2.1
-Harness Protocol: project-initializing_260710.md
+Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATION.md)
 
 ## Current Objective
 
 **라이브 운영 중**: https://hky-jamak.com (Railway 앱+Postgres, Singapore 리전). 검수자 다인(≤50명) 동시 협업 안전. 관리자 PC는 영상 만들 때만(`jamak worker`). 다음: 실사용 다회차 검수로 CER 추이 확인, 검수자 실제 온보딩.
 
-## Recent Additions (2026-07-13 — v0.2.1, CHANGELOG CHG-20260713-001~003)
+## Pending (사용자 액션)
+
+- **폴더 rename**: `C:\Projects\rename-to-jamak-ouroboros.ps1` 준비됨(레포 밖). 사용자가 Claude Code/에디터 닫고 실행 → asdf→jamak-ouroboros rename + 절대경로 4곳 패치 + Claude 메모리 이전 + venv 재구축 + 워커 재시작. 실행 후 이 항목 삭제.
+- **▶버튼 실재생 확인** (b8cd8b2 배포됨) — DELEGATED, 사용자 브라우저에서.
+
+## Recent Additions (2026-07-13 — v0.2.1, CHANGELOG CHG-20260713-001~005)
 
 - **Undo v2 (동시편집 안전)**: 되돌리기가 작업 단위(변경된 행만 복원, `restore-rows` + idx 재정규화). 텍스트 편집도 undo 대상(셀 세션 coalesce). 전체-트랙 delete-재삽입 제거 → 한 검수자의 undo가 다른 검수자 작업을 못 지움. "여러 개 되돌아감/안 먹힘" 해결.
 - **편집 반응성**: 변이 응답=영향 행 → 로컬 패치(전체 refetch 제거), 낙관적 저장(Enter 즉시 이동, PUT 백그라운드 세그먼트별 직렬 큐+실패 롤백), `React.memo(Row)`+안정 콜백+currentTime은 active/focused 행만 → 재생 틱당 1행 렌더.

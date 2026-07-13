@@ -2,6 +2,16 @@
 
 ## v0.2.1 — 2026-07-13 (동시편집 안전 + 편집 반응성)
 
+### CHG-20260713-005 — HARNESS — 프로토콜 260710→260712 마이그레이션 (MODE D)
+Change: `agent-harness.yaml` schema 1.1 + BLOCKING 규칙 5개 등록(BR-DOCS-001 MACHINE=doc-drift 훅, 나머지 4개 UNENFORCED+manual gate). DoD에 Verification Capability Boundary(DIRECT/DELEGATED 표 — YT 재생·GPU 파이프라인은 DELEGATED). `verify_harness.py` 신설(문서·경로·링크·규칙 무결성). AGENTS.md에 Decision Write-Through / WH-CHANGE 표준 주석(신규 변경부터) / Continuity-Break Handoff 트리거. `HARNESS_MIGRATION.md`에 감사·격차·미변경 기록.
+Validation: `uv run python scripts/agent-harness/verify_harness.py` → OK.
+Rollback: 이 커밋 revert (기존 문서 무손실).
+
+### CHG-20260713-004 — FIX — 행 ▶ 버튼이 재생까지 (seek-only였음)
+Change: 큐별 ▶가 위치 이동만 해서 정지 중엔 죽은 버튼처럼 보임 → seek+play (replayCurrent와 동일 패턴). 배포 b8cd8b2.
+Validation: 빌드·클릭 배선 OK; 실재생은 인앱 브라우저가 YT iframe을 못 열어 DELEGATED(사용자 확인 대기).
+Rollback: 해당 커밋 revert.
+
 ### CHG-20260713-001 — FIX/FEAT — Undo v2: 작업 단위 되돌리기 (동시편집 안전)
 Change: 에디터 undo를 전체-트랙 스냅샷 복원(→ 트랙 전부 DELETE-재삽입, 동시 검수자 작업 파괴 + "여러 개 한 번에 되돌아감")에서 **작업 단위**로 전환. `UndoEntry{upsert(변경 전 행들), deleteIds(작업이 만든 행)}` + 신규 `POST /segments/restore-rows`(해당 행만 upsert/삭제 + idx (start,end,id)순 재정규화 — `_next/_previous_segment`가 dense idx 요구). **텍스트 편집도 undo 등록**(같은 셀 연속 타이핑은 세션 단위 coalesce — "안 먹힘" 증상 해결). 구 `restore` 전체-트랙 엔드포인트 제거. 라벨 Ctrl+Z 오표기→Alt+Z 정정.
 Validation: API 13항목(텍스트/split/merge/delete/boundary 각 undo + idx dense) + 실브라우저(텍스트 Alt+Z 원복, split→undo 10→9행) — 격리 temp DB.
