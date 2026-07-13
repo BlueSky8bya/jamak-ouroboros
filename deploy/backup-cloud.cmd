@@ -7,5 +7,5 @@ REM file stays secret-free / committable):
 REM   DATABASE_URL      = the cloud Postgres URL (also used by `jamak run`)
 REM   JAMAK_BACKUP_DIR  = output folder (e.g. a Google Drive path). Empty -> data\backups
 REM (ASCII-only: Korean text breaks cmd.exe under a cp949 console.)
-cd /d C:\Projects\asdf
+cd /d C:\Projects\jamak-ouroboros
 uv run jamak backup-cloud --out "%JAMAK_BACKUP_DIR%" --keep 12

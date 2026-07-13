@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:/Projects/asdf/scripts/doc-drift-check.ps1\"",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:/Projects/jamak-ouroboros/scripts/doc-drift-check.ps1\"",
             "timeout": 15
           }
         ]
