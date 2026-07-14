@@ -22,7 +22,6 @@ import {
 import { Login } from "./Login";
 import { Dropdown } from "./Dropdown";
 import { Editor } from "./Editor";
-import { Guide } from "./Guide";
 import { ThemeToggle } from "./theme";
 import type { JobSummary } from "./types";
 
@@ -605,15 +604,15 @@ export function App() {
   // "내 담당만": one click narrows the board to videos assigned to me
   const [mineOnly, setMineOnly] = useState(() => localStorage.getItem("jamak.mine") === "1");
   const [showHelp, setShowHelp] = useState(false);
-  // 어르신용 사용법 화면. 첫 방문(로컬 기록 없음)이면 자동으로 한 번 띄운다.
-  const [showGuide, setShowGuide] = useState(false);
+  // 첫 방문(이 브라우저 기록 없음)은 사용법 모달 대신 🎓 튜토리얼 연습 탭으로
+  // 안내한다 — 읽는 설명서(구 Guide 모달)는 연습 영상이 대체 (사용자 결정
+  // 2026-07-15, 모달 자체 제거). 기존 guideSeen 기록도 방문 표시로 인정.
   useEffect(() => {
-    if (!localStorage.getItem("jamak.guideSeen")) setShowGuide(true);
+    if (localStorage.getItem("jamak.visited") || localStorage.getItem("jamak.guideSeen"))
+      return;
+    localStorage.setItem("jamak.visited", "1");
+    setTab("tutorial");
   }, []);
-  function closeGuide() {
-    localStorage.setItem("jamak.guideSeen", "1");
-    setShowGuide(false);
-  }
   const [cursor, setCursor] = useState(-1); // keyboard-selected card index
   const timer = useRef<number | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -1081,9 +1080,7 @@ export function App() {
                 </button>
               </span>
             )}
-            <button className="guide-btn" title="처음이신가요? 사용법 보기" onClick={() => setShowGuide(true)}>
-              📖 사용법
-            </button>
+            {/* 📖 사용법 모달 제거 (사용자 결정 2026-07-15) — 연습 영상이 대체 */}
             <button className="help-btn" title="단축키 (?)" onClick={() => setShowHelp((v) => !v)}>
               ?
             </button>
@@ -1094,8 +1091,6 @@ export function App() {
           자막 검수 작업대 <span className="brand-inf">♾️</span>
         </h1>
       </header>
-
-      {showGuide && <Guide onClose={closeGuide} />}
 
       {showHelp && (
         <div className="help-popover" onClick={() => setShowHelp(false)}>
