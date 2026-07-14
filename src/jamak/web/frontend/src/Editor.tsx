@@ -1836,6 +1836,9 @@ export function Editor({
     onConsumePendingCourse?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingCourse, segments.length]);
+  // 모바일 재생 설정 시트: 데스크톱의 체크박스 2줄(구간반복 등)은 좁은 화면에서
+  // 과밀 — 모바일 표준 문법(바텀 시트)으로 옮긴다. 상태는 동일한 것을 공유.
+  const [mobileSettings, setMobileSettings] = useState(false);
   // 연습 초기화: 이 브라우저의 클론을 버리고 기준 상태로 재복제. 세그먼트
   // id 공간이 통째로 바뀌므로 늦게 도착하는 이전 저장 PUT은 자연히 무효
   // (지워진 id로 404) — baseline을 다시 오염시킬 수 없다.
@@ -3114,6 +3117,13 @@ export function Editor({
           >
             🎓 따라하기
           </button>
+          <button
+            className="mset-btn"
+            title="재생 설정 (구간반복·멈춤·따라가기·미리보기)"
+            onClick={() => setMobileSettings(true)}
+          >
+            ⚙ 설정
+          </button>
           <ThemeToggle />
         </div>
         {practice && (
@@ -3692,6 +3702,72 @@ export function Editor({
           </>
         )}
       </div>
+      {/* 모바일 재생 설정 시트 — 데스크톱 체크박스 2줄의 모바일 문법 대체 */}
+      {mobileSettings && (
+        <div className="sheet-back" onMouseDown={(e) => e.target === e.currentTarget && setMobileSettings(false)}>
+          <div className="sheet" role="dialog" aria-label="재생 설정">
+            <h3>재생 설정</h3>
+            <button
+              className="sheet-row"
+              onClick={() => {
+                replayCurrent();
+                setMobileSettings(false);
+              }}
+            >
+              ⏮ 이 자막 처음부터 다시 재생
+            </button>
+            <label className="sheet-row">
+              <input
+                type="checkbox"
+                checked={loopSeg}
+                onChange={(e) => {
+                  setLoopSeg(e.target.checked);
+                  tourEvent("loop");
+                }}
+              />
+              🔁 구간반복 — 지금 자막 소리를 계속 반복
+            </label>
+            <label className="sheet-row">
+              <input
+                type="checkbox"
+                checked={pauseOnType}
+                onChange={(e) => {
+                  setPauseOnType(e.target.checked);
+                  tourEvent("pausetype");
+                }}
+              />
+              편집 시작 시 멈춤
+            </label>
+            {textMode && (
+              <label className="sheet-row">
+                <input
+                  type="checkbox"
+                  checked={follow}
+                  onChange={(e) => {
+                    setFollow(e.target.checked);
+                    tourEvent("follow");
+                  }}
+                />
+                🎧 자동 따라가기 — 나오는 자막을 화면 가운데로
+              </label>
+            )}
+            <label className="sheet-row">
+              <input
+                type="checkbox"
+                checked={showPreview}
+                onChange={(e) => {
+                  setShowPreview(e.target.checked);
+                  tourEvent("preview");
+                }}
+              />
+              💬 미리보기 모드 — 영화 보듯 최종 확인
+            </label>
+            <button className="sheet-close" onClick={() => setMobileSettings(false)}>
+              닫기
+            </button>
+          </div>
+        </div>
+      )}
       {/* 모바일 하단 바 (CSS로 좁은 화면에서만 표시): 흘려듣기 루프의 핵심
           동작을 엄지 영역에 — 3초 뒤 / 재생 / 🙉 / 지금 나온 자막 확인.
           데스크톱의 "입력칸 밖 Enter" 확인을 터치로 대체. */}
