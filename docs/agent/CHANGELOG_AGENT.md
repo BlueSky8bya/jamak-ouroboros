@@ -1,5 +1,14 @@
 # Agent Change Log
 
+## v0.6.1 — 2026-07-14 (모바일 친화 + PWA)
+
+### CHG-20260714-011 — FEAT — 모바일 레이아웃·하단 액션 바·PWA 설치
+Change: 리서치 근거(고령 터치 타겟 ≥48px·수전증 여유, iOS 16px 미만 입력 자동 확대, 스티키 플레이어가 이탈 감소, 하단 고정 바가 고령자 표준 내비, PWA 매니페스트 요건) 반영.
+(a) **모바일 레이아웃**(≤700px): `.left`를 `display:contents`로 해체해 세로 흐름 재배치(JSX 무변경) — 영상 **스티키 상단**(16:9, ≤34dvh) → 재생 줄 → 자막 목록 → 진행 카드 → 도구 → 내보내기. 단축키 패널·orientation 줄 숨김(터치 무의미). 터치 타겟: 재생 버튼 48px, 모드 탭 56px, 내보내기 52px. 입력칸 16px 강제(!important — 상태별 규칙에 밀리지 않게), 큰 글씨 모드 20px.
+(b) **하단 액션 바**(내용 모드·ko/포크 트랙): ⟲3초 / ▶재생 / 🙉 / **✔ 맞아요**(=입력칸 밖 Enter의 터치 대체 — confirmActive 재사용, 흘려듣기 루프를 엄지 영역에). fixed + safe-area inset, 자막 목록에 하단 여백.
+(c) **PWA**: manifest.webmanifest(standalone, ko, theme #1b2a45) + 아이콘 192/512/maskable/apple-touch(Pillow 생성 — 남색 타일+"자"+자막 바 모티프) + theme-color/viewport-fit=cover. 홈 화면 추가 시 앱처럼 열림. SW는 의도적 생략(index no-cache 정책과 충돌 위험, 오프라인 불필요).
+Validation: 실브라우저 375×812 — 하단 바 4버튼 노출·바닥 고정, 풀스크롤 후 영상 sticky top 0(214px), 마지막 행이 바에 안 가림, 가로 스크롤 0, 포커스된 입력칸 16px, 랜딩 카드 풀폭, manifest/theme-color 태그 확인. 데스크톱 뷰 회귀 없음(미디어 쿼리 격리). 실기기(iOS/Android) 확인은 User 위임.
+
 ## v0.6.0 — 2026-07-14 (P4: 사용자별 연습 클론 + 코스 바인딩 + 결함 주입)
 
 ### CHG-20260714-010 — FEAT — 튜토리얼 연습이 사용자별 병렬 격리 샌드박스로

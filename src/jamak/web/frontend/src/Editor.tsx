@@ -3659,6 +3659,47 @@ export function Editor({
           </>
         )}
       </div>
+      {/* 모바일 하단 바 (CSS로 좁은 화면에서만 표시): 흘려듣기 루프의 핵심
+          동작을 엄지 영역에 — 3초 뒤 / 재생 / 🙉 / 지금 나온 자막 확인.
+          데스크톱의 "입력칸 밖 Enter" 확인을 터치로 대체. */}
+      {textMode && (isKo || forked) && (
+        <div className="mobile-bar">
+          <button
+            className="mb-btn"
+            onClick={() => {
+              seekBy(-3);
+              tourEvent("seek-back");
+            }}
+          >
+            ⟲ 3초
+          </button>
+          <button
+            className="mb-btn"
+            onClick={() => {
+              tourEvent("play");
+              playPause();
+            }}
+          >
+            {playing ? "⏸ 멈춤" : "▶ 재생"}
+          </button>
+          <button
+            className="mb-btn"
+            title="잘 안 들림 — 나중에 다시"
+            onClick={() =>
+              hold(activeSeg ?? segments.find((s) => s.id === focusedId))
+            }
+          >
+            🙉
+          </button>
+          <button
+            className="mb-btn mb-confirm"
+            title="지금 나오는 자막이 맞으면 확인"
+            onClick={() => confirmActive()}
+          >
+            ✔ 맞아요
+          </button>
+        </div>
+      )}
       {/* 따라하기 투어 — 실제 컨트롤을 하나씩 밝혀 직접 해보게 함 */}
       {tour !== null && (
         <Tour

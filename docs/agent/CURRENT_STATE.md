@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-14 (v0.6.0 — P4 클론 세션 + 코스 바인딩 + 결함 주입)
-Project Version: 0.6.0
+Last Updated: 2026-07-14 (v0.6.1 — 모바일 친화 레이아웃 + 하단 액션 바 + PWA)
+Project Version: 0.6.1
 Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATION.md)
 
 ## Current Objective
@@ -11,6 +11,10 @@ Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATI
 ## Pending (사용자 액션)
 
 - **v0.3.0~1 실사용 확인** — DELEGATED (인앱 브라우저가 YT iframe 못 열어 재생 연동 미검증): ① 흘려듣기(영상 재생 중 자막 따라오기 + 입력칸 밖 Enter 확인), ② 카라오케 단어 하이라이트가 실제 말과 잘 맞는지(비례 매핑 근사), ③ 단어 클릭 재생 체감, ④ 자동 정리 결과가 실제 영상에서 자연스러운지, ⑤ ▶버튼 실재생(b8cd8b2).
+
+## Recent Additions (2026-07-14 — v0.6.1, CHG-20260714-011)
+
+- **모바일**: ≤700px에서 영상 스티키 상단 + 세로 흐름 + 하단 액션 바(⟲3초/▶/🙉/✔ 맞아요 — Enter 확인의 터치 대체) + 고령 터치 타겟(≥48px)·입력 16px(iOS 확대 방지)·단축키 패널 숨김. **PWA**: manifest+아이콘 — 홈 화면 추가하면 앱처럼. 실기기 확인 User 위임.
 
 ## Recent Additions (2026-07-14 — v0.5.x~0.6.0, CHG-20260714-007~010)
 

@@ -1,0 +1,20 @@
+{
+  "name": "자막 검수 작업대",
+  "short_name": "자막검수",
+  "description": "허경영 강연 자막 검수 — 듣고, 확인하고, 고치기",
+  "lang": "ko",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1b2a45",
+  "theme_color": "#1b2a45",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

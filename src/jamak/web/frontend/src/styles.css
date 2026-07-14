@@ -3913,3 +3913,108 @@ kbd {
   z-index: 1;
 }
 .qa.qa-on { background: var(--blue); color: #fff; }
+
+/* ===== 모바일 (검수는 폰에서도 — 고령 검수자 다수) =====
+   리서치 근거: 터치 타겟 >=48px(고령·수전증), 입력 글꼴 >=16px(iOS 자동 확대
+   방지), 스티키 플레이어(스크롤 중에도 화면·소리 유지 — 이탈 1/3 감소 패턴),
+   하단 액션 바(엄지 영역 — 햄버거 대신 고정 바가 고령자 표준), safe-area
+   inset(노치·홈바). PWA 설치는 manifest.webmanifest + 아이콘. */
+.mobile-bar { display: none; }
+
+@media (max-width: 700px) {
+  /* 좌 패널 해체 -> 세로 흐름: 영상(스티키) -> 재생 줄 -> 자막 목록 ->
+     진행 카드 -> 도구 -> 내보내기. display:contents로 .left의 자식들이
+     .editor 플렉스에 직접 참여 (JSX 구조 변경 없이 순서 재배치). */
+  .editor {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 100dvh;
+  }
+  .left { display: contents; }
+  .practice-banner { order: -6; }
+  .player-wrap {
+    order: -5;
+    position: sticky;
+    top: 0;
+    z-index: 60;
+    height: auto;
+    aspect-ratio: 16 / 9;
+    max-height: 34dvh;
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
+  }
+  .play-controls { order: -4; padding: 6px 8px; }
+  .timing-strip { order: -3; }
+  .right { order: 0; padding: 0 10px calc(96px + env(safe-area-inset-bottom)); }
+  .flow-hero { order: 1; margin: 10px; }
+  .statusbar { order: 2; }
+  .tools { order: 3; padding: 0 10px; }
+  .export-footer { order: 4; padding: 10px; }
+  .absorb-msg { order: 5; }
+  .error { order: 5; }
+  /* 키보드 단축키 패널·현재 위치 줄: 터치에선 무의미/과밀 */
+  .keys { display: none; }
+  .orientation { display: none; }
+
+  /* 터치 타겟 (고령 기준 48px) */
+  .play-controls .pc-btn {
+    min-height: 48px;
+    font-size: 16px;
+    flex: 1 1 auto;
+  }
+  .pc-speed-btn { min-height: 42px; min-width: 44px; font-size: 15px; }
+  .pc-settings .pc-toggle { padding: 8px 6px; font-size: 14px; }
+  .mode-tab { min-height: 56px; }
+  .tool { min-height: 46px; font-size: 15px; }
+  .export { min-height: 52px; font-size: 17px; }
+  .continue-btn { min-height: 54px; }
+  .find-toggle { min-height: 44px; }
+  .hold-replay { min-height: 44px; }
+
+  /* iOS는 16px 미만 입력을 누르면 화면을 자동 확대한다 — 원천 차단.
+     (!important: 데스크톱 쪽 상태별 규칙(.row.active 등)이 더 구체적이라
+     모바일 최소 크기가 밀리는 것 방지 — 이 블록 안에서만 사용) */
+  .row textarea,
+  .find-in {
+    font-size: 16px !important;
+  }
+  .cp-text { font-size: 17px !important; }
+  .editor.bigtype .row textarea { font-size: 20px !important; }
+  .editor.bigtype .cp-text { font-size: 20px !important; }
+
+  /* 하단 액션 바 — 흘려듣기 루프(3초 뒤/재생/잘 안 들림/확인)를 엄지 영역에 */
+  .mobile-bar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 70;
+    gap: 8px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--bg) 94%, transparent);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid var(--line);
+  }
+  .mb-btn {
+    flex: 1;
+    min-height: 52px;
+    border-radius: 14px;
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .mb-btn:active { transform: scale(0.97); }
+  .mb-confirm {
+    flex: 1.7;
+    background: var(--blue);
+    border-color: var(--blue);
+    color: #fff;
+  }
+
+  /* 미리보기 모드: 모바일에선 스티키 영상이 곧 극장 — 그리드 강제 해제 */
+  .editor.preview { grid-template-columns: none; }
+}
