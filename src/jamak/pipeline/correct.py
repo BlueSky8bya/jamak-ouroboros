@@ -194,6 +194,24 @@ def _normalize_ko(text: str) -> str:
     return re.sub(r"[^\w가-힣]", "", text or "")
 
 
+def _words_ko(text: str) -> list[str]:
+    import re
+
+    return [
+        w
+        for w in (re.sub(r"[^\w가-힣]", "", p) for p in (text or "").split())
+        if w
+    ]
+
+
+def _contig_sublist(short: list[str], long: list[str]) -> bool:
+    """`short`가 `long` 안에 연속된 단어열로 들어 있는가."""
+    n = len(short)
+    if not n or n > len(long):
+        return False
+    return any(long[i : i + n] == short for i in range(len(long) - n + 1))
+
+
 def clamp_neighbor_extensions(
     ordered: list[dict], results: dict[int, tuple[str, bool]]
 ) -> int:
@@ -202,30 +220,43 @@ def clamp_neighbor_extensions(
     [WH-CHANGE v0.8.7 | FIX | 2026-07-15 | CHG-20260715-028]
     Reason: 프롬프트 규칙 9("그 세그먼트에서 들린 말만")에도 불구하고, whisper가
       문장을 중간에서 끊은 행을 LLM이 유튜브 참고 자막의 완전한 문장으로 통째
-      교체하는 사례 재발 (재렌더 연습 영상 4개에서 9행 — 이전 행과 중복 자막).
-      교정 결과 확정 후 결정적으로 검사한다: 인접 두 행의 교정 텍스트가 포함
-      관계인데 whisper 원문끼리는 겹치지 않으면(실제 발화 반복이 아니라 문맥
-      복사) 더 많이 불어난 쪽을 whisper 원문(base_text)으로 되돌리고
-      uncertain=True로 검수 우선순위에 올린다. 캐시 히트·저위험 스킵 경로의
-      결과도 여기를 통과한다. 실제 반복 발화(박수 유도 등)는 whisper도 겹치므로
-      건드리지 않는다. 6자 미만 겹침은 무시(조사·감탄사 오탐).
-    Related: CHANGELOG CHG-20260715-028.
+      교체하는 사례 재발 (이전 행과 중복 자막). 교정 결과 확정 후 결정적으로
+      검사한다: 인접 두 행의 교정 텍스트가 포함 관계인데 whisper 원문끼리는
+      겹치지 않으면(실제 발화 반복이 아니라 문맥 복사) 더 많이 불어난 쪽을
+      whisper 원문(base_text)으로 되돌리고 uncertain=True로 올린다.
+
+    [WH-CHANGE v0.9.19 | FIX | 2026-07-15 | CHG-20260715-040]
+    Reason: 이전 판은 글자 substring + 6자 미만 무시였는데, 유튜브 롤링 자막이
+      토막말을 누적하며("그런데"→"그런데 이렇게"→"그런데 이렇게 짧게 끊긴 말은")
+      3글자 이웃('이렇게')이 6자 가드에 걸려 확장을 통째 놓쳤다 (연습 4). 포함
+      판정을 **단어 경계 연속 포함**으로 바꿔 짧은 토막말도 잡되, 우연한 부분
+      문자열 겹침(다↔다음)은 단어가 달라 걸리지 않는다. 6자 가드 제거, 대신
+      짧은 쪽 단어열이 ≥2글자여야 한다(단음절 감탄사 오탐 방지).
+    Related: CHANGELOG CHG-20260715-028, CHG-20260715-040.
     """
     clamped = 0
     rows = [d for d in ordered if d["id"] in results]
     for a, b in zip(rows, rows[1:]):
-        ta, tb = results[a["id"]][0], results[b["id"]][0]
-        na, nb = _normalize_ko(ta), _normalize_ko(tb)
-        if not na or not nb or min(len(na), len(nb)) < 6:
+        wa_words = _words_ko(results[a["id"]][0])
+        wb_words = _words_ko(results[b["id"]][0])
+        if not wa_words or not wb_words:
             continue
-        if not (na in nb or nb in na):
+        short_w, long_w = (
+            (wa_words, wb_words)
+            if len(wa_words) <= len(wb_words)
+            else (wb_words, wa_words)
+        )
+        if not _contig_sublist(short_w, long_w):
             continue
+        if len("".join(short_w)) < 2:
+            continue  # 단음절(네·아·그) 우연 일치 방지
         wa, wb = _normalize_ko(a["base_text"]), _normalize_ko(b["base_text"])
         if wa and wb and (wa in wb or wb in wa):
             continue  # the speaker really repeated it — leave alone
         # the offender is the row that grew furthest past its own whisper text;
-        # rows whisper heard nothing on (gap rows, base_text="") are never
-        # clamped — their working text is legitimately YouTube-seeded
+        # gap rows (base_text="") carry legitimately YouTube-seeded text — never
+        # clamped.
+        na, nb = "".join(wa_words), "".join(wb_words)
         ratio_a = len(na) / max(len(wa), 1) if wa else 0.0
         ratio_b = len(nb) / max(len(wb), 1) if wb else 0.0
         offender = a if ratio_a >= ratio_b else b
