@@ -3940,7 +3940,6 @@ kbd {
   color: #fff;
 }
 .tut-intro { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
-.tut-sub { margin: 18px 0 8px; color: var(--muted); font-size: 13px; font-weight: 700; }
 /* 세로형 코스 카드: 썸네일(16:9 고정) → 제목/설명(높이 고정) → CTA 바.
    모든 슬롯 높이가 고정이라 카드 높이가 항상 같다 (들쭉날쭉 금지). */
 .tut-grid {

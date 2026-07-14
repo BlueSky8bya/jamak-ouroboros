@@ -891,7 +891,6 @@ export function App() {
 
   // 연습 영상은 강연 목록·통계와 섞지 않는다 — 🎓 튜토리얼 탭이 전담 (사용자 확정)
   const workJobs = useMemo(() => jobs.filter((j) => !j.practice), [jobs]);
-  const practiceJobs = useMemo(() => jobs.filter((j) => j.practice), [jobs]);
 
   const visible = useMemo(() => {
     let list = workJobs.slice();
@@ -1169,40 +1168,8 @@ export function App() {
               );
             })}
           </div>
-          {practiceJobs.some((j) => !j.practice_course) && (
-            <>
-              <p className="tut-sub">코스 없는 자유 연습 영상</p>
-              <div className="tut-grid">
-                {practiceJobs
-                  .filter((j) => !j.practice_course)
-                  .sort((a, b) =>
-                    (a.title || a.video_id).localeCompare(b.title || b.video_id, "ko"),
-                  )
-                  .map((j) => (
-                    <div className="tut-item" key={j.video_id}>
-                      <button
-                        className="tut-card"
-                        onClick={() => void openVideo(j.video_id, "ko")}
-                      >
-                        <span className="tut-thumb">
-                          <img
-                            src={`https://img.youtube.com/vi/${j.video_id}/mqdefault.jpg`}
-                            alt=""
-                            loading="lazy"
-                          />
-                          <span className="tut-num">자유 연습</span>
-                        </span>
-                        <span className="tut-body">
-                          <strong>{j.title || j.video_id}</strong>
-                          <span>코스 없이 자유롭게</span>
-                        </span>
-                        <span className="tut-cta">▶ 열기</span>
-                      </button>
-                    </div>
-                  ))}
-              </div>
-            </>
-          )}
+          {/* "자유 연습" 개념 제거 (사용자 결정 2026-07-15) — 튜토리얼 탭은
+              코스 1~6 카드만. 코스 없는 practice job은 UI에 아예 안 나온다. */}
         </div>
       )}
 

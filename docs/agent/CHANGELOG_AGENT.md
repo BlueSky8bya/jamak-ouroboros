@@ -1,5 +1,11 @@
 # Agent Change Log
 
+## v0.8.8 — 2026-07-15 (자유 연습 개념 제거 — 튜토리얼 = 코스 6개만)
+
+### CHG-20260715-029 — FEAT/DATA — 구 practice Job 6개 삭제 + 자유 연습 섹션 제거
+Change: (a) **데이터**: 구버전(시각 큐 없는) 연습 기준본 6개(IMd3wZ2JXnk 외 5)를 클론·세그먼트·SttBlob·JobRequest·SrtBackup까지 운영 DB에서 삭제 (사용자 승인 — 유튜브에서도 이미 삭제됨). 가드: 정확한 video_id 목록 + practice=True + 코스 미바인딩만, 자식 먼저 flush(CHG-027 교훈). 삭제 후 practice 기준본 = 코스 바인딩된 6개뿐임을 assert. (b) **UI**: 튜토리얼 탭의 "코스 없는 자유 연습" 섹션 제거 — 개념 자체 소멸(사용자 확정). 코스 1~6 카드만 남음. practiceJobs memo·.tut-sub CSS 정리.
+Validation: 삭제 스크립트 출력(6개 삭제, 잔여 기준본 6개 코스 일치 assert 통과) + 빌드 클린.
+
 ## v0.8.7 — 2026-07-15 (연습 재입장 500 수정 — 클론 삭제 FK 순서)
 
 ### CHG-20260715-028 — FIX/PIPELINE — 중복 자막 뿌리 차단 (교정 확장 + 에코 가드 우회)
