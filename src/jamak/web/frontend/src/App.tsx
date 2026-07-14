@@ -172,6 +172,16 @@ function chipsFor(j: JobSummary, lang: string, proc?: QueueItem): Chip[] {
   return [text, timing];
 }
 
+// 튜토리얼 탭의 코스 카드 순서·라벨 (id는 Editor COURSES와 동일 — 영구 불변 key)
+const TUTORIAL_COURSES = [
+  { id: "basic", n: 1, title: "기본기", desc: "듣고, 확인하고, 고치기" },
+  { id: "playback", n: 2, title: "재생 다루기", desc: "키보드·버튼으로 영상 조종" },
+  { id: "fast", n: 3, title: "빠르게 훑기", desc: "멈추지 않는 검수 요령" },
+  { id: "structure", n: 4, title: "나누기·합치기", desc: "자막 모양 다듬기" },
+  { id: "timing", n: 5, title: "타이밍", desc: "자막 시간 맞추기" },
+  { id: "finish", n: 6, title: "마무리", desc: "미리보기·복구·내보내기" },
+];
+
 function JobCard({
   job: j,
   query,
@@ -576,6 +586,8 @@ export function App() {
     videoId: string;
     nonce: number;
   } | null>(null);
+  // 튜토리얼 전용 탭 — 연습 영상은 강연 목록과 섞지 않는다 (사용자 확정)
+  const [tab, setTab] = useState<"work" | "tutorial">("work");
   // language track to open the editor on (the track the reviewer was viewing
   // on the card). Falls back to Korean for resume-hero / paste-to-open.
   const [selectedLang, setSelectedLang] = useState("ko");
@@ -818,7 +830,9 @@ export function App() {
     let target = vid;
     if (j?.practice && !vid.includes("~")) {
       try {
-        const r = await practiceSession(vid, practiceKey());
+        // 입장 = 항상 처음 상태 (사용자 확정: 나갔다 들어오면 리셋 — 누구든
+        // 언제나 깨끗한 튜토리얼). reset=true로 이전 연습 내용을 버리고 재복제.
+        const r = await practiceSession(vid, practiceKey(), true);
         target = r.video_id;
       } catch (e) {
         setError(`연습 준비 실패: ${e instanceof Error ? e.message : e}`);
@@ -883,8 +897,12 @@ export function App() {
     return [...map.entries()].map(([code, label]) => ({ code, label }));
   }, [jobs]);
 
+  // 연습 영상은 강연 목록·통계와 섞지 않는다 — 🎓 튜토리얼 탭이 전담 (사용자 확정)
+  const workJobs = useMemo(() => jobs.filter((j) => !j.practice), [jobs]);
+  const practiceJobs = useMemo(() => jobs.filter((j) => j.practice), [jobs]);
+
   const visible = useMemo(() => {
-    let list = jobs.slice();
+    let list = workJobs.slice();
     const q = query.trim().toLowerCase();
     // search matches the title OR the assigned reviewer's name, so typing a
     // reviewer instantly narrows to their videos
@@ -932,10 +950,10 @@ export function App() {
       return dir === "desc" ? -cmp : cmp;
     });
     return list;
-  }, [jobs, filter, status, form, sort, dir, query, mineOnly, me]);
+  }, [workJobs, filter, status, form, sort, dir, query, mineOnly, me]);
 
   const resume = useMemo(() => {
-    const wip = jobs.filter((j) => j.segments > 0 && !j.ko_complete && !j.running);
+    const wip = workJobs.filter((j) => j.segments > 0 && !j.ko_complete && !j.running);
     if (!wip.length) return null;
     return wip.slice().sort((a, b) => {
       const pa = a.reviewed / a.segments;
@@ -943,7 +961,7 @@ export function App() {
       if (pb !== pa) return pb - pa;
       return (b.created_at || "").localeCompare(a.created_at || "");
     })[0];
-  }, [jobs]);
+  }, [workJobs]);
 
   // keep the keyboard handler's view of the list current; keep cursor in range
   useEffect(() => {
@@ -996,25 +1014,26 @@ export function App() {
     );
   }
 
-  const runningCount = jobs.filter((j) => j.running).length;
-  const koDoneCount = jobs.filter((j) => j.ko_complete).length;
-  const timingDoneCount = jobs.filter((j) => j.timing_done).length;
-  const transTracksDone = jobs.reduce(
+  // 통계·필터·목록은 전부 workJobs 기준 — 연습 영상이 진행률을 오염하지 않게
+  const runningCount = workJobs.filter((j) => j.running).length;
+  const koDoneCount = workJobs.filter((j) => j.ko_complete).length;
+  const timingDoneCount = workJobs.filter((j) => j.timing_done).length;
+  const transTracksDone = workJobs.reduce(
     (a, j) => a + j.languages.filter((l) => l.complete).length,
     0,
   );
-  const totalSegments = jobs.reduce((a, j) => a + j.segments, 0);
-  const totalReviewed = jobs.reduce((a, j) => a + j.reviewed, 0);
+  const totalSegments = workJobs.reduce((a, j) => a + j.segments, 0);
+  const totalReviewed = workJobs.reduce((a, j) => a + j.reviewed, 0);
   const totalRemaining = Math.max(0, totalSegments - totalReviewed);
   // three progress axes (text review is NOT the whole job): text ko review,
   // timing pass, and translation review — shown as overlaid rings so text
   // hitting 100% doesn't hide that timing/translation are still outstanding.
   const textPct = totalSegments ? Math.round((totalReviewed / totalSegments) * 100) : 0;
-  const timingDoneSegs = jobs.reduce((a, j) => a + (j.timing_done ? j.segments : 0), 0);
+  const timingDoneSegs = workJobs.reduce((a, j) => a + (j.timing_done ? j.segments : 0), 0);
   const timingPct = totalSegments ? Math.round((timingDoneSegs / totalSegments) * 100) : 0;
   let transReviewed = 0;
   let transTotal = 0;
-  for (const j of jobs)
+  for (const j of workJobs)
     for (const l of j.languages) {
       transReviewed += l.reviewed;
       transTotal += l.forked ? l.translated : j.segments;
@@ -1092,6 +1111,137 @@ export function App() {
         </div>
       )}
 
+      {/* 작업/튜토리얼 분리 탭 — 연습 영상은 강연 카드와 섞지 않는다 */}
+      <div className="top-tabs">
+        <button
+          className={"top-tab" + (tab === "work" ? " on" : "")}
+          onClick={() => setTab("work")}
+        >
+          📋 작업 영상
+        </button>
+        <button
+          className={"top-tab" + (tab === "tutorial" ? " on" : "")}
+          onClick={() => setTab("tutorial")}
+        >
+          🎓 튜토리얼 연습
+        </button>
+      </div>
+
+      {tab === "tutorial" && (
+        <div className="tut-section">
+          <p className="tut-intro">
+            연습 영상은 실제 작업에 영향이 없고, <b>열 때마다 처음 상태</b>로
+            시작돼요. 마음껏 눌러보고 고쳐보세요.
+          </p>
+          <div className="tut-grid">
+            {TUTORIAL_COURSES.map((c) => {
+              const vid = tutorials[c.id];
+              const pj = practiceJobs.find((p) => p.video_id === vid);
+              const done = localStorage.getItem(`jamak.tour.${c.id}`) === "1";
+              return (
+                <div className="tut-item" key={c.id}>
+                  <button
+                    className={"tut-card" + (vid ? "" : " off")}
+                    disabled={!vid}
+                    onClick={() => vid && void openVideo(vid, "ko", c.id)}
+                  >
+                    {vid ? (
+                      <img
+                        src={`https://img.youtube.com/vi/${vid}/mqdefault.jpg`}
+                        alt=""
+                        loading="lazy"
+                      />
+                    ) : (
+                      <span className="tut-noimg">준비 중</span>
+                    )}
+                    <span className="tut-body">
+                      <strong>
+                        연습 {c.n} · {c.title}
+                      </strong>
+                      <span>{c.desc}</span>
+                    </span>
+                    <span className={"tut-state" + (done ? " done" : "")}>
+                      {vid ? (done ? "다시 하기 ✓" : "▶ 연습 시작") : "영상 준비 중"}
+                    </span>
+                  </button>
+                  {canIngest && pj && (
+                    <div className="tut-admin">
+                      <select
+                        className="qa qa-course"
+                        value={pj.practice_course || ""}
+                        title="코스 재지정 (코스당 영상 1개)"
+                        onChange={(e) => void bindCourse(pj, e.target.value)}
+                      >
+                        <option value="">코스 없음</option>
+                        {TUTORIAL_COURSES.map((o) => (
+                          <option key={o.id} value={o.id}>
+                            연습 {o.n} · {o.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {practiceJobs.some((j) => !j.practice_course) && (
+            <>
+              <p className="tut-sub">코스 없는 자유 연습 영상</p>
+              <div className="tut-grid">
+                {practiceJobs
+                  .filter((j) => !j.practice_course)
+                  .map((j) => (
+                    <div className="tut-item" key={j.video_id}>
+                      <button
+                        className="tut-card"
+                        onClick={() => void openVideo(j.video_id, "ko")}
+                      >
+                        <img
+                          src={`https://img.youtube.com/vi/${j.video_id}/mqdefault.jpg`}
+                          alt=""
+                          loading="lazy"
+                        />
+                        <span className="tut-body">
+                          <strong>{j.title || j.video_id}</strong>
+                          <span>자유 연습</span>
+                        </span>
+                        <span className="tut-state">▶ 열기</span>
+                      </button>
+                      {canIngest && (
+                        <div className="tut-admin">
+                          <select
+                            className="qa qa-course"
+                            value=""
+                            title="이 영상을 코스 전용으로 지정"
+                            onChange={(e) => e.target.value && void bindCourse(j, e.target.value)}
+                          >
+                            <option value="">코스 지정...</option>
+                            {TUTORIAL_COURSES.map((o) => (
+                              <option key={o.id} value={o.id}>
+                                연습 {o.n} · {o.title}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            className="qa"
+                            title="연습용 지정 해제 — 작업 영상 탭으로 돌아감"
+                            onClick={() => void setPractice(j.video_id, false).then(refresh)}
+                          >
+                            해제
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {tab === "work" && (
+        <>
       {canIngest && (
         <div className="url-box">
           <input
@@ -1213,7 +1363,7 @@ export function App() {
         </div>
         <div className="ws-nums">
           <div className="wstat">
-            <strong>{jobs.length}</strong>
+            <strong>{workJobs.length}</strong>
             <span>영상</span>
           </div>
           <div className="wstat ok">
@@ -1252,20 +1402,20 @@ export function App() {
         {STATUS_FILTERS.map((s) => {
           const count =
             s.key === "all"
-              ? jobs.length
+              ? workJobs.length
               : s.key === "text"
-                ? jobs.filter((j) => j.segments > 0 && !j.ko_complete && !j.running).length
+                ? workJobs.filter((j) => j.segments > 0 && !j.ko_complete && !j.running).length
                 : s.key === "timing"
-                  ? jobs.filter((j) => j.ko_complete && !j.timing_done && !j.running).length
+                  ? workJobs.filter((j) => j.ko_complete && !j.timing_done && !j.running).length
                   : s.key === "translate"
-                    ? jobs.filter(
+                    ? workJobs.filter(
                         (j) =>
                           j.ko_complete &&
                           j.languages.length > 0 &&
                           j.languages.some((l) => !l.complete),
                       ).length
                     : s.key === "done"
-                      ? jobs.filter((j) => j.ko_complete && j.timing_done).length
+                      ? workJobs.filter((j) => j.ko_complete && j.timing_done).length
                       : runningCount;
           // 처리 중 is always 0 or 1 — the number is noise. Show a live dot +
           // highlight when something is processing instead of a count.
@@ -1417,7 +1567,7 @@ export function App() {
           ))}
         {loaded && visible.length === 0 && !error && (
           <div className="empty">
-            {jobs.length === 0 ? (
+            {workJobs.length === 0 ? (
               <>
                 <strong>아직 작업이 없어요</strong>
                 <span>위에 유튜브 강연 링크를 붙여넣으면 자막 초안이 만들어집니다.</span>
@@ -1433,6 +1583,8 @@ export function App() {
           </div>
         )}
       </div>
+        </>
+      )}
 
       {srtModal && (
         <div
