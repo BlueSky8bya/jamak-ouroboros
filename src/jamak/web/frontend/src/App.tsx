@@ -1136,7 +1136,6 @@ export function App() {
           <div className="tut-grid">
             {TUTORIAL_COURSES.map((c) => {
               const vid = tutorials[c.id];
-              const pj = practiceJobs.find((p) => p.video_id === vid);
               const done = localStorage.getItem(`jamak.tour.${c.id}`) === "1";
               return (
                 <div className="tut-item" key={c.id}>
@@ -1164,23 +1163,6 @@ export function App() {
                       {vid ? (done ? "↻ 다시 하기" : "▶ 연습 시작") : "영상 준비 중"}
                     </span>
                   </button>
-                  {canIngest && pj && (
-                    <div className="tut-admin">
-                      <select
-                        className="qa qa-course"
-                        value={pj.practice_course || ""}
-                        title="코스 재지정 (코스당 영상 1개)"
-                        onChange={(e) => void bindCourse(pj, e.target.value)}
-                      >
-                        <option value="">코스 없음</option>
-                        {TUTORIAL_COURSES.map((o) => (
-                          <option key={o.id} value={o.id}>
-                            연습 {o.n} · {o.title}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
                 </div>
               );
             })}
@@ -1214,30 +1196,6 @@ export function App() {
                         </span>
                         <span className="tut-cta">▶ 열기</span>
                       </button>
-                      {canIngest && (
-                        <div className="tut-admin">
-                          <select
-                            className="qa qa-course"
-                            value=""
-                            title="이 영상을 코스 전용으로 지정"
-                            onChange={(e) => e.target.value && void bindCourse(j, e.target.value)}
-                          >
-                            <option value="">코스 지정...</option>
-                            {TUTORIAL_COURSES.map((o) => (
-                              <option key={o.id} value={o.id}>
-                                연습 {o.n} · {o.title}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            className="qa"
-                            title="연습용 지정 해제 — 작업 영상 탭으로 돌아감"
-                            onClick={() => void setPractice(j.video_id, false).then(refresh)}
-                          >
-                            해제
-                          </button>
-                        </div>
-                      )}
                     </div>
                   ))}
               </div>

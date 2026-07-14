@@ -4048,27 +4048,8 @@ kbd {
   color: var(--muted);
   background: var(--bg);
 }
-/* 관리자 컨트롤은 오버레이 — 카드 레이아웃 높이에 영향 주지 않게 (행 높이
-   들쭉날쭉의 원인이었음). 썸네일 우하단, 반투명 칩. */
-.tut-admin {
-  position: absolute;
-  right: 8px;
-  top: calc(56.25% - 34px); /* 썸네일(16:9) 하단 안쪽 */
-  display: flex;
-  gap: 4px;
-  z-index: 2;
-}
-.tut-admin select,
-.tut-admin .qa {
-  font-size: 11px;
-  max-width: 120px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  background: rgba(10, 16, 28, 0.78);
-  color: #eaf1ff;
-  padding: 3px 6px;
-  backdrop-filter: blur(4px);
-}
+/* 코스 지정은 UI 없이 서버 스크립트로 관리 (사용자 결정 — 카드에는 연습
+   시작만 남긴다) */
 
 .mobile-bar { display: none; }
 .structure-mobile { display: none; } /* 터치 전용 — 모바일 블록에서만 켜짐 */
