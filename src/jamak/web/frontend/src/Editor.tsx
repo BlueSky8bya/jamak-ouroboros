@@ -3326,14 +3326,13 @@ export function Editor({
 
   // ✨ 자동 정리 (ADR-0009): server does absorb → snap → split → extend and
   // returns before-rows + created ids, so the whole cleanup is ONE undo step
-  async function runAutoTiming() {
-    if (
-      !window.confirm(
-        "자막 시간을 실제 말소리에 맞추고, 너무 긴 자막은 나누고, 너무 빠른 자막은 표시 시간을 늘립니다.\n" +
-          "글 내용과 확인 완료 상태는 그대로 유지됩니다. Alt+Z(↶)로 전체 되돌릴 수 있어요.\n\n진행할까요?",
-      )
-    )
-      return;
+  // 자체 확인 모달 (브라우저 confirm은 앱과 생김새가 달라 붕 뜬다 — 사용자 피드백)
+  const [askAutoTiming, setAskAutoTiming] = useState(false);
+  function runAutoTiming() {
+    setAskAutoTiming(true);
+  }
+  async function doAutoTiming() {
+    setAskAutoTiming(false);
     tourEvent("auto-timing");
     setToolBusy("auto");
     await flushAll();
@@ -3356,6 +3355,21 @@ export function Editor({
           : "✨ 이미 잘 정리되어 있어요 — 손볼 게 없습니다",
       );
     } catch (e) {
+      // 연습판이 서버 정리로 사라진 경우(no job): 조용히 새 판을 만들어 복구
+      if (practice && String(e).includes("no job")) {
+        try {
+          await practiceSession(ytVideoId, practiceKey(), true);
+          const next = await fetchSegments(videoId, langRef.current);
+          segmentsRef.current = next;
+          setSegments(next);
+          setUndoStack([]);
+          undoStackRef.current = [];
+          setToolMsg("연습판을 새로 준비했어요 — ✨ 버튼을 다시 눌러주세요");
+          return;
+        } catch {
+          /* fall through to error */
+        }
+      }
       setError(String(e));
     } finally {
       setToolBusy(null);
@@ -4266,6 +4280,31 @@ export function Editor({
           >
             ✔ 맞아요
           </button>
+        </div>
+      )}
+      {/* ✨ 자동 정리 확인 — 앱 디자인의 자체 모달 (브라우저 confirm 대체) */}
+      {askAutoTiming && (
+        <div
+          className="srt-modal-back"
+          onMouseDown={(e) => e.target === e.currentTarget && setAskAutoTiming(false)}
+        >
+          <div className="srt-modal confirm-mini" onClick={(e) => e.stopPropagation()}>
+            <h3>✨ 타이밍 자동 정리</h3>
+            <p className="srt-summary">
+              자막 시간을 실제 말소리에 맞추고, 너무 긴 자막은 나누고, 너무 빠른
+              자막은 표시 시간을 늘려요.
+              <br />글 내용과 확인 완료 상태는 그대로예요. <b>Alt+Z(↶)</b>로 전체
+              되돌릴 수 있어요.
+            </p>
+            <div className="confirm-actions">
+              <button className="tour-exit" onClick={() => setAskAutoTiming(false)}>
+                취소
+              </button>
+              <button className="tour-finish" onClick={() => void doAutoTiming()}>
+                ✨ 정리할게요
+              </button>
+            </div>
+          </div>
         </div>
       )}
       {/* 따라하기 투어 — 실제 컨트롤을 하나씩 밝혀 직접 해보게 함.

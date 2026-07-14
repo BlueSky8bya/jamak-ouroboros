@@ -68,6 +68,38 @@ def inject_course_defects(session: Session, job: Job, course: str) -> int:
                 touched += 1
                 changed += 1
 
+    if course == "structure":
+        # [WH-CHANGE v0.9.13 | FIX | 2026-07-15 | CHG-20260715-037]
+        # Reason: 나누기 드릴은 "너무 긴 자막" 하나가 있어야 성립하는데 STT가
+        #   대본의 초장문(L2)을 여러 행으로 쪼개고 꼬리 겹침까지 남겼음 —
+        #   해당 구간 행들을 병합하고 대본 원문으로 되돌린다 (UI 드릴 재료,
+        #   학습 데이터 아님 — practice 전용).
+        # Related: CHANGELOG CHG-20260715-037.
+        LONG = (
+            "제가 지금부터 숨도 안 쉬고 아주 길게 말할 텐데 이렇게 길게 말하면 "
+            "자막 한 칸에 글이 꽉 차서 보는 사람이 미처 다 읽기도 전에 자막이 "
+            "지나가 버리기 때문에 중간의 적당한 곳에서 둘로 나누어 주는 것이 좋습니다"
+        )
+        span = [s for s in segs if s.end > 10.0 and s.start < 31.0 and "길지요" not in (s.text_llm or "")]
+        if span and (len(span) > 1 or span[0].text_llm != LONG):
+            first = span[0]
+            first.end = max(x.end for x in span)
+            first.text_llm = LONG
+            first.text_final = ""
+            first.reviewed = False
+            session.add(first)
+            for x in span[1:]:
+                session.delete(x)
+            session.flush()
+            rest = sorted(
+                (s for s in segs if s not in span[1:]), key=lambda s: s.start
+            )
+            for i, s in enumerate(rest):
+                if s.idx != i:
+                    s.idx = i
+                    session.add(s)
+            changed += 1
+
     if course == "timing":
         # one trailing-silence defect: extend the first cue that has >=1.5s of
         # following silence so it visibly overhangs into the pause (✂ / ✨

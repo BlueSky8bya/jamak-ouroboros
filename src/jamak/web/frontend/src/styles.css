@@ -4136,6 +4136,15 @@ kbd {
   font-size: 12.5px;
 }
 
+/* 자체 확인 모달 (자동 정리 등) — 작은 폭 + 버튼 우측 정렬 */
+.confirm-mini { max-width: 460px; }
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
 /* 새 배포 알림 — 탭을 오래 열어둔 사용자에게 (구버전 번들 안내 혼선 방지) */
 .stale-pill {
   position: fixed;
