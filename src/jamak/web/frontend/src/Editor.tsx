@@ -2164,8 +2164,8 @@ export function Editor({
         <>
           <div className="tn-status ok">✔ 말과 같아요 — Enter</div>
           <div className="tn-sub">
-            문장이 옆 칸과 나뉘어 있지만 지금은 그대로 둬도 돼요. 자막을 나누고
-            붙이는 건 연습 4에서 배워요.
+            문장이 옆 칸으로 이어지지만 <b>지금은 그대로</b> 두세요 · 칸 나누고
+            붙이기는 <b>연습 4</b>에서
           </div>
           {meta}
         </>
