@@ -56,8 +56,8 @@ export function Tour({
   onFinish: () => void;
   /** Editor가 동적으로 푼 대상 selector (오타 행 지목 등) — target보다 우선 */
   targetOverride?: string | null;
-  /** 진행 상황 한 줄 (예: "남은 자막 3개") — 흐름 확인 단계에서 갱신됨 */
-  note?: string;
+  /** 진행/셀 안내 (문자열 또는 구조화된 JSX) — 흐름 확인 단계에서 갱신됨 */
+  note?: React.ReactNode;
 }) {
   const cur = steps[step];
   const [rect, setRect] = useState<DOMRect | null>(null);

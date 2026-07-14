@@ -2081,7 +2081,7 @@ export function Editor({
   }
   /** 흐름 확인 단계의 셀별 안내문: 맞으면 "Enter!", 다르면 지금↔실제 말 대조,
    *  문장이 옆 칸에 걸쳐 있으면 솔직하게 (나누기는 연습 4에서). */
-  function tourNote(): string | undefined {
+  function tourNote(): React.ReactNode {
     const t = tour;
     if (!t || tourRemain === null || tourRemain <= 0) return undefined;
     const step = COURSES[t.course].steps[t.step];
@@ -2091,18 +2091,43 @@ export function Editor({
     const cur = (seg.text_final || seg.text_llm || seg.text_whisper || "").trim();
     const exp = expectedNarration(t, seg);
     const nm = (x: string) => x.replace(/[^\w가-힣]/g, "");
-    const replay = "다시 들으려면 자막 왼쪽의 작은 ▶";
+    const meta = (
+      <div className="tn-meta">
+        남은 자막 {tourRemain}개 · 다시 들으려면 자막 왼쪽의 작은 ▶
+      </div>
+    );
     if (exp && nm(exp.text) !== nm(cur))
       return (
-        `이 자막: 「${cur}」\n실제 말: 「${exp.text}」\n` +
-        `글을 눌러 실제 말대로 고친 뒤 Enter (남은 ${tourRemain}개) · ${replay}`
+        <>
+          <div className="tn-status fix">✏️ 글을 눌러 아래처럼 고친 뒤 Enter</div>
+          <div className="tn-diff">
+            <span className="tn-label">지금</span>
+            <span className="tn-cur">{cur}</span>
+          </div>
+          <div className="tn-diff">
+            <span className="tn-label">실제 말</span>
+            <span className="tn-exp">{exp.text}</span>
+          </div>
+          {meta}
+        </>
       );
     if (exp?.boundary)
       return (
-        `말과 같아요 — Enter! 문장이 옆 칸과 나뉘어 있지만 지금은 그대로 둬도\n` +
-        `돼요 — 자막을 나누고 붙이는 건 연습 4에서 배워요. (남은 ${tourRemain}개)`
+        <>
+          <div className="tn-status ok">✔ 말과 같아요 — Enter</div>
+          <div className="tn-sub">
+            문장이 옆 칸과 나뉘어 있지만 지금은 그대로 둬도 돼요. 자막을 나누고
+            붙이는 건 연습 4에서 배워요.
+          </div>
+          {meta}
+        </>
       );
-    return `이 자막은 말과 같아요 — Enter! (남은 자막 ${tourRemain}개) · ${replay}`;
+    return (
+      <>
+        <div className="tn-status ok">✔ 이 자막은 말과 같아요 — Enter</div>
+        {meta}
+      </>
+    );
   }
   // 전용 연습 영상 딥링크: App이 영상 전환과 함께 넘긴 코스를, 세그먼트가
   // 로드된 뒤 자동 시작. nonce 기억으로 재실행 오발 방지 (일회성 소비).

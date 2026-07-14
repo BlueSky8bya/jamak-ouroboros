@@ -4087,17 +4087,53 @@ kbd {
 /* 코스 지정은 UI 없이 서버 스크립트로 관리 (사용자 결정 — 카드에는 연습
    시작만 남긴다) */
 
-/* 흐름 확인 단계 진행 표시 (말풍선 안 — 셀별 고침 안내 여러 줄 가능) */
+/* 흐름 확인 단계 셀 안내 — 상태줄 / 지금·실제 말 대조 / 메타줄 구조
+   (통문장 볼드 덩어리는 가독성 최악 — 사용자 피드백) */
 .tour-note {
-  margin-top: 8px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--blue) 12%, var(--surface));
-  color: var(--blue);
-  font-size: 13.5px;
-  font-weight: 700;
-  white-space: pre-line;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.55;
   overflow-wrap: anywhere;
+}
+.tn-status {
+  font-weight: 800;
+  font-size: 14.5px;
+  margin-bottom: 2px;
+}
+.tn-status.ok { color: var(--green, #2f9e44); }
+.tn-status.fix { color: var(--blue); }
+.tn-sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.tn-diff {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-top: 6px;
+}
+.tn-label {
+  flex: none;
+  width: 52px;
+  padding: 1px 0;
+  border-radius: 6px;
+  text-align: center;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.tn-cur { color: var(--muted); text-decoration: line-through; }
+.tn-exp { color: var(--green, #2f9e44); font-weight: 700; }
+.tn-meta {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line);
+  color: var(--muted);
+  font-size: 12.5px;
 }
 
 /* 체크포인트 대기 pill — 투어 진행 중이지만 나레이션이 아직 지시 전 */
