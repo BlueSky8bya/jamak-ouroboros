@@ -2096,17 +2096,28 @@ export function Editor({
       if (!bySent.has(x.sent)) bySent.set(x.sent, []);
       bySent.get(x.sent)!.push(x);
     }
+    const nmw = (s: string) => s.replace(/[^\w가-힣]/g, "");
     for (const group of bySent.values()) {
       const count = new Map<number, number>();
       for (const x of group) count.set(x.row, (count.get(x.row) ?? 0) + 1);
       const major = [...count.entries()].sort((a, b) => b[1] - a[1])[0][0];
       const mr = rows.find((r) => r.id === major);
       if (!mr) continue;
-      for (const x of group) {
-        if (x.row === major) continue;
+      group.forEach((x, gi) => {
+        if (x.row === major) return;
         const d = x.mid < mr.start ? mr.start - x.mid : x.mid - mr.end;
-        if (d <= 0.9) x.row = major;
-      }
+        if (d > 3) return;
+        if (gi < group.length / 2) {
+          // 문장 머리 낙오(꼬리 '이' 등) — 문장이 있는 셀로
+          x.row = major;
+          return;
+        }
+        // 문장 꼬리 낙오: STT가 실제로 그 셀에서 들었으면(텍스트에 존재) 진짜
+        // 걸친 것(두었습니다) — 두고 정직 안내. 없으면 보간 오차 — 복귀.
+        const r = rows.find((rr) => rr.id === x.row);
+        const rt = r ? r.text_final || r.text_llm || r.text_whisper || "" : "";
+        if (!nmw(rt).includes(nmw(x.w))) x.row = major;
+      });
     }
     const inRow = assigned.filter((x) => x.row === seg.id);
     if (!inRow.length) return null;
