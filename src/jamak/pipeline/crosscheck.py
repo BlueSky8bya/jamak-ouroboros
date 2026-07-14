@@ -106,7 +106,7 @@ def deroll_captions(
 
 
 def youtube_gap_rows(
-    covered: list[tuple[float, float]],
+    existing: list[dict],
     captions: list[tuple[float, float, str]],
     pad: float = 0.3,
 ) -> list[dict]:
@@ -115,13 +115,40 @@ def youtube_gap_rows(
     Fixes the case where whisper drops the opening (speech over intro music /
     VAD trimming) so the first subtitle starts well after the speaker began.
     Each gap line becomes a flagged, YouTube-seeded row.
+
+    [WH-CHANGE v0.6.7 | FIX | 2026-07-14 | CHG-20260714-018]
+    Reason: YouTube auto-captions keep showing a sentence's TAIL during the
+      pause after it. Those tail lines land in whisper-silent gaps and were
+      dutifully imported as rows — ghost duplicates after nearly every pause
+      ("...먹었습니다." → "먹었습니다."). Reviewers were deleting them by hand
+      (the structural-edit noise the CER analysis surfaced). Now a gap
+      candidate whose normalized text is already contained in the nearest
+      preceding row's text is dropped. Trade-off: a genuinely re-spoken exact
+      repeat right after a pause is skipped too — rare, and these rows are
+      flagged guesses, not ground truth.
+    Related: CHANGELOG CHG-20260714-018.
     """
+    covered = [(r["start"], r["end"]) for r in existing]
+    by_start = sorted(existing, key=lambda r: r["start"])
     derolled = deroll_captions(captions)
     rows: list[dict] = []
     for s, e, t in derolled:
         mid = (s + e) / 2 if e > s else s
         if any(cs - pad <= mid <= ce + pad for cs, ce in covered):
             continue
+        prev = None
+        for r in by_start:
+            if r["start"] <= s + pad:
+                prev = r
+            else:
+                break
+        if prev is not None:
+            prev_text = _normalize(
+                prev.get("text_llm") or prev.get("text_whisper") or ""
+            )
+            cand = _normalize(t)
+            if cand and cand in prev_text:
+                continue  # echo of the sentence that just ended — ghost line
         rows.append(
             {
                 "start": s,
@@ -211,8 +238,7 @@ def crosscheck(
     # fill spans whisper missed entirely (the dropped opening + internal gaps)
     # from YouTube captions so the first subtitle starts where speech starts
     if captions:
-        covered = [(r["start"], r["end"]) for r in out]
-        out.extend(youtube_gap_rows(covered, captions))
+        out.extend(youtube_gap_rows(out, captions))
         out.sort(key=lambda r: r["start"])
 
     return out, n_echo

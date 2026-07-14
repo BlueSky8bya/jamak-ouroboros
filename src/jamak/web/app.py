@@ -1940,8 +1940,16 @@ def repair_stt(request: Request, video_id: str) -> dict:
             live = session.exec(
                 select(Segment).where(Segment.job_id == job.id, Segment.lang == "ko")
             ).all()
-            covered = [(s.start, s.end) for s in live]
-            for row in youtube_gap_rows(covered, caps):
+            existing_rows = [
+                {
+                    "start": s.start,
+                    "end": s.end,
+                    "text_llm": s.text_final or s.text_llm,
+                    "text_whisper": s.text_whisper,
+                }
+                for s in live
+            ]
+            for row in youtube_gap_rows(existing_rows, caps):
                 # row already carries text_whisper="" + YouTube-seeded working
                 # text (honest: whisper heard nothing in this span)
                 session.add(Segment(job_id=job.id, lang="ko", idx=0, reviewed=False, **row))
