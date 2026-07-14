@@ -30,6 +30,7 @@ import {
 import type { QcReport, SpellSuggestion, WordTime } from "./api";
 import { Dropdown } from "./Dropdown";
 import { ThemeToggle } from "./theme";
+import { useConfirm } from "./confirm";
 import { Tour, type TourStep } from "./Tour";
 import {
   COURSE_PRESETS,
@@ -2205,8 +2206,16 @@ export function Editor({
   // id 공간이 통째로 바뀌므로 늦게 도착하는 이전 저장 PUT은 자연히 무효
   // (지워진 id로 404) — baseline을 다시 오염시킬 수 없다.
   const [practiceResetting, setPracticeResetting] = useState(false);
+  const [confirmNode, askConfirm] = useConfirm();
   async function practiceRestart() {
-    if (!window.confirm("연습 내용을 지우고 처음 상태로 되돌릴까요?")) return;
+    if (
+      !(await askConfirm({
+        title: "↺ 처음부터 다시",
+        body: "연습 내용을 지우고 처음 상태로 되돌릴까요?",
+        ok: "처음부터 다시",
+      }))
+    )
+      return;
     setPracticeResetting(true);
     try {
       await practiceSession(ytVideoId, practiceKey(), true);
@@ -3263,10 +3272,13 @@ export function Editor({
 
   async function runUnfork() {
     if (
-      !window.confirm(
-        `${langLabel} 독립 편집을 해제하고 한국어 구조를 따르는 번역 검수로 되돌립니다.\n` +
-          `편집한 번역 텍스트는 한국어 자막에 맞춰 복원됩니다 (재분할한 경우 근사 복원). 계속할까요?`,
-      )
+      !(await askConfirm({
+        title: "독립 편집 해제",
+        body:
+          `${langLabel} 독립 편집을 해제하고 한국어 구조를 따르는 번역 검수로 되돌려요. ` +
+          `편집한 번역 텍스트는 한국어 자막에 맞춰 복원돼요 (재분할한 경우 근사 복원).`,
+        ok: "되돌릴게요",
+      }))
     )
       return;
     try {
@@ -4282,6 +4294,7 @@ export function Editor({
           </button>
         </div>
       )}
+      {confirmNode}
       {/* ✨ 자동 정리 확인 — 앱 디자인의 자체 모달 (브라우저 confirm 대체) */}
       {askAutoTiming && (
         <div

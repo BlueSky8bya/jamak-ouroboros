@@ -20,6 +20,7 @@ import {
   type SrtPreview,
 } from "./api";
 import { Login } from "./Login";
+import { useConfirm } from "./confirm";
 import { Dropdown } from "./Dropdown";
 import { Editor } from "./Editor";
 import { ThemeToggle } from "./theme";
@@ -604,6 +605,8 @@ export function App() {
   // "내 담당만": one click narrows the board to videos assigned to me
   const [mineOnly, setMineOnly] = useState(() => localStorage.getItem("jamak.mine") === "1");
   const [showHelp, setShowHelp] = useState(false);
+  // 브라우저 confirm 대신 앱 디자인 확인 모달 (다시 인식·srt 되돌리기)
+  const [confirmNode, askConfirm] = useConfirm();
   // 첫 방문(이 브라우저 기록 없음)은 사용법 모달 대신 🎓 튜토리얼 연습 탭으로
   // 안내한다 — 읽는 설명서(구 Guide 모달)는 연습 영상이 대체 (사용자 결정
   // 2026-07-15, 모달 자체 제거). 기존 guideSeen 기록도 방문 표시로 인정.
@@ -833,7 +836,14 @@ export function App() {
   }
 
   async function undoSrtImport(videoId: string) {
-    if (!window.confirm(".srt 적용을 취소하고 이전 상태로 되돌릴까요?")) return;
+    if (
+      !(await askConfirm({
+        title: "↩ .srt 적용 되돌리기",
+        body: ".srt 적용을 취소하고 이전 상태로 되돌릴까요?",
+        ok: "되돌릴게요",
+      }))
+    )
+      return;
     setError("");
     setBusyMsg("↩ .srt 적용을 되돌리는 중...");
     try {
@@ -850,9 +860,10 @@ export function App() {
     e.stopPropagation();
     const msg =
       j.reviewed > 0
-        ? `검수 중인 편집 ${j.reviewed}개가 초기화됩니다. 현재 용어사전으로 음성인식을 다시 할까요?`
+        ? `검수 중인 편집 ${j.reviewed}개가 초기화돼요. 현재 용어사전으로 음성인식을 다시 할까요?`
         : "현재 용어사전으로 음성인식을 다시 시도할까요?";
-    if (!window.confirm(msg)) return;
+    if (!(await askConfirm({ title: "🎲 다시 인식", body: msg, ok: "다시 인식할게요" })))
+      return;
     setError("");
     try {
       await retranscribe(j.video_id);
@@ -1083,6 +1094,7 @@ export function App() {
   return (
     <div className="landing">
       {stalePill}
+      {confirmNode}
       {busyMsg && (
         <div className="busy-pill" role="status" aria-live="polite">
           <span className="busy-spin" aria-hidden />

@@ -1926,9 +1926,19 @@ def repair_stt(request: Request, video_id: str) -> dict:
     crosscheck-time echo filter existed). Zero API cost: where the segment
     text is a prompt echo and a YouTube caption exists for that span, we
     replace the working text with the YouTube caption and re-open it for
-    review. Segments with no caption are left for the human. Admin-only.
+    review. Segments with no caption are left for the human. Admin-only,
+    except on practice videos: the tutorial teaches everyone to press it,
+    it costs nothing (YouTube captions only), and clones are throwaway.
     """
-    _require_admin(request)
+    # [WH-CHANGE v0.9.14 | FIX | 2026-07-15 | CHG-20260715-038]
+    # Reason: 연습 6 나레이션이 복구·채우기를 직접 눌러보게 하는데 관리자
+    #   전용 403이 떴음 — practice job(기준본/클론)은 예외 허용.
+    # Related: CHANGELOG CHG-20260715-038.
+    with get_session() as _s:
+        _job = _s.exec(select(Job).where(Job.video_id == video_id)).first()
+        _is_practice = bool(_job and _job.practice)
+    if not _is_practice:
+        _require_admin(request)
     from ..glossary import whisper_prompt
     from ..pipeline.noise import (
         cascade_indices,
