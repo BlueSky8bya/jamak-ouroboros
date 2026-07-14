@@ -1788,6 +1788,7 @@ export function Editor({
   initialLang = "ko",
   languages = [],
   practice = false,
+  isAdmin = false,
   tutorials = {},
   pendingCourse = null,
   onConsumePendingCourse,
@@ -1800,6 +1801,8 @@ export function Editor({
   initialLang?: string;
   languages?: { code: string; forked: boolean; timing_done: boolean }[];
   practice?: boolean;
+  /** 관리자 여부 — 번역 생성/재번역(API 비용) 노출 게이트 */
+  isAdmin?: boolean;
   /** course id -> 전용 연습 영상(기준 Job)의 video_id */
   tutorials?: Record<string, string>;
   /** one-shot: 이 영상이 열리면 이 코스를 자동 시작 (App이 전환 시 세팅) */
@@ -4140,6 +4143,7 @@ export function Editor({
               currentTime={currentTime}
               onSeek={seekTo}
               onGenerated={() => setTransRefresh((n) => n + 1)}
+              canTranslate={isAdmin}
             />
           </div>
         ) : (

@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-15 (v0.9.19 — 교정 확장 백스톱 단어경계화, 롤링 자막 누적 유령 뿌리 차단)
-Project Version: 0.9.19
+Last Updated: 2026-07-15 (v0.9.20 — 번역 관리자 전용, API 비용 통제)
+Project Version: 0.9.20
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)
 

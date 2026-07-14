@@ -1624,11 +1624,16 @@ def _exclusive(key: tuple[str, str], skip: bool = False):
 
 
 @app.post("/api/jobs/{video_id}/translate")
-def make_translations(video_id: str, lang: str, batch: int = 0) -> dict:
+def make_translations(
+    request: Request, video_id: str, lang: str, batch: int = 0
+) -> dict:
     """Generate (context-aware, cached) translations for every segment.
 
-    Gated on the Korean review being complete — translating a draft wastes
-    API cost and forces re-translation after the Korean is fixed.
+    Admin-only: a 2h video is ~25 Claude calls, and translation is a distinct
+    post-review phase — reviewers do Korean review, not translation
+    (사용자 결정 2026-07-15, 비용 통제). Gated on the Korean review being
+    complete — translating a draft wastes API cost and forces re-translation
+    after the Korean is fixed.
 
     [WH-CHANGE v0.5.2 | FIX | 2026-07-14 | CHG-20260714-009]
     Reason: a 2h video (~1500 cues) is ~25 sequential Claude calls; as one
@@ -1640,6 +1645,7 @@ def make_translations(video_id: str, lang: str, batch: int = 0) -> dict:
     """
     from ..pipeline.translate import LANGUAGES, translate_segments
 
+    _require_admin(request)
     if lang == "ko" or lang not in LANGUAGES:
         raise HTTPException(400, f"unsupported language {lang}")
 
@@ -1819,6 +1825,7 @@ def retranslate_segment(request: Request, video_id: str, lang: str, segment_id: 
     """
     from ..pipeline.translate import LANGUAGES, _hash, retranslate_span
 
+    _require_admin(request)  # 번역은 관리자 전용 (비용 통제, 사용자 결정 2026-07-15)
     if lang == "ko" or lang not in LANGUAGES:
         raise HTTPException(400, f"unsupported language {lang}")
     if not os.environ.get("ANTHROPIC_API_KEY"):

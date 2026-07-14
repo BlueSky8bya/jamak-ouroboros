@@ -21,6 +21,7 @@ function Row({
   onSave,
   onSaveNext,
   onRetranslate,
+  canTranslate,
 }: {
   row: TranslationRow;
   langLabel: string;
@@ -28,6 +29,7 @@ function Row({
   onSave: (segId: number, text: string, reviewed: boolean | null) => void;
   onSaveNext: (segId: number, text: string) => void;
   onRetranslate: (segId: number) => Promise<void>;
+  canTranslate: boolean;
 }) {
   const [text, setText] = useState(row.text);
   const [retranslating, setRetranslating] = useState(false);
@@ -69,20 +71,22 @@ function Row({
                 ? "⚠️ 원문이 바뀜 — 주변 문맥까지 살려 다시 번역할 수 있어요"
                 : "⚠️ 번역이 비어 있어요 — 주변 문맥으로 채울 수 있어요"}
             </span>
-            <button
-              className="tretranslate"
-              disabled={retranslating}
-              onClick={async () => {
-                setRetranslating(true);
-                try {
-                  await onRetranslate(row.segment_id);
-                } finally {
-                  setRetranslating(false);
-                }
-              }}
-            >
-              {retranslating ? "번역 중…" : "🔄 다시 번역"}
-            </button>
+            {canTranslate && (
+              <button
+                className="tretranslate"
+                disabled={retranslating}
+                onClick={async () => {
+                  setRetranslating(true);
+                  try {
+                    await onRetranslate(row.segment_id);
+                  } finally {
+                    setRetranslating(false);
+                  }
+                }}
+              >
+                {retranslating ? "번역 중…" : "🔄 다시 번역"}
+              </button>
+            )}
           </div>
         )}
         <textarea
@@ -124,6 +128,7 @@ export function TranslateReview({
   currentTime,
   onSeek,
   onGenerated,
+  canTranslate,
 }: {
   videoId: string;
   lang: string;
@@ -133,6 +138,8 @@ export function TranslateReview({
   // notify parent that translations now exist for this lang, so it can refetch
   // its own transMap (which gates the fork button / on-video overlay)
   onGenerated?: () => void;
+  // 번역 생성/재번역은 관리자 전용 (API 비용 통제) — 검수자는 기존 번역 검수만
+  canTranslate: boolean;
 }) {
   const [rows, setRows] = useState<TranslationRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -272,9 +279,15 @@ export function TranslateReview({
         <p>
           <strong>{langLabel}</strong> 번역이 아직 없습니다. 한국어 원문을 문맥에 맞게 번역합니다.
         </p>
-        <button className="export" disabled={translating} onClick={generate}>
-          {translating ? "번역 만드는 중..." : `${langLabel} 번역 만들기`}
-        </button>
+        {canTranslate ? (
+          <button className="export" disabled={translating} onClick={generate}>
+            {translating ? "번역 만드는 중..." : `${langLabel} 번역 만들기`}
+          </button>
+        ) : (
+          <p className="tadmin-note">
+            번역 생성은 관리자만 할 수 있어요 (비용이 드는 작업). 관리자에게 요청하세요.
+          </p>
+        )}
         {translating && (
           <div className="tprogress" role="status" aria-live="polite">
             <div className="tprog-top">
@@ -351,9 +364,13 @@ export function TranslateReview({
               <span>
                 ⚠ 번역이 비었거나 원문이 바뀐 자막 <strong>{missing}개</strong>
               </span>
-              <button className="tmissing-btn" disabled={translating} onClick={generate}>
-                {translating ? "번역 중..." : `🔄 한 번에 다 채우기 (${missing}개만 과금)`}
-              </button>
+              {canTranslate ? (
+                <button className="tmissing-btn" disabled={translating} onClick={generate}>
+                  {translating ? "번역 중..." : `🔄 한 번에 다 채우기 (${missing}개만 과금)`}
+                </button>
+              ) : (
+                <span className="tadmin-note">채우기는 관리자에게 요청하세요</span>
+              )}
             </div>
           );
         })()}
@@ -415,9 +432,11 @@ export function TranslateReview({
         >
           🔎 찾기·바꾸기
         </button>
-        <button className="mini" disabled={translating} onClick={generate} title="확인 안 한 자막만 새로 번역">
-          {translating ? "번역 중..." : "미검수 다시 번역"}
-        </button>
+        {canTranslate && (
+          <button className="mini" disabled={translating} onClick={generate} title="확인 안 한 자막만 새로 번역">
+            {translating ? "번역 중..." : "미검수 다시 번역"}
+          </button>
+        )}
       </div>
       {findOpen && (
         <div className="findbar open tfind">
@@ -464,6 +483,7 @@ export function TranslateReview({
           onSave={save}
           onSaveNext={saveNext}
           onRetranslate={retranslate}
+          canTranslate={canTranslate}
         />
       ))}
     </div>

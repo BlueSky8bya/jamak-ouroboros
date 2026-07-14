@@ -1041,6 +1041,7 @@ export function App() {
         initialLang={selectedLang}
         languages={bj?.languages ?? []}
         practice={bj?.practice ?? false}
+        isAdmin={me.is_admin}
         tutorials={tutorials}
         pendingCourse={pendingCourse && pendingCourse.videoId === selected ? pendingCourse : null}
         onConsumePendingCourse={() => setPendingCourse(null)}

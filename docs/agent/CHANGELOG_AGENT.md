@@ -1,5 +1,12 @@
 # Agent Change Log
 
+## v0.9.20 — 2026-07-15 (번역 관리자 전용 — API 비용 통제)
+
+### CHG-20260715-041 — SEC/COST — 번역·재번역이 검수자에게도 열려 있던 것
+Change: `/translate`(2h당 ~25 Claude콜)·`/retranslate`가 관리자 게이트 없이 로그인만 되면 누구나 호출 가능했음 — 검수자 실수/오남용으로 비용 폭증 위험. 둘 다 `_require_admin` 추가(사용자 결정: 번역만 잠금, 맞춤법·학습은 검수자 유지). 프론트: TranslateReview에 `canTranslate=is_admin` 전파 — 번역 생성/미검수 다시 번역/한 번에 다 채우기/행별 🔄 다시 번역 버튼을 검수자에겐 숨기고 "번역은 관리자에게 요청하세요" 안내(403 서프라이즈 방지). 검수자는 **기존 번역 검수·저장·찾기바꾸기**는 그대로 가능.
+Range 감사: create_job·retranscribe·repair(연습 예외)·import_srt·undo_srt는 이미 관리자 전용, spellcheck·absorb는 의도적 검수자 허용(맞춤법=한글검수 도구, 학습=튜토리얼에서 가르침).
+Validation: TestClient 실증 — 검수자 translate/retranslate 403, 관리자 통과(404), 검수자 spellcheck 비403(허용) + 빌드·서버 import 클린.
+
 ## v0.9.19 — 2026-07-15 (교정 확장 백스톱을 단어 경계 포함으로 — 짧은 토막말 누적 유령 뿌리 차단)
 
 ### CHG-20260715-040 — FIX/PIPELINE — 롤링 자막이 토막말을 누적해 3자 이웃이 가드 통과

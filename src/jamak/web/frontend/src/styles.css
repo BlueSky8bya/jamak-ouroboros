@@ -4136,6 +4136,12 @@ kbd {
   font-size: 12.5px;
 }
 
+/* 번역 관리자 전용 안내 (검수자에게 버튼 대신 문구) */
+.tadmin-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 /* 자체 확인 모달 (자동 정리 등) — 작은 폭 + 버튼 우측 정렬 */
 .confirm-mini { max-width: 460px; }
 .confirm-actions {
