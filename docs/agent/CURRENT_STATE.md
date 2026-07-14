@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-15 (v0.9.3 — 튜토리얼 v3: 행 단계 구간반복 듣기 + 셀별 고침 안내)
-Project Version: 0.9.3
+Last Updated: 2026-07-15 (v0.9.4 — 튜토리얼 v3.1: 1회 듣기·오타 구간 멈춤·정직한 셀 안내)
+Project Version: 0.9.4
 Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATION.md)
 
 ## Current Objective

@@ -1921,10 +1921,12 @@ export function Editor({
     const at = stepCheckpoint(t);
     if (!step || step.final) return;
     if (step.loopRow) {
+      // 한 번만 들려주고 행 끝에서 정지 (반복은 귀 피로 — 3차 파일럿).
+      // 다시 듣기는 행 왼쪽 ▶ (말풍선이 안내). 행이 바뀌면 새 행을 또 한 번.
       const seg = stepLoopSeg(t);
       tourLoopRef.current = true;
       tourPausedRef.current = false;
-      setLoopSeg(true);
+      if (step.targetDefect) setPauseOnType(true); // 고치는 동안 영상 정지
       if (seg) {
         focusSegment(seg);
         seekTo(seg.start);
@@ -1940,10 +1942,7 @@ export function Editor({
    *  지났으면(연쇄 단계) 다음 단계를 바로 활성화한다. */
   function afterTourAdvance(next: { course: number; step: number } | null) {
     const wasLoop = tourLoopRef.current;
-    if (wasLoop) {
-      tourLoopRef.current = false;
-      setLoopSeg(false);
-    }
+    if (wasLoop) tourLoopRef.current = false;
     if (next === null || next.step >= COURSES[next.course].steps.length) {
       tourPausedRef.current = false;
       return;
@@ -2054,28 +2053,34 @@ export function Editor({
   function expectedNarration(
     t: { course: number; step: number },
     seg: Segment,
-  ): string | null {
+  ): { text: string; boundary: boolean } | null {
+    // 단어 단위 시간 보간: 셀이 실제로 담은 말만 정답으로 제시한다 — 문장
+    // 전체를 정답이라 우기면 반 토막 셀에서 거짓 안내가 됨 (3차 파일럿).
     const lines = TUTORIAL_LINES[COURSES[t.course].id];
     if (!lines) return null;
-    const sents: { mid: number; text: string }[] = [];
+    const words: { mid: number; w: string; sent: number }[] = [];
+    let sent = 0;
     for (const ln of lines) {
-      const parts = ln.text.match(/[^.?!]+[.?!]?/g) ?? [ln.text];
       const dur = ln.end - ln.start;
+      const total = ln.text.length;
       let off = 0;
-      for (const p of parts) {
-        sents.push({
-          mid: ln.start + ((off + p.length / 2) / ln.text.length) * dur,
-          text: p.trim(),
-        });
-        off += p.length;
+      for (const w of ln.text.split(/\s+/)) {
+        words.push({ mid: ln.start + ((off + w.length / 2) / total) * dur, w, sent });
+        off += w.length + 1;
+        if (/[.?!]$/.test(w)) sent++;
       }
+      sent++;
     }
-    const hit = sents
-      .filter((x) => x.mid >= seg.start - 0.25 && x.mid < seg.end + 0.25)
-      .map((x) => x.text);
-    return hit.length ? hit.join(" ") : null;
+    const inRow = words.filter((x) => x.mid >= seg.start && x.mid < seg.end);
+    if (!inRow.length) return null;
+    const mySents = new Set(inRow.map((x) => x.sent));
+    const boundary = words.some(
+      (x) => mySents.has(x.sent) && (x.mid < seg.start || x.mid >= seg.end),
+    );
+    return { text: inRow.map((x) => x.w).join(" "), boundary };
   }
-  /** 흐름 확인 단계의 셀별 안내문: 맞으면 "Enter!", 다르면 지금↔실제 말 대조 */
+  /** 흐름 확인 단계의 셀별 안내문: 맞으면 "Enter!", 다르면 지금↔실제 말 대조,
+   *  문장이 옆 칸에 걸쳐 있으면 솔직하게 (나누기는 연습 4에서). */
   function tourNote(): string | undefined {
     const t = tour;
     if (!t || tourRemain === null || tourRemain <= 0) return undefined;
@@ -2086,12 +2091,18 @@ export function Editor({
     const cur = (seg.text_final || seg.text_llm || seg.text_whisper || "").trim();
     const exp = expectedNarration(t, seg);
     const nm = (x: string) => x.replace(/[^\w가-힣]/g, "");
-    if (exp && nm(exp) !== nm(cur))
+    const replay = "다시 들으려면 자막 왼쪽의 작은 ▶";
+    if (exp && nm(exp.text) !== nm(cur))
       return (
-        `이 자막: 「${cur}」\n실제 말: 「${exp}」\n` +
-        `글을 눌러 실제 말대로 고친 뒤 Enter (남은 ${tourRemain}개)`
+        `이 자막: 「${cur}」\n실제 말: 「${exp.text}」\n` +
+        `글을 눌러 실제 말대로 고친 뒤 Enter (남은 ${tourRemain}개) · ${replay}`
       );
-    return `이 자막은 말과 같아요 — Enter! (남은 자막 ${tourRemain}개)`;
+    if (exp?.boundary)
+      return (
+        `말과 같아요 — Enter! 문장이 옆 칸과 나뉘어 있지만 지금은 그대로 둬도\n` +
+        `돼요 — 자막을 나누고 붙이는 건 연습 4에서 배워요. (남은 ${tourRemain}개)`
+      );
+    return `이 자막은 말과 같아요 — Enter! (남은 자막 ${tourRemain}개) · ${replay}`;
   }
   // 전용 연습 영상 딥링크: App이 영상 전환과 함께 넘긴 코스를, 세그먼트가
   // 로드된 뒤 자동 시작. nonce 기억으로 재실행 오발 방지 (일회성 소비).
@@ -2169,6 +2180,16 @@ export function Editor({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusedId, tour, tourGate]);
+  // 행 오디오 모드: 확인+다음으로 행이 바뀌면 새 행을 한 번 들려준다
+  useEffect(() => {
+    if (!tourLoopRef.current || focusedId === null) return;
+    const seg = segmentsRef.current.find((s) => s.id === focusedId);
+    if (seg) {
+      seekTo(seg.start);
+      play();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusedId]);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [statusMsg, setStatusMsg] = useState("");
   const [findOpen, setFindOpen] = useState(false);
@@ -2213,7 +2234,12 @@ export function Editor({
     setTourGate(true);
     if (tourFiredRef.current !== tour.step) {
       tourFiredRef.current = tour.step;
-      tourEnterStep(tour); // loopRow = 대상 행 반복 재생, 그 외 = 일시정지
+      tourEnterStep(tour); // loopRow = 대상 행 1회 재생, 그 외 = 일시정지
+    }
+    // 행 오디오 모드: 행 끝에 닿으면 정지 (1회 듣기 — 반복은 ▶로 사용자가)
+    if (tourLoopRef.current && playing) {
+      const fs = segmentsRef.current.find((s) => s.id === focusedIdRef.current);
+      if (fs && currentTime >= fs.end - 0.05) pause();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTime, tour, practice]);
