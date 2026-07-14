@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-15 (v0.8.0 — .srt 구조 교체 임포트 + 번역 이어받기)
-Project Version: 0.8.0
+Last Updated: 2026-07-15 (v0.8.5 — 즉시 피드백 원칙 명문화 + 에디터 상단·도구 정리)
+Project Version: 0.8.5
 Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATION.md)
 
 ## Current Objective
@@ -11,6 +11,14 @@ Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATI
 ## Pending (사용자 액션)
 
 - **v0.3.0~1 실사용 확인** — DELEGATED (인앱 브라우저가 YT iframe 못 열어 재생 연동 미검증): ① 흘려듣기(영상 재생 중 자막 따라오기 + 입력칸 밖 Enter 확인), ② 카라오케 단어 하이라이트가 실제 말과 잘 맞는지(비례 매핑 근사), ③ 단어 클릭 재생 체감, ④ 자동 정리 결과가 실제 영상에서 자연스러운지, ⑤ ▶버튼 실재생(b8cd8b2).
+
+## Recent Additions (2026-07-15 — v0.7.1~0.8.5, CHG-20260715-020~025)
+
+- **즉시 피드백 원칙**: CONSTITUTION §4.1로 명문화 (busy pill·진행바·결과 배너·모달 안 성공/실패·이중 실행 잠금). 침묵 구간 = 결함.
+- **.srt 임포트 v2**: 구조 통째 교체 + 번역 이어받기(텍스트+시간 매칭) + undo v2 + 벌크 삽입(2231행 실사용 타임아웃 수정) + O(1) 매칭 미리보기.
+- **번역 UX**: 빈·stale 셀 "한 번에 다 채우기"(edited 보호 제외), 동적 진행바, 번역 트랙 찾기·바꾸기(/replace 확장, edited=True 보호), 뒤로가기 = 앱 페이지 스택.
+- **에디터 정리(v0.8.5)**: 글씨 크기 3단계 세그먼트(보통/크게/최대 — 구 bigtype 승계), 🎓 따라하기 버튼 제거(튜토리얼 탭이 대체), 도구 줄 균일 그리드 + 도구별 "⏳ …중" + 결과 배너(학습 0건도 명시). 코스 지정 UI 전부 제거(서버 스크립트 관리, bind_courses.py 패턴).
+- **튜토리얼**: 코스 6개 바인딩 완료(결함 주입 포함), 카드 통일 디자인, 시각 큐 렌더 완료 — **User: mp4 6개 재업로드 대기** (`tools/tutorial-video/out/`).
 
 ## Recent Additions (2026-07-14 — v0.6.2~0.7.0, CHG-20260714-012~019)
 

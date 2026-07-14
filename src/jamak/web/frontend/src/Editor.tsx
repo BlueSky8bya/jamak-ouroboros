@@ -1295,7 +1295,7 @@ const COURSES: TourCourse[] = [
         body: (
           <>
             <b>듣고 → 맞으면 Enter → 틀리면 눌러 고치고 Enter.</b> 이거면 끝까지 가요.
-            왼쪽 위 <b>🎓 따라하기</b>에 다른 연습(재생 조작, 나누기, 타이밍…)도 있어요.
+            목록의 <b>🎓 튜토리얼 연습</b> 탭에 다른 연습(재생 조작, 나누기, 타이밍…)도 있어요.
           </>
         ),
       },
@@ -1718,7 +1718,7 @@ const COURSES: TourCourse[] = [
           <>
             점검표에서 <b>보기→</b>로 문제 자막에 바로 갈 수 있고, <b>✏️ 맞춤법
             검사</b>로 오타도 잡아줘요. 이제 진짜 영상에서 시작하세요 — 막히면 언제든{" "}
-            <b>🎓 따라하기</b>와 <b>📖 사용법</b>이 있어요.
+            <b>🎓 튜토리얼 연습</b> 탭과 <b>📖 사용법</b>이 있어요.
           </>
         ),
       },
@@ -1762,7 +1762,15 @@ export function Editor({
   const forkedLangs = new Set(languages.filter((l) => l.forked).map((l) => l.code));
   const [koDoneSeen, setKoDoneSeen] = useState(koComplete);
   const [error, setError] = useState("");
-  const [absorbMsg, setAbsorbMsg] = useState("");
+  // 도구 줄 피드백: 어떤 도구가 돌고 있는지(버튼 스피너·전체 비활성) +
+  // 결과 배너(도구 줄 바로 아래, 눈에 띄게) — "눌렀는데 변화가 안 보임" 금지
+  const [toolBusy, setToolBusy] = useState<string | null>(null);
+  const [toolMsg, setToolMsg] = useState("");
+  useEffect(() => {
+    if (!toolMsg) return;
+    const t = window.setTimeout(() => setToolMsg(""), 8000);
+    return () => window.clearTimeout(t);
+  }, [toolMsg]);
   const [langs, setLangs] = useState<{ code: string; label: string }[]>([]);
   const [lang, setLang] = useState(initialLang);
   const [exporting, setExporting] = useState(false);
@@ -1785,8 +1793,14 @@ export function Editor({
   const [follow, setFollow] = useState(() => localStorage.getItem("jamak.follow") !== "0");
   useEffect(() => localStorage.setItem("jamak.follow", follow ? "1" : "0"), [follow]);
   // 큰 글씨 (고령 검수자): 자막 글자·주요 버튼 확대. 세션 간 유지.
-  const [bigType, setBigType] = useState(() => localStorage.getItem("jamak.bigtype") === "1");
-  useEffect(() => localStorage.setItem("jamak.bigtype", bigType ? "1" : "0"), [bigType]);
+  // 글씨 크기 3단계 (보통/크게/최대) — 구 bigtype("1")은 1단계로 승계
+  const [fontScale, setFontScale] = useState(() => {
+    const v = localStorage.getItem("jamak.fontscale");
+    if (v !== null) return Math.min(2, Math.max(0, Number(v) || 0));
+    return localStorage.getItem("jamak.bigtype") === "1" ? 1 : 0;
+  });
+  useEffect(() => localStorage.setItem("jamak.fontscale", String(fontScale)), [fontScale]);
+  const bigType = fontScale >= 1; // 기존 .bigtype CSS 재사용
   // 따라하기 레슨: {course, step} = active lesson, null = off. 🎓 → 코스 메뉴.
   // Each step passes only when its real action fires (tourEvent at action sites).
   const [tour, setTour] = useState<{ course: number; step: number } | null>(null);
@@ -2121,11 +2135,6 @@ export function Editor({
     const t = window.setTimeout(() => setStatusMsg(""), 4000);
     return () => window.clearTimeout(t);
   }, [statusMsg]);
-  useEffect(() => {
-    if (!absorbMsg) return;
-    const t = window.setTimeout(() => setAbsorbMsg(""), 8000);
-    return () => window.clearTimeout(t);
-  }, [absorbMsg]);
   useEffect(() => {
     if (!error) return;
     const t = window.setTimeout(() => setError(""), 6000);
@@ -2885,6 +2894,7 @@ export function Editor({
 
   async function runRepair() {
     tourEvent("repair");
+    setToolBusy("repair");
     await flushAll();
     try {
       const r = await repairStt(videoId);
@@ -2892,14 +2902,16 @@ export function Editor({
       const parts: string[] = [];
       if (r.repaired) parts.push(`오류 ${r.repaired}곳 복구`);
       if (r.filled) parts.push(`빈 구간 ${r.filled}곳 유튜브 자막으로 채움`);
-      setStatusMsg(
+      setToolMsg(
         parts.length
-          ? `${parts.join(", ")} (유튜브 자막 기반, 검수 필요)` +
+          ? `🛠 ${parts.join(", ")} (유튜브 자막 기반, 검수 필요)` +
               (r.no_caption ? ` · 자막 없는 ${r.no_caption}곳은 직접 수정` : "")
-          : "복구·보충할 구간을 찾지 못했습니다",
+          : "🛠 복구·보충할 구간을 찾지 못했어요 — 이미 깨끗한 상태",
       );
     } catch (e) {
       setError(String(e));
+    } finally {
+      setToolBusy(null);
     }
   }
 
@@ -2914,6 +2926,7 @@ export function Editor({
     )
       return;
     tourEvent("auto-timing");
+    setToolBusy("auto");
     await flushAll();
     try {
       const r = await autoTiming(videoId, lang);
@@ -2928,61 +2941,74 @@ export function Editor({
         });
       }
       applyRows(r.segments);
-      setStatusMsg(
+      setToolMsg(
         r.tightened || r.split
-          ? `✨ 자동 정리 완료 — 말소리에 맞춤 ${r.tightened}개 · 나눔 ${r.split}개 (Alt+Z로 되돌리기)`
-          : "이미 잘 정리되어 있습니다",
+          ? `✨ 자동 정리 완료 — 말소리에 맞춤 ${r.tightened}개 · 나눔 ${r.split}개 (↶로 되돌리기 가능)`
+          : "✨ 이미 잘 정리되어 있어요 — 손볼 게 없습니다",
       );
     } catch (e) {
       setError(String(e));
+    } finally {
+      setToolBusy(null);
     }
   }
 
   async function runTighten() {
     tourEvent("tighten");
+    setToolBusy("tighten");
     await flushAll();
     try {
       const r = await tightenTiming(videoId);
       await refreshSegments();
-      setStatusMsg(
+      setToolMsg(
         r.tightened
-          ? `${r.tightened}개 자막을 실제 발화 구간에 맞춰 다듬었습니다 — 침묵 구간엔 자막이 사라집니다`
-          : "이미 발화 구간에 맞게 다듬어져 있습니다",
+          ? `✂ ${r.tightened}개 자막을 실제 발화 구간에 맞춰 다듬었어요 — 침묵 구간엔 자막이 사라집니다`
+          : "✂ 이미 발화 구간에 맞게 다듬어져 있어요",
       );
     } catch (e) {
       setError(String(e));
+    } finally {
+      setToolBusy(null);
     }
   }
 
   async function runConfirmSafe() {
     tourEvent("confirm-safe");
+    setToolBusy("safe");
     await flushAll();
     try {
       const r = await confirmSafe(videoId);
       await refreshSegments();
-      setStatusMsg(
-        `안심 구간 ${r.confirmed}개를 한번에 확인했습니다 — 이제 표시된 구간만 검수하세요`,
-      );
+      setToolMsg(`✅ 안심 구간 ${r.confirmed}개를 한번에 확인했어요 — 이제 남은 것만 보세요`);
     } catch (e) {
       setError(String(e));
+    } finally {
+      setToolBusy(null);
     }
   }
 
   async function runAbsorb() {
     tourEvent("absorb");
+    setToolBusy("absorb");
     await flushAll();
     try {
       const r = await absorbFeedback(videoId);
       await refreshSegments();
-      setAbsorbMsg(
-        `학습 완료 — 확인한 자막 ${r.reviewed_segments}개에서 고침 ${r.new_pairs}가지를 새로 배웠습니다` +
-          (r.bumped ? ` (${r.bumped}가지는 더 확실해짐)` : "") +
-          (r.propagated_segments
-            ? `, 뒤쪽 자막 ${r.propagated_segments}개에 ${r.propagated_replacements}곳 반영`
-            : ""),
+      setToolMsg(
+        r.new_pairs || r.bumped || r.propagated_segments
+          ? `📚 학습 완료 — 확인한 자막 ${r.reviewed_segments}개에서 고침 ${r.new_pairs}가지를 새로 배웠어요` +
+              (r.bumped ? ` (${r.bumped}가지는 더 확실해짐)` : "") +
+              (r.propagated_segments
+                ? `, 뒤쪽 자막 ${r.propagated_segments}개에 ${r.propagated_replacements}곳 바로 반영`
+                : "")
+          : practice
+            ? "📚 연습용 영상이라 실제 학습은 하지 않아요 (버튼 위치 연습 성공!)"
+            : `📚 학습 완료 — 확인한 자막 ${r.reviewed_segments}개, 새로 배울 고침은 없었어요 (이미 다 아는 내용)`,
       );
     } catch (e) {
       setError(String(e));
+    } finally {
+      setToolBusy(null);
     }
   }
 
@@ -3088,7 +3114,14 @@ export function Editor({
   }
 
   return (
-    <div className={"editor" + (showPreview ? " preview" : "") + (bigType ? " bigtype" : "")}>
+    <div
+      className={
+        "editor" +
+        (showPreview ? " preview" : "") +
+        (bigType ? " bigtype" : "") +
+        (fontScale === 2 ? " bigtype2" : "")
+      }
+    >
       <div className="left">
         <div className="left-top">
           <button
@@ -3100,23 +3133,23 @@ export function Editor({
           >
             ← 목록
           </button>
-          <button
-            className={"bigtype-btn" + (bigType ? " on" : "")}
-            title="자막 글씨와 버튼을 크게/보통으로"
-            onClick={() => {
-              setBigType((v) => !v);
-              tourEvent("bigtype");
-            }}
-          >
-            {bigType ? "글씨 보통" : "글씨 크게"}
-          </button>
-          <button
-            className="tour-btn"
-            title="화면에서 한 단계씩 직접 해보는 연습 (코스 6개, 언제든 다시)"
-            onClick={() => setTourMenu(true)}
-          >
-            🎓 따라하기
-          </button>
+          {/* 글씨 크기 3단계 세그먼트 — .bigtype-btn 클래스는 투어 타겟 유지 */}
+          <span className="bigtype-btn font-seg" role="group" aria-label="글씨 크기">
+            <span className="font-seg-label">글씨</span>
+            {(["보통", "크게", "최대"] as const).map((label, i) => (
+              <button
+                key={label}
+                className={"font-seg-btn s" + i + (fontScale === i ? " on" : "")}
+                title={`글씨 ${label}`}
+                onClick={() => {
+                  setFontScale(i);
+                  tourEvent("bigtype");
+                }}
+              >
+                가
+              </button>
+            ))}
+          </span>
           <button
             className="mset-btn"
             title="재생 설정 (구간반복·멈춤·따라가기·미리보기)"
@@ -3393,45 +3426,55 @@ export function Editor({
           {nSafe > 0 && (
             <button
               className="tool accent tool-safe"
+              disabled={!!toolBusy}
               title="두 음성인식이 일치하고 어려운 용어도 없는 '안심' 구간을 한번에 확인. 나머지에만 집중하세요."
               onClick={() => void runConfirmSafe()}
             >
-              ✅ 안심 {nSafe}개 확인
+              {toolBusy === "safe" ? "⏳ 확인 중..." : `✅ 안심 ${nSafe}개 확인`}
             </button>
           )}
           {!textMode && (
             <button
               className="tool accent tool-auto"
+              disabled={!!toolBusy}
               title="타이밍을 기계가 먼저 정리 — 말소리에 맞추고, 너무 긴 자막은 나누고, 너무 빠른 자막은 표시 시간을 늘림 (되돌리기 가능)"
               onClick={() => void runAutoTiming()}
             >
-              ✨ 타이밍 자동 정리
+              {toolBusy === "auto" ? "⏳ 정리 중..." : "✨ 타이밍 자동 정리"}
             </button>
           )}
           {!textMode && (
             <button
               className="tool tool-tighten"
+              disabled={!!toolBusy}
               title="자막을 실제 발화 시작~끝 구간에 딱 맞춰 다듬어 침묵 구간엔 자막이 안 보이게 함 (텍스트·검수 상태는 그대로, API 사용 안 함) (Alt+M)"
               onClick={() => void runTighten()}
             >
-              ✂ 무음 다듬기
+              {toolBusy === "tighten" ? "⏳ 다듬는 중..." : "✂ 무음 다듬기"}
             </button>
           )}
           <button
             className="tool tool-repair"
+            disabled={!!toolBusy}
             title="음성인식이 놓치거나 잘못 뱉은 구간을 유튜브 자막으로 복구·보충 (API 사용 안 함) (Alt+G)"
             onClick={() => void runRepair()}
           >
-            🛠 복구·채우기
+            {toolBusy === "repair" ? "⏳ 복구 중..." : "🛠 복구·채우기"}
           </button>
           <button
             className="tool tool-absorb"
+            disabled={!!toolBusy}
             title="이번에 고친 내용을 뒤쪽 미검수 자막에 반영하고 다음 실행에도 기억 (Alt+K)"
             onClick={() => void runAbsorb()}
           >
-            📚 학습
+            {toolBusy === "absorb" ? "⏳ 학습 중..." : "📚 학습"}
           </button>
         </div>
+        )}
+        {toolMsg && (
+          <div className="tool-msg" role="status" aria-live="polite">
+            {toolMsg}
+          </div>
         )}
 
         {/* export footer */}
@@ -3480,7 +3523,6 @@ export function Editor({
           </div>
           <div className="hint">받으면 고친 내용이 뒤쪽 자막과 다음 실행에 자동 반영됩니다</div>
         </div>
-        {absorbMsg && <div className="absorb-msg">{absorbMsg}</div>}
         {error && <div className="error">{error}</div>}
 
         <div className="keys">
