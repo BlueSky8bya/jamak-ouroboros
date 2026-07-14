@@ -1145,23 +1145,23 @@ export function App() {
                     disabled={!vid}
                     onClick={() => vid && void openVideo(vid, "ko", c.id)}
                   >
-                    {vid ? (
-                      <img
-                        src={`https://img.youtube.com/vi/${vid}/mqdefault.jpg`}
-                        alt=""
-                        loading="lazy"
-                      />
-                    ) : (
-                      <span className="tut-noimg">준비 중</span>
-                    )}
+                    <span className="tut-thumb">
+                      {vid && (
+                        <img
+                          src={`https://img.youtube.com/vi/${vid}/mqdefault.jpg`}
+                          alt=""
+                          loading="lazy"
+                        />
+                      )}
+                      <span className="tut-num">연습 {c.n}</span>
+                      {done && <span className="tut-done-badge">✓ 완료</span>}
+                    </span>
                     <span className="tut-body">
-                      <strong>
-                        연습 {c.n} · {c.title}
-                      </strong>
+                      <strong>{c.title}</strong>
                       <span>{c.desc}</span>
                     </span>
-                    <span className={"tut-state" + (done ? " done" : "")}>
-                      {vid ? (done ? "다시 하기 ✓" : "▶ 연습 시작") : "영상 준비 중"}
+                    <span className={"tut-cta" + (done ? " done" : "")}>
+                      {vid ? (done ? "↻ 다시 하기" : "▶ 연습 시작") : "영상 준비 중"}
                     </span>
                   </button>
                   {canIngest && pj && (
@@ -1200,16 +1200,19 @@ export function App() {
                         className="tut-card"
                         onClick={() => void openVideo(j.video_id, "ko")}
                       >
-                        <img
-                          src={`https://img.youtube.com/vi/${j.video_id}/mqdefault.jpg`}
-                          alt=""
-                          loading="lazy"
-                        />
+                        <span className="tut-thumb">
+                          <img
+                            src={`https://img.youtube.com/vi/${j.video_id}/mqdefault.jpg`}
+                            alt=""
+                            loading="lazy"
+                          />
+                          <span className="tut-num">자유 연습</span>
+                        </span>
                         <span className="tut-body">
                           <strong>{j.title || j.video_id}</strong>
-                          <span>자유 연습</span>
+                          <span>코스 없이 자유롭게</span>
                         </span>
-                        <span className="tut-state">▶ 열기</span>
+                        <span className="tut-cta">▶ 열기</span>
                       </button>
                       {canIngest && (
                         <div className="tut-admin">

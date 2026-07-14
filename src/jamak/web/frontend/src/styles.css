@@ -3941,57 +3941,134 @@ kbd {
 }
 .tut-intro { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
 .tut-sub { margin: 18px 0 8px; color: var(--muted); font-size: 13px; font-weight: 700; }
+/* 세로형 코스 카드: 썸네일(16:9 고정) → 제목/설명(높이 고정) → CTA 바.
+   모든 슬롯 높이가 고정이라 카드 높이가 항상 같다 (들쭉날쭉 금지). */
 .tut-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 14px;
+  align-items: stretch;
 }
-.tut-item { display: flex; flex-direction: column; gap: 6px; }
+.tut-item { position: relative; display: flex; flex-direction: column; height: 100%; }
 .tut-card {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px;
+  flex-direction: column;
+  flex: 1;
+  padding: 0;
+  overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 16px;
   background: var(--surface);
   color: var(--text);
   text-align: left;
   cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
 }
-.tut-card:hover:not(:disabled) { border-color: var(--blue); }
+.tut-card:hover:not(:disabled) {
+  border-color: var(--blue);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+}
 .tut-card.off { opacity: 0.55; cursor: default; }
-.tut-card img {
-  width: 96px;
+.tut-thumb {
+  position: relative;
+  display: block;
+  width: 100%;
   aspect-ratio: 16 / 9;
+  background: linear-gradient(150deg, var(--bg), color-mix(in srgb, var(--blue) 12%, var(--bg)));
+}
+.tut-thumb img {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  border-radius: 8px;
-  flex: 0 0 auto;
+  display: block;
 }
-.tut-noimg {
-  width: 96px;
-  aspect-ratio: 16 / 9;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--muted);
+.tut-num {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(10, 16, 28, 0.78);
+  color: #eaf1ff;
   font-size: 12px;
-  flex: 0 0 auto;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(4px);
 }
-.tut-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
-.tut-body strong { font-size: 15px; }
-.tut-body span { font-size: 12.5px; color: var(--muted); }
-.tut-state {
-  flex: 0 0 auto;
-  font-size: 13px;
-  font-weight: 700;
+.tut-done-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--green, #2f9e44) 88%, black);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+.tut-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+  padding: 11px 13px 2px;
+}
+.tut-body strong {
+  font-size: 15.5px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tut-body > span {
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tut-cta {
+  margin: 10px 12px 12px;
+  padding: 9px 8px;
+  border-radius: 10px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 800;
   color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 13%, var(--surface));
   white-space: nowrap;
 }
-.tut-state.done { color: var(--green, #2f9e44); }
-.tut-admin { display: flex; gap: 6px; padding: 0 4px; }
+.tut-cta.done {
+  color: var(--green, #2f9e44);
+  background: color-mix(in srgb, var(--green, #2f9e44) 12%, var(--surface));
+}
+.tut-card.off .tut-cta {
+  color: var(--muted);
+  background: var(--bg);
+}
+/* 관리자 컨트롤은 오버레이 — 카드 레이아웃 높이에 영향 주지 않게 (행 높이
+   들쭉날쭉의 원인이었음). 썸네일 우하단, 반투명 칩. */
+.tut-admin {
+  position: absolute;
+  right: 8px;
+  top: calc(56.25% - 34px); /* 썸네일(16:9) 하단 안쪽 */
+  display: flex;
+  gap: 4px;
+  z-index: 2;
+}
+.tut-admin select,
+.tut-admin .qa {
+  font-size: 11px;
+  max-width: 120px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(10, 16, 28, 0.78);
+  color: #eaf1ff;
+  padding: 3px 6px;
+  backdrop-filter: blur(4px);
+}
 
 .mobile-bar { display: none; }
 .structure-mobile { display: none; } /* 터치 전용 — 모바일 블록에서만 켜짐 */
