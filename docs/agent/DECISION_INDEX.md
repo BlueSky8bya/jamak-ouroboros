@@ -11,3 +11,4 @@
 | [ADR-0007](decisions/ADR-0007-deploy-via-tunnel.md) | Accepted | deploy | 1차 배포=터널(Cloudflare Tunnel+Access) 노출 + JAMAK_AUTH 이중화; 로컬 GPU·SQLite·파일 유지 (로컬 전용엔 유효) | ADR-0008로 확장됨 |
 | [ADR-0008](decisions/ADR-0008-cloud-app-local-gpu.md) | Accepted | deploy/data | 경로 B: 검수 웹앱 클라우드 상시(Railway) + 전용 Postgres(단일 DB, stt.json→SttBlob); 로컬 GPU 유지, DATABASE_URL 미설정 시 기존 SQLite 그대로 | 파이프라인 클라우드화(경로 C), stt 블롭이 DB 지배 시 오브젝트스토리지, 동시편집 충돌 시 행잠금 |
 | [ADR-0009](decisions/ADR-0009-review-modes-and-auto-timing.md) | Accepted | editor/ux | 에디터 내용/타이밍 모드 분리(기본값 상태 파생+탭, 잠금 없음), review_flag(잘 안 들림 단일 플래그), 흘려듣기, 자동 타이밍=absorb→발화스냅+초과분할(reviewed 보존, 프리미티브 조합) | 자동 분할 수정률 높으면 forced alignment(worker), 보류 상시 누적 시 전용 화면 |
+| [ADR-0010](decisions/ADR-0010-practice-clone-isolation.md) | Accepted | tutorial/data | 연습 영상은 사용자별 Job 복제 샌드박스(합성 video_id=base~hash, 기준 불변, 초기화=재복제, 코스당 1영상 부분 UNIQUE, bind 시 결함 주입) | 클론 볼륨 증가, 연습 영상 번역 필요, video_id 접미사 가정 확산 |
