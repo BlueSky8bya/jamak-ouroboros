@@ -2071,11 +2071,48 @@ export function Editor({
       }
       sent++;
     }
-    const inRow = words.filter((x) => x.mid >= seg.start && x.mid < seg.end);
+    // 1차: 단어 mid 시각이 든 행에 배정. 2차: 문장 다수결 스냅 — 문장 첫/끝
+    // 단어가 경계 0.9초 이내로 옆 행에 걸린 경우(STT 꼬리 '이' 등) 그 문장의
+    // 다수 단어가 있는 행으로 끌어온다. 셀 정답이 서로 모순되지 않게.
+    const rows = segmentsRef.current
+      .filter((r) => r.start < seg.start + 60) // 근처만 (성능)
+      .sort((a, b) => a.start - b.start);
+    const rowOf = (mid: number) => {
+      let best: Segment | undefined;
+      let bd = Infinity;
+      for (const r of rows) {
+        if (mid >= r.start && mid < r.end) return r.id;
+        const d = mid < r.start ? r.start - mid : mid - r.end;
+        if (d < bd) {
+          bd = d;
+          best = r;
+        }
+      }
+      return best?.id ?? -1;
+    };
+    const assigned = words.map((x) => ({ ...x, row: rowOf(x.mid) }));
+    const bySent = new Map<number, typeof assigned>();
+    for (const x of assigned) {
+      if (!bySent.has(x.sent)) bySent.set(x.sent, []);
+      bySent.get(x.sent)!.push(x);
+    }
+    for (const group of bySent.values()) {
+      const count = new Map<number, number>();
+      for (const x of group) count.set(x.row, (count.get(x.row) ?? 0) + 1);
+      const major = [...count.entries()].sort((a, b) => b[1] - a[1])[0][0];
+      const mr = rows.find((r) => r.id === major);
+      if (!mr) continue;
+      for (const x of group) {
+        if (x.row === major) continue;
+        const d = x.mid < mr.start ? mr.start - x.mid : x.mid - mr.end;
+        if (d <= 0.9) x.row = major;
+      }
+    }
+    const inRow = assigned.filter((x) => x.row === seg.id);
     if (!inRow.length) return null;
     const mySents = new Set(inRow.map((x) => x.sent));
-    const boundary = words.some(
-      (x) => mySents.has(x.sent) && (x.mid < seg.start || x.mid >= seg.end),
+    const boundary = assigned.some(
+      (x) => mySents.has(x.sent) && x.row !== seg.id,
     );
     return { text: inRow.map((x) => x.w).join(" "), boundary };
   }
