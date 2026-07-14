@@ -84,7 +84,71 @@ def extract_candidates(directory: Path, top: int = MAX_CANDIDATES) -> list[tuple
     return [(t, n) for t, n in counter.most_common(top) if n >= 3]
 
 
-def _curate_chunk(client, chunk: list[tuple[str, int]], usage: dict) -> list[dict]:
+# [WH-CHANGE v0.6.4 | FEAT | 2026-07-14 | CHG-20260714-015]
+# Reason: the file-corpus miner can't see what whisper actually misheard.
+#   Reviewed DB segments carry BOTH the machine draft (text_whisper) and the
+#   human truth (text_final) — token-aligning them yields real
+#   (misrecognition -> correct) pairs, the highest-value glossary signal
+#   (variants drive correction accuracy). User-directed design.
+# Related: CHANGELOG CHG-20260714-015.
+def extract_db_candidates(
+    top: int = MAX_CANDIDATES,
+) -> tuple[list[tuple[str, int]], list[tuple[str, str, int]]]:
+    """(frequency candidates, (correct, misheard, count) pairs) from reviewed
+    non-practice DB segments. Deterministic, no API."""
+    import difflib
+
+    from sqlmodel import select
+
+    from .db import Job, Segment
+
+    counter: Counter[str] = Counter()
+    pair_counter: Counter[tuple[str, str]] = Counter()
+    with get_session() as session:
+        rows = session.exec(
+            select(Segment.text_final, Segment.text_whisper)
+            .join(Job, Segment.job_id == Job.id)
+            .where(
+                Segment.lang == "ko",
+                Segment.reviewed == True,  # noqa: E712
+                Job.practice == False,  # noqa: E712
+            )
+        ).all()
+    for final, whisper in rows:
+        f_tokens = [
+            t for t in seed._TOKEN_RE.findall(final or "") if t not in seed._STOPWORDS
+        ]
+        for t in f_tokens:
+            counter[t] += 1
+        if not whisper or whisper == final:
+            continue
+        w_tokens = seed._TOKEN_RE.findall(whisper)
+        f_all = seed._TOKEN_RE.findall(final or "")
+        sm = difflib.SequenceMatcher(None, w_tokens, f_all, autojunk=False)
+        for op, i1, i2, j1, j2 in sm.get_opcodes():
+            # only clean 1:1 token substitutions — same count both sides keeps
+            # the pairing unambiguous (echo trims/splits show up as insert/delete)
+            if op == "replace" and (i2 - i1) == (j2 - j1):
+                for wrong, right in zip(w_tokens[i1:i2], f_all[j1:j2]):
+                    if (
+                        wrong != right
+                        and len(right) >= 2
+                        and right not in seed._STOPWORDS
+                        and wrong not in seed._STOPWORDS
+                    ):
+                        pair_counter[(right, wrong)] += 1
+    freq = [(t, n) for t, n in counter.most_common(top) if n >= 3]
+    pairs = [
+        (right, wrong, n)
+        for (right, wrong), n in pair_counter.most_common(400)
+        if n >= 2  # a one-off mistake isn't a pattern
+    ]
+    return freq, pairs
+
+
+def _curate_chunk(
+    client, chunk: list[tuple[str, int]], usage: dict, extra: str = ""
+) -> list[dict]:
     lines = [f"{t} ({n}회)" for t, n in chunk]
     response = client.messages.create(
         model=CORRECT_MODEL,
@@ -98,7 +162,7 @@ def _curate_chunk(client, chunk: list[tuple[str, int]], usage: dict) -> list[dic
             }
         ],
         output_config={"format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
-        messages=[{"role": "user", "content": "단어 후보:\n" + "\n".join(lines)}],
+        messages=[{"role": "user", "content": extra + "단어 후보:\n" + "\n".join(lines)}],
     )
     u = response.usage
     usage["input"] += u.input_tokens + (u.cache_creation_input_tokens or 0)
@@ -108,14 +172,24 @@ def _curate_chunk(client, chunk: list[tuple[str, int]], usage: dict) -> list[dic
     return json.loads(text)["terms"]
 
 
-def mine_glossary(directory: Path, console=None) -> dict:
-    """Extract + curate + upsert an approved glossary from the corpus."""
+def mine_glossary(directory: Path | None, console=None) -> dict:
+    """Extract + curate + upsert an approved glossary.
+
+    directory=None mines the reviewed DB segments instead of a file corpus —
+    frequency candidates plus real (misheard -> correct) diff pairs."""
     import anthropic
 
-    candidates = extract_candidates(directory)
+    diff_pairs: list[tuple[str, str, int]] = []
+    if directory is None:
+        candidates, diff_pairs = extract_db_candidates()
+    else:
+        candidates = extract_candidates(directory)
     if console:
-        console.print(f"candidates extracted (no API): {len(candidates)}")
-    if not candidates:
+        console.print(
+            f"candidates extracted (no API): {len(candidates)}"
+            + (f", diff pairs: {len(diff_pairs)}" if directory is None else "")
+        )
+    if not candidates and not diff_pairs:
         return {"candidates": 0, "kept": 0, "updated": 0}
 
     client = anthropic.Anthropic()
@@ -123,7 +197,17 @@ def mine_glossary(directory: Path, console=None) -> dict:
     curated: dict[str, dict] = {}
     for start in range(0, len(candidates), CHUNK):
         chunk = candidates[start : start + CHUNK]
-        for t in _curate_chunk(client, chunk, usage):
+        extra = ""
+        if start == 0 and diff_pairs:
+            # the strongest evidence goes in front of the first chunk: these
+            # words were ACTUALLY misrecognized in this corpus
+            pair_lines = [f"{r} ← 오인식: {w} ({n}회)" for r, w, n in diff_pairs[:150]]
+            extra = (
+                "## 실제 오인식 기록 (검수자가 이렇게 고침 — variants에 반영):\n"
+                + "\n".join(pair_lines)
+                + "\n\n"
+            )
+        for t in _curate_chunk(client, chunk, usage, extra):
             term = t["term"].strip()
             if term:
                 curated[term] = t

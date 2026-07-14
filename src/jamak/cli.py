@@ -336,6 +336,12 @@ def glossary_mine_cmd(
     directory: Path = typer.Argument(
         config.SEEDS_DIR, help="Corpus folder (.txt/.srt)"
     ),
+    from_db: bool = typer.Option(
+        False,
+        "--from-db",
+        help="검수 완료 DB 세그먼트에서 채굴 — whisper 초안과의 diff로 실제 "
+        "오인식 쌍(variants)까지 수집 (파일 코퍼스 대신)",
+    ),
 ) -> None:
     """Mine an approved glossary from the reviewed corpus (fills hotwords + prompt).
 
@@ -347,13 +353,13 @@ def glossary_mine_cmd(
     if not os.environ.get("ANTHROPIC_API_KEY"):
         console.print("[red]ANTHROPIC_API_KEY not set[/]")
         raise typer.Exit(1)
-    if not directory.exists():
+    if not from_db and not directory.exists():
         console.print(f"[red]no such folder: {directory}[/]")
         raise typer.Exit(1)
 
     from .glossary_mine import mine_glossary
 
-    stats = mine_glossary(directory, console=console)
+    stats = mine_glossary(None if from_db else directory, console=console)
     console.print(
         f"[bold green]glossary:[/] +{stats['kept']} new, {stats['updated']} promoted "
         f"(approved) from {stats['candidates']} candidates"
