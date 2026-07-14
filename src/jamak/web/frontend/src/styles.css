@@ -4051,6 +4051,36 @@ kbd {
 /* 코스 지정은 UI 없이 서버 스크립트로 관리 (사용자 결정 — 카드에는 연습
    시작만 남긴다) */
 
+/* 전역 진행 pill — 네트워크를 기다리는 동작은 즉시 이걸로 표시 (침묵 금지) */
+.busy-pill {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--blue) 18%, var(--surface));
+  border: 1px solid var(--blue);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+.busy-spin {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--blue) 35%, transparent);
+  border-top-color: var(--blue);
+  animation: busyspin 0.8s linear infinite;
+}
+@keyframes busyspin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .busy-spin { animation: none; } }
+
 /* .srt 적용 결과 — 모달 안에서 성공/실패를 오해 없이 */
 .srt-result {
   margin-top: 12px;

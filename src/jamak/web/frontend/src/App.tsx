@@ -518,6 +518,9 @@ export function App() {
     preview: SrtPreview;
   } | null>(null);
   const [srtBusy, setSrtBusy] = useState(false);
+  // 전역 진행 알림: 네트워크를 기다리는 모든 사용자 동작은 이 pill로 즉시
+  // "진행 중"을 보여준다 — 거부됐는지 진행 중인지 모르는 공백 금지 (사용자 원칙)
+  const [busyMsg, setBusyMsg] = useState("");
   // 적용 결과를 모달 '안'에 명시 — 성공인지 실패인지 버튼만 보고 헷갈리지 않게
   const [srtResult, setSrtResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [assignModal, setAssignModal] = useState<{
@@ -721,6 +724,7 @@ export function App() {
       setError(`.srt 파일만 올릴 수 있어요 (받은 파일: ${file.name})`);
       return;
     }
+    setBusyMsg("📄 .srt 읽고 미리보기 만드는 중...");
     try {
       const content = await file.text();
       const preview = await importSrt(videoId, content, file.name, true);
@@ -728,6 +732,8 @@ export function App() {
       setSrtModal({ videoId, filename: file.name, content, preview });
     } catch (e) {
       setError(`.srt 미리보기 실패: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setBusyMsg("");
     }
   }
 
@@ -789,6 +795,7 @@ export function App() {
     const j = jobs.find((x) => x.video_id === vid);
     let target = vid;
     if (j?.practice && !vid.includes("~")) {
+      setBusyMsg("🎓 연습판을 처음 상태로 준비하는 중...");
       try {
         // 입장 = 항상 처음 상태 (사용자 확정: 나갔다 들어오면 리셋 — 누구든
         // 언제나 깨끗한 튜토리얼). reset=true로 이전 연습 내용을 버리고 재복제.
@@ -797,6 +804,8 @@ export function App() {
       } catch (e) {
         setError(`연습 준비 실패: ${e instanceof Error ? e.message : e}`);
         return;
+      } finally {
+        setBusyMsg("");
       }
     }
     if (course) setPendingCourse({ course, videoId: target, nonce: Date.now() });
@@ -807,11 +816,14 @@ export function App() {
   async function undoSrtImport(videoId: string) {
     if (!window.confirm(".srt 적용을 취소하고 이전 상태로 되돌릴까요?")) return;
     setError("");
+    setBusyMsg("↩ .srt 적용을 되돌리는 중...");
     try {
       await undoSrt(videoId);
       await refresh();
     } catch (e) {
       setError(`되돌리기 실패: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setBusyMsg("");
     }
   }
 
@@ -1014,6 +1026,12 @@ export function App() {
 
   return (
     <div className="landing">
+      {busyMsg && (
+        <div className="busy-pill" role="status" aria-live="polite">
+          <span className="busy-spin" aria-hidden />
+          {busyMsg}
+        </div>
+      )}
       <header className="landing-header">
         <div className="header-top">
           <span className="deploy-tag" title="현재 배포된 버전(커밋)">

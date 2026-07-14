@@ -2466,23 +2466,27 @@ def import_srt(request: Request, video_id: str, body: SrtImport) -> dict:
         old_trans = session.exec(
             select(Translation).where(Translation.segment_id.in_(old_ids))
         ).all()
-        # (norm text, lang) -> 후보 번역들 (시간 근접 매칭용으로 old seg 시각 포함)
+        # norm text -> lang -> 후보들(시각, 번역). 딕셔너리 직조회 —
+        # (풀 전체 × 새 큐) 정규화 반복은 2천×1.5천에서 수십 초였음.
         seg_by_id = {s.id: s for s in segs}
-        carry_pool: dict[tuple[str, str], list] = {}
+        carry_pool: dict[str, dict[str, list]] = {}
         for tr in old_trans:
             src = seg_by_id.get(tr.segment_id)
             if src is None or not tr.text.strip():
                 continue
-            key = (_norm_txt(src.text_final or src.text_llm or src.text_whisper), tr.lang)
-            if key[0]:
-                carry_pool.setdefault(key, []).append((src.start, tr))
+            ntxt = _norm_txt(src.text_final or src.text_llm or src.text_whisper)
+            if ntxt:
+                carry_pool.setdefault(ntxt, {}).setdefault(tr.lang, []).append(
+                    (src.start, tr)
+                )
 
-        # 이어받기 예측/실행 공용: 새 큐 -> (lang -> Translation) 매칭
+        # 이어받기 예측/실행 공용: 새 큐 -> (lang, Translation) 목록 (O(1) 조회)
         def match_carry(ns: float, ntext: str) -> list:
+            by_lang = carry_pool.get(_norm_txt(ntext))
+            if not by_lang:
+                return []
             found = []
-            for (ntxt, lang), cands in carry_pool.items():
-                if ntxt != _norm_txt(ntext):
-                    continue
+            for lang, cands in by_lang.items():
                 best = min(cands, key=lambda c: abs(c[0] - ns))
                 if abs(best[0] - ns) <= 20.0:  # 같은 문장이 반복돼도 시간으로 구분
                     found.append((lang, best[1]))
