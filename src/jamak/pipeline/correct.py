@@ -188,6 +188,56 @@ def _needs_llm(d: dict, surface_forms: set[str]) -> bool:
     return any(form in hay for form in surface_forms)
 
 
+def _normalize_ko(text: str) -> str:
+    import re
+
+    return re.sub(r"[^\w가-힣]", "", text or "")
+
+
+def clamp_neighbor_extensions(
+    ordered: list[dict], results: dict[int, tuple[str, bool]]
+) -> int:
+    """Deterministic rule-9 backstop. Returns #rows clamped.
+
+    [WH-CHANGE v0.8.7 | FIX | 2026-07-15 | CHG-20260715-028]
+    Reason: 프롬프트 규칙 9("그 세그먼트에서 들린 말만")에도 불구하고, whisper가
+      문장을 중간에서 끊은 행을 LLM이 유튜브 참고 자막의 완전한 문장으로 통째
+      교체하는 사례 재발 (재렌더 연습 영상 4개에서 9행 — 이전 행과 중복 자막).
+      교정 결과 확정 후 결정적으로 검사한다: 인접 두 행의 교정 텍스트가 포함
+      관계인데 whisper 원문끼리는 겹치지 않으면(실제 발화 반복이 아니라 문맥
+      복사) 더 많이 불어난 쪽을 whisper 원문(base_text)으로 되돌리고
+      uncertain=True로 검수 우선순위에 올린다. 캐시 히트·저위험 스킵 경로의
+      결과도 여기를 통과한다. 실제 반복 발화(박수 유도 등)는 whisper도 겹치므로
+      건드리지 않는다. 6자 미만 겹침은 무시(조사·감탄사 오탐).
+    Related: CHANGELOG CHG-20260715-028.
+    """
+    clamped = 0
+    rows = [d for d in ordered if d["id"] in results]
+    for a, b in zip(rows, rows[1:]):
+        ta, tb = results[a["id"]][0], results[b["id"]][0]
+        na, nb = _normalize_ko(ta), _normalize_ko(tb)
+        if not na or not nb or min(len(na), len(nb)) < 6:
+            continue
+        if not (na in nb or nb in na):
+            continue
+        wa, wb = _normalize_ko(a["base_text"]), _normalize_ko(b["base_text"])
+        if wa and wb and (wa in wb or wb in wa):
+            continue  # the speaker really repeated it — leave alone
+        # the offender is the row that grew furthest past its own whisper text;
+        # rows whisper heard nothing on (gap rows, base_text="") are never
+        # clamped — their working text is legitimately YouTube-seeded
+        ratio_a = len(na) / max(len(wa), 1) if wa else 0.0
+        ratio_b = len(nb) / max(len(wb), 1) if wb else 0.0
+        offender = a if ratio_a >= ratio_b else b
+        if ratio_a <= 1.2 and ratio_b <= 1.2:
+            continue  # neither meaningfully grew — containment is coincidental
+        if not _normalize_ko(offender["base_text"]):
+            continue
+        results[offender["id"]] = (offender["base_text"], True)
+        clamped += 1
+    return clamped
+
+
 def correct_job(job_id: int, console=None) -> int:
     """Run correction over every segment of a job. Returns #changed."""
     import anthropic
@@ -303,6 +353,11 @@ def correct_job(job_id: int, console=None) -> int:
             f"  tokens: in {usage['input']:,} (+{usage['cached']:,} cached) / "
             f"out {usage['output']:,}  ~ ${cost:.3f}"
         )
+
+    # ---- deterministic rule-9 backstop (covers LLM, cache and skip paths)
+    n_clamped = clamp_neighbor_extensions(seg_dicts, results)
+    if console and n_clamped:
+        console.print(f"  neighbor-extension clamp: {n_clamped} row(s) reverted to whisper")
 
     # ---- persist by id (segments deleted mid-run are skipped safely)
     n_changed = 0

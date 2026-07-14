@@ -149,6 +149,18 @@ def youtube_gap_rows(
             cand = _normalize(t)
             if cand and cand in prev_text:
                 continue  # echo of the sentence that just ended — ghost line
+            # [WH-CHANGE v0.8.7 | FIX | 2026-07-15 | CHG-20260715-028]
+            # Reason: 재렌더 연습 영상에서 에코가 다시 뚫림 — ① STT 오타
+            #   ('다듭'≠'다듬')가 정확 부분문자열 매칭을 깨고, ② 꼬리 자막이
+            #   이전 행 전체 + 부스러기('...있습니다.네')인 역방향 포함은 검사
+            #   안 했음. 퍼지(partial_ratio)와 역방향을 추가하되, 이전 행이
+            #   6자 미만이면 건너뜀 — 조각 행('잘') 때문에 진짜 놓친 발화
+            #   ("잘 넘어오셨나요?")까지 버리는 오탐 방지.
+            # Related: CHANGELOG CHG-20260715-028.
+            if cand and len(prev_text) >= 6 and (
+                prev_text in cand or fuzz.partial_ratio(cand, prev_text) >= 85
+            ):
+                continue
         rows.append(
             {
                 "start": s,

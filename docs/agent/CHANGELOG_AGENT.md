@@ -2,6 +2,12 @@
 
 ## v0.8.7 — 2026-07-15 (연습 재입장 500 수정 — 클론 삭제 FK 순서)
 
+### CHG-20260715-028 — FIX/PIPELINE — 중복 자막 뿌리 차단 (교정 확장 + 에코 가드 우회)
+Change: 재렌더 연습 영상 4개에서 중복 자막 13행 재발 — 원인 2계통을 파이프라인에서 결정적으로 차단.
+(a) **교정 확장 백스톱** (`correct.py clamp_neighbor_extensions`): 프롬프트 규칙 9에도 불구하고 whisper가 중간에 끊은 행을 LLM이 유튜브 참고 자막의 완전한 문장으로 교체 (9/13행). 교정 결과 확정 후: 인접 행 교정 텍스트가 포함 관계 + whisper 원문은 비겹침(실제 반복 발화 아님) + 한쪽이 whisper 대비 1.2배 초과 성장 → 그 행을 whisper로 되돌리고 uncertain=True. 캐시/스킵 경로 포함 전 결과 통과. 갭 행(whisper 빈) 미대상.
+(b) **에코 가드 강화** (`crosscheck.youtube_gap_rows`): STT 오타('다듭'≠'다듬')가 정확 부분문자열 매칭을 깨고(4/13행), 역방향 포함(후보 ⊃ 이전 행)은 미검사였음 → rapidfuzz partial_ratio≥85 + 역방향 추가. 이전 행 6자 미만이면 스킵(조각 행 '잘' 때문에 진짜 발화를 버리는 오탐 방지 — 실데이터 #19 케이스).
+Validation: 실패 사례 9건 유닛 스모크 전부 통과(가드별 4+5). 실제 강연 7,614행 읽기 전용 시뮬레이션 — (a) 발동 0.5%(38행), 전부 문제 패턴(이웃 문장 흡수), 검수 확정 행 충돌 0. CER 재측정은 다음 강연 실행 시(NOT VERIFIED — 가드는 결정적·보수적이라 악화 경로 없음, 되돌림은 uncertain 플래그로 사람에게 감).
+
 ### CHG-20260715-027 — FIX — 연습 영상 재입장이 "준비하는 중..."에서 죽던 것
 Change: 재입장 = reset = 기존 클론 삭제 후 재복제인데, Postgres에서 ORM이 같은 flush 안에서 `DELETE job`을 `DELETE sttblob`보다 먼저 내보내 `sttblob_job_id_fkey` 위반 → 500 → 프론트는 pill만 남음. `_delete_clone`에 자식 행(segment/translation/sttblob) 삭제 후 명시적 `session.flush()`를 넣어 부모 job 삭제 순서를 고정.
 Root cause note: 로컬 E2E(clone_smoke)는 SQLite — FK 미강제라 통과해 왔음. FK가 걸린 삭제 검증은 PG에서 해야 함(교훈).
