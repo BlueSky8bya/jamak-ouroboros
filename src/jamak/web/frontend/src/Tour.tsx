@@ -31,6 +31,11 @@ export interface TourStep {
   untilTime?: boolean;
   /** 심은 오타가 든 자막 행을 동적으로 지목 (Editor가 selector로 풀어줌) */
   targetDefect?: boolean;
+  /** 이 단계 동안 대상 행을 구간반복으로 들려준다 (정지 대신) — 자막과 말을
+   *  비교해야 하는 행 단계용. 완료 시 체크포인트 위치로 되감아 이어간다. */
+  loopRow?: boolean;
+  /** loopRow 대상 행을 시간으로 지정: 이 나레이션 구간과 겹치는 행 (초). */
+  subject?: [number, number];
 }
 
 const PAD = 8; // spotlight breathing room around the target

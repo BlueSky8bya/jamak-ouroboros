@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-15 (v0.9.2 — 튜토리얼 v2: 흐름형 단계·코스 프리셋·오타 셀 지목)
-Project Version: 0.9.2
+Last Updated: 2026-07-15 (v0.9.3 — 튜토리얼 v3: 행 단계 구간반복 듣기 + 셀별 고침 안내)
+Project Version: 0.9.3
 Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATION.md)
 
 ## Current Objective

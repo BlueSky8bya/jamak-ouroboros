@@ -31,7 +31,12 @@ import type { QcReport, SpellSuggestion, WordTime } from "./api";
 import { Dropdown } from "./Dropdown";
 import { ThemeToggle } from "./theme";
 import { Tour, type TourStep } from "./Tour";
-import { COURSE_PRESETS, TUTORIAL_CHECKPOINTS, TUTORIAL_DEFECT_WORDS } from "./tutorialSync";
+import {
+  COURSE_PRESETS,
+  TUTORIAL_CHECKPOINTS,
+  TUTORIAL_DEFECT_WORDS,
+  TUTORIAL_LINES,
+} from "./tutorialSync";
 import { TranslateReview } from "./TranslateReview";
 import type { Segment } from "./types";
 import { usePlayer } from "./usePlayer";
@@ -1246,6 +1251,7 @@ const COURSES: TourCourse[] = [
         missingHint: "확인 안 된 자막이 남아 있어야 진행돼요.",
         on: "confirm",
         untilTime: true,
+        loopRow: true,
       },
       {
         target: ".row:not(.collapsed) .read-text",
@@ -1259,6 +1265,7 @@ const COURSES: TourCourse[] = [
         ),
         missingHint: "확인 안 된 자막이 남아 있으면 여기 글이 보여요.",
         on: "open-row",
+        loopRow: true,
       },
       {
         target: ".row.focused",
@@ -1266,15 +1273,19 @@ const COURSES: TourCourse[] = [
         title: "들린 대로 고치고 Enter",
         body: (
           <>
-            틀린 낱말을 <b>실제 들린 말로 고친 다음</b> <K c="Enter" /> — 확인되고
-            영상이 이어져요. (다른 자막에도 틀린 글자가 몇 개 더 숨어 있어요)
+            소리를 반복해서 들려드리고 있어요. 틀린 낱말을 <b>실제 들린 말로 고친
+            다음</b> <K c="Enter" /> — 확인되고 영상이 이어져요. (다른 자막에도
+            틀린 글자가 몇 개 더 숨어 있어요)
           </>
         ),
         missingHint: "자막 글을 눌러 고치기 칸을 먼저 여세요.",
         on: "confirm",
+        loopRow: true,
       },
       {
         target: ".hold-btn",
+        subject: [113.2, 118.4],
+        loopRow: true,
         title: "잘 안 들리면 🙉",
         body: (
           <>
@@ -1510,13 +1521,17 @@ const COURSES: TourCourse[] = [
     steps: [
       {
         target: ".row:not(.collapsed) .read-text",
+        subject: [16.5, 32.8],
+        loopRow: true,
         title: "먼저 자막 글을 누르세요",
-        body: <>연습할 <b>자막 글을 한 번 눌러</b> 고치기 칸을 여세요.</>,
+        body: <>연습할 <b>긴 자막 글을 한 번 눌러</b> 고치기 칸을 여세요.</>,
         missingHint: "확인 안 된 자막이 남아 있으면 여기 글이 보여요.",
         on: "open-row",
       },
       {
         target: ".row.focused",
+        subject: [16.5, 32.8],
+        loopRow: true,
         title: "자막이 너무 길면 — 나누기",
         body: (
           <>
@@ -1530,11 +1545,13 @@ const COURSES: TourCourse[] = [
       // 나레이션 순서와 일치 (체크포인트 동기화): 나누기 → 합치기 → 되돌리기 2번
       {
         target: ".row.focused",
+        subject: [46.6, 59.1],
+        loopRow: true,
         title: "너무 잘게 나뉘었으면 — 합치기",
         body: (
           <>
-            <K c="Ctrl" />+<K c="Shift" />+<K c="Enter" /> — 아래 자막과 합쳐져요.
-            해보세요.
+            토막 난 자막 글을 누른 뒤 <K c="Ctrl" />+<K c="Shift" />+<K c="Enter" /> —
+            아래 자막과 합쳐져요. 해보세요.
           </>
         ),
         missingHint: "자막 글을 눌러 고치기 칸을 먼저 여세요.",
@@ -1611,10 +1628,12 @@ const COURSES: TourCourse[] = [
       },
       {
         target: ".timing-tools",
+        subject: [51.4, 57.6],
+        loopRow: true,
         title: "여기서 시작 — Alt+[",
         body: (
           <>
-            자막 글을 누른 뒤, 영상을 듣다가 <b>말이 시작되는 순간</b>{" "}
+            이 자막 소리를 반복해서 들려드려요. <b>말이 시작되는 순간</b>{" "}
             <K c="Alt" />+<K c="[" /> — 지금 재생 위치가 자막의 시작이 돼요.
           </>
         ),
@@ -1623,6 +1642,8 @@ const COURSES: TourCourse[] = [
       },
       {
         target: ".timing-tools",
+        subject: [51.4, 57.6],
+        loopRow: true,
         title: "여기서 넘김 — Alt+]",
         body: (
           <>
@@ -1635,6 +1656,8 @@ const COURSES: TourCourse[] = [
       },
       {
         target: ".timing-tools",
+        subject: [51.4, 57.6],
+        loopRow: true,
         title: "발화 맞춤 — Alt+\\",
         body: (
           <>
@@ -1861,22 +1884,80 @@ export function Editor({
     const at = stepCheckpoint(t);
     return at === null || tourMaxTimeRef.current >= at;
   }
-  /** 단계 통과 직후: 다음 체크포인트가 앞이면 영상 재개, 이미 지났으면(연쇄
-   *  단계) 멈춘 채 다음 말풍선을 바로 연다. */
+  /** loopRow 단계의 대상 행: untilTime = 체크포인트 전 첫 미확인 행,
+   *  targetDefect = 오타 행, subject = 그 나레이션 구간과 겹치는 행. */
+  function stepLoopSeg(
+    t: { course: number; step: number },
+  ): Segment | undefined {
+    const step = COURSES[t.course].steps[t.step];
+    const segs = segmentsRef.current;
+    if (step?.untilTime) {
+      const at = stepCheckpoint(t) ?? Infinity;
+      return segs.find(
+        (s) => s.start < at && !s.reviewed && s.review_flag !== "hold",
+      );
+    }
+    if (step?.targetDefect)
+      return segs.find(
+        (s) =>
+          !s.reviewed &&
+          TUTORIAL_DEFECT_WORDS.some((w) =>
+            (s.text_final || s.text_llm || s.text_whisper || "").includes(w),
+          ),
+      );
+    if (step?.subject) {
+      const [a, b] = step.subject;
+      return segs.find((s) => s.start < b && s.end > a && !s.reviewed) ??
+        segs.find((s) => s.start < b && s.end > a);
+    }
+    return undefined;
+  }
+  /** 단계 활성화(체크포인트 도달 또는 연쇄 진입): loopRow 단계는 대상 행을
+   *  구간반복으로 들려주고(자막↔말 비교가 과제이므로 정지 대신), 그 외는
+   *  일시정지. (사용자 피드백 2026-07-15: "멈춰 있으면 맞는지 어떻게 확인해") */
+  const tourLoopRef = useRef(false);
+  function tourEnterStep(t: { course: number; step: number }) {
+    const step = COURSES[t.course].steps[t.step];
+    const at = stepCheckpoint(t);
+    if (!step || step.final) return;
+    if (step.loopRow) {
+      const seg = stepLoopSeg(t);
+      tourLoopRef.current = true;
+      tourPausedRef.current = false;
+      setLoopSeg(true);
+      if (seg) {
+        focusSegment(seg);
+        seekTo(seg.start);
+      }
+      play();
+    } else if (at !== null && at > 0) {
+      tourPausedRef.current = true;
+      pause();
+    }
+  }
+  /** 단계 통과 직후: loop 정리 후, 다음 체크포인트가 앞이면 체크포인트 위치로
+   *  되감아 나레이션을 이어가고(루프 중 재생 위치가 뒤로 흘렀으므로), 이미
+   *  지났으면(연쇄 단계) 다음 단계를 바로 활성화한다. */
   function afterTourAdvance(next: { course: number; step: number } | null) {
+    const wasLoop = tourLoopRef.current;
+    if (wasLoop) {
+      tourLoopRef.current = false;
+      setLoopSeg(false);
+    }
     if (next === null || next.step >= COURSES[next.course].steps.length) {
       tourPausedRef.current = false;
       return;
     }
     if (tourGateOpen(next)) {
-      tourFiredRef.current = next.step; // 재일시정지 생략 (이미 멈춰 있음)
+      tourFiredRef.current = next.step;
       setTourGate(true);
+      tourEnterStep(next); // 연쇄: 다음 단계의 loop/정지 상태로 전환
     } else {
       setTourGate(false);
-      if (tourPausedRef.current) {
-        tourPausedRef.current = false;
-        play();
-      }
+      const doneAt = stepCheckpoint({ course: next.course, step: next.step - 1 });
+      if (wasLoop && doneAt !== null) seekTo(doneAt); // 나레이션 이어가기
+      tourPausedRef.current = false;
+      play();
     }
   }
   /** an instrumented action happened — advance if it's what the step waits for */
@@ -1912,6 +1993,10 @@ export function Editor({
     if (markDone && t)
       localStorage.setItem(`jamak.tour.${COURSES[t.course].id}`, "1");
     tourPausedRef.current = false;
+    if (tourLoopRef.current) {
+      tourLoopRef.current = false;
+      setLoopSeg(false);
+    }
     setTour(null);
   }
   function startCourse(i: number) {
@@ -1954,20 +2039,59 @@ export function Editor({
     // 순간 진행돼야 한다 (remain은 이미 0이라 그것만으론 재발화 안 됨)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tourRemain, tourGate]);
-  /** 심은 오타 행 지목: targetDefect 단계의 대상 selector를 세그먼트에서 푼다 */
+  /** 동적 대상 지목: 오타 행(targetDefect)·흐름 확인의 첫 미확인 행(untilTime) */
   function resolveTourTarget(): string | null | undefined {
     const t = tour;
     if (!t) return undefined;
     const step = COURSES[t.course].steps[t.step];
-    if (!step?.targetDefect) return undefined; // 기본 target 사용
-    const seg = segments.find(
-      (s) =>
-        !s.reviewed &&
-        TUTORIAL_DEFECT_WORDS.some((w) =>
-          (s.text_final || s.text_llm || s.text_whisper || "").includes(w),
-        ),
-    );
+    if (!step?.targetDefect && !step?.untilTime) return undefined; // 기본 target
+    const seg = stepLoopSeg(t);
     return seg ? `.row[data-segid="${seg.id}"]` : step.target;
+  }
+  /** 나레이션 원문에서 이 행이 담아야 할 문장(들)을 시간 보간으로 찾는다 —
+   *  "지금 「…」 → 실제 말 「…」" 안내의 근거 (사용자 요구: 앱이 각 셀의 DB
+   *  내용을 파악해 구체적으로 안내). */
+  function expectedNarration(
+    t: { course: number; step: number },
+    seg: Segment,
+  ): string | null {
+    const lines = TUTORIAL_LINES[COURSES[t.course].id];
+    if (!lines) return null;
+    const sents: { mid: number; text: string }[] = [];
+    for (const ln of lines) {
+      const parts = ln.text.match(/[^.?!]+[.?!]?/g) ?? [ln.text];
+      const dur = ln.end - ln.start;
+      let off = 0;
+      for (const p of parts) {
+        sents.push({
+          mid: ln.start + ((off + p.length / 2) / ln.text.length) * dur,
+          text: p.trim(),
+        });
+        off += p.length;
+      }
+    }
+    const hit = sents
+      .filter((x) => x.mid >= seg.start - 0.25 && x.mid < seg.end + 0.25)
+      .map((x) => x.text);
+    return hit.length ? hit.join(" ") : null;
+  }
+  /** 흐름 확인 단계의 셀별 안내문: 맞으면 "Enter!", 다르면 지금↔실제 말 대조 */
+  function tourNote(): string | undefined {
+    const t = tour;
+    if (!t || tourRemain === null || tourRemain <= 0) return undefined;
+    const step = COURSES[t.course].steps[t.step];
+    if (!step?.untilTime) return undefined;
+    const seg = stepLoopSeg(t);
+    if (!seg) return undefined;
+    const cur = (seg.text_final || seg.text_llm || seg.text_whisper || "").trim();
+    const exp = expectedNarration(t, seg);
+    const nm = (x: string) => x.replace(/[^\w가-힣]/g, "");
+    if (exp && nm(exp) !== nm(cur))
+      return (
+        `이 자막: 「${cur}」\n실제 말: 「${exp}」\n` +
+        `글을 눌러 실제 말대로 고친 뒤 Enter (남은 ${tourRemain}개)`
+      );
+    return `이 자막은 말과 같아요 — Enter! (남은 자막 ${tourRemain}개)`;
   }
   // 전용 연습 영상 딥링크: App이 영상 전환과 함께 넘긴 코스를, 세그먼트가
   // 로드된 뒤 자동 시작. nonce 기억으로 재실행 오발 방지 (일회성 소비).
@@ -2089,11 +2213,7 @@ export function Editor({
     setTourGate(true);
     if (tourFiredRef.current !== tour.step) {
       tourFiredRef.current = tour.step;
-      const isFinal = !!COURSES[tour.course].steps[tour.step]?.final;
-      if (!isFinal && at > 0) {
-        tourPausedRef.current = true;
-        pause(); // Tour가 대상 scrollIntoView는 알아서 함
-      }
+      tourEnterStep(tour); // loopRow = 대상 행 반복 재생, 그 외 = 일시정지
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTime, tour, practice]);
@@ -4050,11 +4170,7 @@ export function Editor({
           onSkipStep={skipTourStep}
           onFinish={() => endTour(true)}
           targetOverride={resolveTourTarget()}
-          note={
-            tourRemain !== null && tourRemain > 0
-              ? `남은 자막 ${tourRemain}개 — 다 확인되면 영상이 이어져요`
-              : undefined
-          }
+          note={tourNote()}
         />
       )}
       {/* 체크포인트 대기 중: 영상이 선생 — 화면은 자유, 작은 안내만 */}

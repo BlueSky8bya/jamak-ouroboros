@@ -4087,7 +4087,7 @@ kbd {
 /* 코스 지정은 UI 없이 서버 스크립트로 관리 (사용자 결정 — 카드에는 연습
    시작만 남긴다) */
 
-/* 흐름 확인 단계 진행 표시 (말풍선 안 한 줄) */
+/* 흐름 확인 단계 진행 표시 (말풍선 안 — 셀별 고침 안내 여러 줄 가능) */
 .tour-note {
   margin-top: 8px;
   padding: 6px 10px;
@@ -4096,6 +4096,8 @@ kbd {
   color: var(--blue);
   font-size: 13.5px;
   font-weight: 700;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 /* 체크포인트 대기 pill — 투어 진행 중이지만 나레이션이 아직 지시 전 */
