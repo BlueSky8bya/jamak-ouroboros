@@ -4051,6 +4051,25 @@ kbd {
 /* 코스 지정은 UI 없이 서버 스크립트로 관리 (사용자 결정 — 카드에는 연습
    시작만 남긴다) */
 
+/* .srt 적용 결과 — 모달 안에서 성공/실패를 오해 없이 */
+.srt-result {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.srt-result.ok {
+  background: color-mix(in srgb, var(--green, #2f9e44) 14%, var(--surface));
+  color: var(--green, #2f9e44);
+  border: 1px solid color-mix(in srgb, var(--green, #2f9e44) 45%, transparent);
+}
+.srt-result.fail {
+  background: color-mix(in srgb, #d33 13%, var(--surface));
+  color: #e05555;
+  border: 1px solid #d3555588;
+}
+
 .mobile-bar { display: none; }
 .structure-mobile { display: none; } /* 터치 전용 — 모바일 블록에서만 켜짐 */
 .mset-btn { display: none; } /* ⚙ 재생 설정 시트 — 모바일 전용 */

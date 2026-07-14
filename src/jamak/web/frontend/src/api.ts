@@ -108,7 +108,7 @@ export async function importSrt(
   content: string,
   filename: string,
   dryRun: boolean,
-): Promise<SrtPreview & { applied?: number; absorbed?: unknown }> {
+): Promise<SrtPreview & { applied?: number; absorbed?: unknown; carried_translations?: number }> {
   const r = await fetch(`/api/jobs/${videoId}/import-srt`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -1573,6 +1573,26 @@ _translate_running: set[tuple[str, str]] = set()
 _translate_running_guard = threading.Lock()
 
 
+from contextlib import contextmanager  # noqa: E402
+
+
+@contextmanager
+def _exclusive(key: tuple[str, str], skip: bool = False):
+    """긴 변이 작업의 이중 실행 방지 — 예외 포함 모든 경로에서 잠금 해제."""
+    if skip:
+        yield
+        return
+    with _translate_running_guard:
+        if key in _translate_running:
+            raise HTTPException(409, "같은 작업이 이미 진행 중입니다 — 잠시 후 다시 시도하세요.")
+        _translate_running.add(key)
+    try:
+        yield
+    finally:
+        with _translate_running_guard:
+            _translate_running.discard(key)
+
+
 @app.post("/api/jobs/{video_id}/translate")
 def make_translations(video_id: str, lang: str, batch: int = 0) -> dict:
     """Generate (context-aware, cached) translations for every segment.
@@ -2430,7 +2450,7 @@ def import_srt(request: Request, video_id: str, body: SrtImport) -> dict:
         key=lambda c: c[0],
     )
 
-    with get_session() as session:
+    with _exclusive((video_id, "__srt_import__"), skip=body.dry_run), get_session() as session:
         job = session.exec(select(Job).where(Job.video_id == video_id)).first()
         if job is None:
             raise HTTPException(404, f"no job for {video_id}")
@@ -2531,14 +2551,14 @@ def import_srt(request: Request, video_id: str, body: SrtImport) -> dict:
                         parts.append(v)
             return " ".join(parts)
 
-        # 갈아엎기: 기존 ko 행 + 그 번역 삭제 -> srt 구조로 재생성
-        for tr in old_trans:
-            session.delete(tr)
-        for s in segs:
-            session.delete(s)
+        # 갈아엎기: 기존 ko 행 + 그 번역을 벌크 삭제 -> srt 구조로 재생성.
+        # 행 단위 delete/flush는 클라우드 PG에서 수천 왕복 = 프록시 타임아웃
+        # (2231행 실사용에서 실증) — 벌크 2문 + flush 1회로.
+        session.exec(sql_delete(Translation).where(Translation.segment_id.in_(old_ids)))
+        session.exec(sql_delete(Segment).where(Segment.id.in_(old_ids)))
         session.flush()
 
-        carried = 0
+        staged: list[tuple[Segment, list, str]] = []
         for i, (s0, e0, t0) in enumerate(new_cues):
             row = Segment(
                 job_id=job.id,
@@ -2553,8 +2573,12 @@ def import_srt(request: Request, video_id: str, body: SrtImport) -> dict:
                 reviewed=True,
             )
             session.add(row)
-            session.flush()  # row.id 확보
-            for lang, tr in match_carry(s0, t0):
+            staged.append((row, match_carry(s0, t0), t0))
+        session.flush()  # executemany 한 번에 — 전 행 id 일괄 부여
+
+        carried = 0
+        for row, carries, t0 in staged:
+            for lang, tr in carries:
                 session.add(
                     Translation(
                         segment_id=row.id,

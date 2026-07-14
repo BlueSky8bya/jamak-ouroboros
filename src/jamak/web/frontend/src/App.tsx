@@ -518,12 +518,15 @@ export function App() {
     preview: SrtPreview;
   } | null>(null);
   const [srtBusy, setSrtBusy] = useState(false);
+  // 적용 결과를 모달 '안'에 명시 — 성공인지 실패인지 버튼만 보고 헷갈리지 않게
+  const [srtResult, setSrtResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [assignModal, setAssignModal] = useState<{
     videoId: string;
     title: string;
     current: string;
   } | null>(null);
   const [assignName, setAssignName] = useState("");
+  const [assignError, setAssignError] = useState("");
   const [version, setVersion] = useState("");
   useEffect(() => {
     fetchVersion().then(setVersion);
@@ -721,6 +724,7 @@ export function App() {
     try {
       const content = await file.text();
       const preview = await importSrt(videoId, content, file.name, true);
+      setSrtResult(null);
       setSrtModal({ videoId, filename: file.name, content, preview });
     } catch (e) {
       setError(`.srt 미리보기 실패: ${e instanceof Error ? e.message : e}`);
@@ -730,12 +734,23 @@ export function App() {
   async function applySrt() {
     if (!srtModal || srtBusy) return;
     setSrtBusy(true);
+    setSrtResult(null);
     try {
-      await importSrt(srtModal.videoId, srtModal.content, srtModal.filename, false);
-      setSrtModal(null);
+      const r = await importSrt(srtModal.videoId, srtModal.content, srtModal.filename, false);
+      setSrtResult({
+        ok: true,
+        msg:
+          `✅ 적용 완료 — 자막 ${r.applied ?? 0}개 구조로 교체` +
+          ((r.carried_translations ?? 0) > 0
+            ? `, 번역 ${r.carried_translations}개 이어받음`
+            : ""),
+      });
       await refresh();
     } catch (e) {
-      setError(`.srt 적용 실패: ${e instanceof Error ? e.message : e}`);
+      setSrtResult({
+        ok: false,
+        msg: `❌ 적용 실패 — ${e instanceof Error ? e.message : e}. 저장된 것은 없으니 다시 시도해도 안전해요.`,
+      });
     } finally {
       setSrtBusy(false);
     }
@@ -744,18 +759,20 @@ export function App() {
   function assignReviewer(videoId: string, current: string) {
     const title = jobs.find((j) => j.video_id === videoId)?.title ?? "";
     setAssignName(current || me?.name || "");
+    setAssignError("");
     setAssignModal({ videoId, title, current });
   }
 
   async function saveAssign(name: string) {
     if (!assignModal) return;
-    setError("");
+    setAssignError("");
     try {
       await setAssignee(assignModal.videoId, name.trim());
       setAssignModal(null);
       await refresh();
     } catch (e) {
-      setError(`담당 지정 실패: ${e instanceof Error ? e.message : e}`);
+      // 모달 '안'에 표시 — 상단 배너는 모달 뒤에 가려져 실패를 못 봄
+      setAssignError(`담당 지정 실패: ${e instanceof Error ? e.message : e}`);
     }
   }
 
@@ -1561,17 +1578,38 @@ export function App() {
             )}
 
             <div className="srt-actions">
-              <button className="srt-cancel" onClick={() => setSrtModal(null)} disabled={srtBusy}>
-                취소
-              </button>
-              <button
-                className="srt-apply"
-                onClick={applySrt}
-                disabled={srtBusy || srtModal.preview.matched === 0}
-              >
-                {srtBusy ? "적용 중..." : `${srtModal.preview.matched}개 적용`}
-              </button>
+              {srtResult?.ok ? (
+                <button className="srt-apply" onClick={() => setSrtModal(null)}>
+                  닫기
+                </button>
+              ) : (
+                <>
+                  <button
+                    className="srt-cancel"
+                    onClick={() => setSrtModal(null)}
+                    disabled={srtBusy}
+                  >
+                    취소
+                  </button>
+                  <button
+                    className="srt-apply"
+                    onClick={applySrt}
+                    disabled={srtBusy || srtModal.preview.matched === 0}
+                  >
+                    {srtBusy
+                      ? "적용 중... (큰 파일은 몇 초 걸려요)"
+                      : srtResult
+                        ? "다시 시도"
+                        : `${srtModal.preview.matched}개 적용`}
+                  </button>
+                </>
+              )}
             </div>
+            {srtResult && (
+              <div className={"srt-result" + (srtResult.ok ? " ok" : " fail")} role="status">
+                {srtResult.msg}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1627,6 +1665,11 @@ export function App() {
                 지정
               </button>
             </div>
+            {assignError && (
+              <div className="srt-result fail" role="alert">
+                {assignError}
+              </div>
+            )}
           </form>
         </div>
       )}
