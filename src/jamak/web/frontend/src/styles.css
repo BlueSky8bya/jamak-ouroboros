@@ -4004,9 +4004,11 @@ kbd {
     border: 1px solid var(--line-strong);
     background: var(--surface);
     color: var(--text);
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 700;
     cursor: pointer;
+    white-space: nowrap; /* "⟲ 3초"가 공백에서 두 줄로 꺾이지 않게 */
+    padding: 6px 2px;
   }
   .mb-btn:active { transform: scale(0.97); }
   .mb-confirm {
@@ -4018,6 +4020,26 @@ kbd {
 
   /* 미리보기 모드: 모바일에선 스티키 영상이 곧 극장 — 그리드 강제 해제 */
   .editor.preview { grid-template-columns: none; }
+
+  /* 좁은 폭 줄바꿈 방지: 버튼 라벨은 절대 안에서 꺾이지 않고,
+     버튼들이 든 줄(모달 액션·도구 줄)이 통째로 wrap 되게 */
+  .mobile-bar { gap: 6px; }
+  .srt-actions { flex-wrap: wrap; gap: 8px; }
+  .srt-actions button,
+  .qc-spell,
+  .srt-apply,
+  .srt-cancel,
+  .tool,
+  .find-toggle,
+  .hold-btn,
+  .practice-restart,
+  .issue-next,
+  .hold-replay {
+    white-space: nowrap;
+  }
+  .srt-actions button { flex: 1 1 auto; min-height: 46px; }
+  .dd-btn { white-space: nowrap; }
+  .dd-btn .dd-val { overflow: hidden; text-overflow: ellipsis; }
 
   /* 터치 편집: 포커스 행에 나누기·합치기·지우기 (키보드 단축키 대체).
      데스크톱 내용 모드는 ADR-0009대로 구조 도구 숨김 유지 — 모바일만 표시 */
