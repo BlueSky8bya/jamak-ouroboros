@@ -4051,6 +4051,33 @@ kbd {
 /* 코스 지정은 UI 없이 서버 스크립트로 관리 (사용자 결정 — 카드에는 연습
    시작만 남긴다) */
 
+/* 번역 빈 곳 일괄 채우기 배너 (번역 검수 상단) */
+.tmissing {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--amber, #e8a33d) 55%, transparent);
+  background: color-mix(in srgb, var(--amber, #e8a33d) 10%, var(--surface));
+  font-size: 13.5px;
+}
+.tmissing-btn {
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--blue);
+  background: var(--blue);
+  color: #fff;
+  font-weight: 800;
+  font-size: 13.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tmissing-btn:disabled { opacity: 0.65; cursor: default; }
+
 /* 전역 진행 pill — 네트워크를 기다리는 동작은 즉시 이걸로 표시 (침묵 금지) */
 .busy-pill {
   position: fixed;

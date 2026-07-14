@@ -272,6 +272,26 @@ export function TranslateReview({
           gets: a progress bar, remaining count, and a continue affordance, so
           a (often large) translation review isn't a pacing-blind slog */}
       <div className="tflow-hero">
+        {(() => {
+          // .srt 구조 교체 후 산발적으로 비거나(stale 포함) 남는 셀 — 한 번에.
+          // 서버 배치 번역이 원래 '빈 곳·바뀐 곳만' 골라 과금하므로 그대로 재사용.
+          const missing = rows.filter((r) => !r.text.trim() || r.stale).length;
+          if (missing === 0) return null;
+          return (
+            <div className="tmissing">
+              <span>
+                ⚠ 번역이 비었거나 원문이 바뀐 자막 <strong>{missing}개</strong>
+              </span>
+              <button className="tmissing-btn" disabled={translating} onClick={generate}>
+                {translating
+                  ? tprog
+                    ? `번역 중... ${tprog}`
+                    : "번역 중..."
+                  : `🔄 한 번에 다 채우기 (${missing}개만 과금)`}
+              </button>
+            </div>
+          );
+        })()}
         <div className="tflow-top">
           <strong>
             {langLabel} 번역 검수 {nReviewed}/{rows.length}
