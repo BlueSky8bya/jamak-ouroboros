@@ -1712,6 +1712,7 @@ def get_translations(video_id: str, lang: str) -> list[dict]:
                     "ko": ko,
                     "text": t.text if t else "",
                     "reviewed": t.reviewed if t else False,
+                    "edited": t.edited if t else False,
                     "has_translation": t is not None,
                     "stale": stale,
                 }

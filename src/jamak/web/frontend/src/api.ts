@@ -458,6 +458,7 @@ export interface TranslationRow {
   ko: string;
   text: string;
   reviewed: boolean;
+  edited?: boolean; // human-authored — the batch translator never overwrites it
   has_translation: boolean;
   stale?: boolean; // Korean changed after this translation was made
 }

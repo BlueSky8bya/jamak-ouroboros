@@ -275,7 +275,11 @@ export function TranslateReview({
         {(() => {
           // .srt 구조 교체 후 산발적으로 비거나(stale 포함) 남는 셀 — 한 번에.
           // 서버 배치 번역이 원래 '빈 곳·바뀐 곳만' 골라 과금하므로 그대로 재사용.
-          const missing = rows.filter((r) => !r.text.trim() || r.stale).length;
+          // 사람이 직접 고친(edited) 번역은 서버가 보호(자동 덮어쓰기 금지)라
+          // 카운트에서 제외 — 안 그러면 눌러도 숫자가 안 줄어 혼란.
+          const missing = rows.filter(
+            (r) => !r.text.trim() || (r.stale && !r.edited),
+          ).length;
           if (missing === 0) return null;
           return (
             <div className="tmissing">
