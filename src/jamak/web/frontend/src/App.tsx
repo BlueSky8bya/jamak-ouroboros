@@ -1191,6 +1191,9 @@ export function App() {
               <div className="tut-grid">
                 {practiceJobs
                   .filter((j) => !j.practice_course)
+                  .sort((a, b) =>
+                    (a.title || a.video_id).localeCompare(b.title || b.video_id, "ko"),
+                  )
                   .map((j) => (
                     <div className="tut-item" key={j.video_id}>
                       <button
