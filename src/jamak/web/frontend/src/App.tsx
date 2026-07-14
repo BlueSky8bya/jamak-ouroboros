@@ -971,6 +971,35 @@ export function App() {
     document.title = rem > 0 ? `작업대 · 남은 ${rem}` : "자막 검수 작업대";
   }, [jobs]);
 
+  // 새 배포 감지: 탭을 계속 열어두면 구버전 번들로 돌아가는 걸 사용자가 알 수
+  // 없다 (버그 고쳐도 화면은 그대로 — 실제로 겪음). 5분마다 서버 버전을 물어
+  // 처음 값과 달라지면 새로고침 pill을 띄운다.
+  const [staleBuild, setStaleBuild] = useState(false);
+  useEffect(() => {
+    let first: string | null = null;
+    const check = async () => {
+      try {
+        const r = await fetch("/api/version");
+        const v = (await r.json()).version as string;
+        if (first === null) first = v;
+        else if (v && v !== first) setStaleBuild(true);
+      } catch {
+        /* offline 등 — 다음 주기에 재시도 */
+      }
+    };
+    void check();
+    const t = window.setInterval(check, 5 * 60 * 1000);
+    return () => window.clearInterval(t);
+  }, []);
+
+  // 새 배포 알림 pill — 목록·에디터 어느 화면에서든 보인다
+  const stalePill = staleBuild ? (
+    <div className="stale-pill" role="status">
+      <span>🔄 새 버전이 나왔어요</span>
+      <button onClick={() => window.location.reload()}>새로고침</button>
+    </div>
+  ) : null;
+
   // wait for /api/me, then gate on login
   if (!me) return null;
   if (me.auth_on && !me.authed) return <Login onLogin={() => window.location.reload()} />;
@@ -981,6 +1010,8 @@ export function App() {
     const baseVid = selected.split("~")[0];
     const bj = jobs.find((j) => j.video_id === baseVid);
     return (
+      <>
+      {stalePill}
       <Editor
         key={selected} // full remount per video: no mode/tour state leaking across
         videoId={selected}
@@ -1007,6 +1038,7 @@ export function App() {
           if (v) void openVideo(v, "ko", courseId);
         }}
       />
+      </>
     );
   }
 
@@ -1050,6 +1082,7 @@ export function App() {
 
   return (
     <div className="landing">
+      {stalePill}
       {busyMsg && (
         <div className="busy-pill" role="status" aria-live="polite">
           <span className="busy-spin" aria-hidden />

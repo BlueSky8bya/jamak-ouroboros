@@ -4136,6 +4136,34 @@ kbd {
   font-size: 12.5px;
 }
 
+/* 새 배포 알림 — 탭을 오래 열어둔 사용자에게 (구버전 번들 안내 혼선 방지) */
+.stale-pill {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 18px;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--blue));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  font-size: 14px;
+  font-weight: 700;
+}
+.stale-pill button {
+  padding: 5px 14px;
+  border: none;
+  border-radius: 999px;
+  background: var(--blue);
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 /* 체크포인트 대기 pill — 투어 진행 중이지만 나레이션이 아직 지시 전 */
 .tour-wait {
   position: fixed;
