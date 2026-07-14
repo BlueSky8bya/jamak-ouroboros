@@ -83,7 +83,20 @@ def inject_course_defects(session: Session, job: Job, course: str) -> int:
         # 창은 대본 L2(초장문) 발화 구간만: 17.0~32.5s (timing.json 16.54~32.74).
         # 넓게 잡으면 앞 대사("차분히 다듬는...") 행까지 삼킨다 — 실제로 삼켜서
         # 좁힘. 텍스트 앵커('숨도')로 이중 확인.
-        span = [s for s in segs if s.end > 17.0 and s.start < 32.5 and "길지요" not in (s.text_llm or "")]
+        def _nm(t: str) -> str:
+            return re.sub(r"[^\w가-힣]", "", t or "")
+
+        span = [
+            s
+            for s in segs
+            if "길지요" not in (s.text_llm or "")
+            and (
+                (s.end > 17.0 and s.start < 32.5)
+                # STT가 문장 머리를 창보다 이르게 찍는 경우: 텍스트가 초장문의
+                # 일부면 흡수 (14.1s '제가 지금부터…' 조각 실측)
+                or (s.start >= 12.0 and s.start < 32.5 and _nm(s.text_llm or s.text_whisper) in _nm(LONG))
+            )
+        ]
         joined = " ".join((s.text_llm or s.text_whisper or "") for s in span)
         if span and "숨도" in joined and (len(span) > 1 or span[0].text_llm != LONG):
             first = span[0]

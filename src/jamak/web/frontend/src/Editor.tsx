@@ -2327,13 +2327,24 @@ export function Editor({
       tourFiredRef.current = tour.step;
       tourEnterStep(tour); // loopRow = 대상 행 1회 재생, 그 외 = 일시정지
     }
+    // 안내 단계가 떠 있는 동안 화면 구성을 통째로 바꾸는 미리보기 모드가
+    // 켜지면 스포트라이트·말풍선이 대상을 잃는다 — 즉시 되돌리고 안내
+    // (미리보기를 가르치는 단계는 예외). 사용자 피드백 2026-07-15.
+    {
+      const st = COURSES[tour.course].steps[tour.step];
+      if (practice && showPreview && st && !st.final && st.on !== "preview") {
+        setShowPreview(false);
+        setStatusMsg("연습 단계 중에는 미리보기 모드를 잠시 꺼 둘게요 — 이 단계가 끝나면 다시 켤 수 있어요");
+      }
+    }
     // 행 오디오 모드: 행 끝에 닿으면 정지 (1회 듣기 — 반복은 ▶로 사용자가)
     if (tourLoopRef.current && playing) {
       const fs = segmentsRef.current.find((s) => s.id === focusedIdRef.current);
       if (fs && currentTime >= fs.end - 0.05) pause();
     }
+    // showPreview 포함: 체크포인트에서 멈춘 동안(currentTime 정지) 토글돼도 잡게
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTime, tour, practice]);
+  }, [currentTime, tour, practice, showPreview]);
 
   const rowsRef = useRef(new Map<number, RowHandle>());
   const focusedIdRef = useRef<number | null>(null);
