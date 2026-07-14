@@ -196,8 +196,6 @@ function JobCard({
   onSrtFile,
   onUndoSrt,
   onAssign,
-  onPractice,
-  onBindCourse,
 }: {
   job: JobSummary;
   query: string;
@@ -212,8 +210,6 @@ function JobCard({
   onSrtFile: (videoId: string, file: File) => void;
   onUndoSrt: (videoId: string) => void;
   onAssign: (videoId: string, current: string) => void;
-  onPractice: (e: ReactMouseEvent, j: JobSummary) => void;
-  onBindCourse: (j: JobSummary, course: string) => void;
 }) {
   const [lang, setLang] = useState("ko");
   const [dragOver, setDragOver] = useState(false);
@@ -349,40 +345,8 @@ function JobCard({
             >
               🔗 링크
             </span>
-            {canIngest && (
-              <span
-                className={"qa" + (j.practice ? " qa-on" : "")}
-                role="button"
-                tabIndex={0}
-                title={j.practice ? "연습용 지정 해제" : "이 영상을 연습용(튜토리얼)으로 지정 — 검수자들이 마음껏 연습"}
-                onClick={(e) => onPractice(e, j)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") onPractice(e as unknown as ReactMouseEvent, j);
-                }}
-              >
-                🎓 연습용
-              </span>
-            )}
-            {canIngest && j.practice && (
-              <select
-                className="qa qa-course"
-                value={j.practice_course || ""}
-                title="이 영상을 특정 따라하기 코스의 전용 연습 영상으로 지정 (코스당 1개)"
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => {
-                  e.stopPropagation();
-                  onBindCourse(j, e.target.value);
-                }}
-              >
-                <option value="">코스 없음</option>
-                <option value="basic">연습 1 · 기본기</option>
-                <option value="playback">연습 2 · 재생 다루기</option>
-                <option value="fast">연습 3 · 빠르게 훑기</option>
-                <option value="structure">연습 4 · 나누기·합치기</option>
-                <option value="timing">연습 5 · 타이밍</option>
-                <option value="finish">연습 6 · 마무리</option>
-              </select>
-            )}
+            {/* 연습용 지정 UI는 제거 — 튜토리얼 영상은 전용 탭 + 서버 스크립트로
+                관리 (강연 영상을 실수로 연습용으로 돌릴 경로 차단) */}
             {canIngest && (
               <span
                 className="qa"
@@ -792,27 +756,6 @@ export function App() {
       await refresh();
     } catch (e) {
       setError(`담당 지정 실패: ${e instanceof Error ? e.message : e}`);
-    }
-  }
-
-  async function togglePractice(e: ReactMouseEvent, j: JobSummary) {
-    e.stopPropagation();
-    setError("");
-    try {
-      await setPractice(j.video_id, !j.practice);
-      await refresh();
-    } catch (err) {
-      setError(`연습용 지정 실패: ${err instanceof Error ? err.message : err}`);
-    }
-  }
-
-  async function bindCourse(j: JobSummary, course: string) {
-    setError("");
-    try {
-      await setPractice(j.video_id, true, course);
-      await refresh();
-    } catch (err) {
-      setError(`코스 지정 실패: ${err instanceof Error ? err.message : err}`);
     }
   }
 
@@ -1521,8 +1464,6 @@ export function App() {
               onSrtFile={onSrtFile}
               onUndoSrt={undoSrtImport}
               onAssign={assignReviewer}
-              onPractice={togglePractice}
-              onBindCourse={(j2, c) => void bindCourse(j2, c)}
               onOpen={(v, l) => void openVideo(v, l)}
               onReroll={reroll}
               onExport={exportSrt}
