@@ -3344,6 +3344,7 @@ export function Editor({
           : "🛠 복구·보충할 구간을 찾지 못했어요 — 이미 깨끗한 상태",
       );
     } catch (e) {
+      if (await maybeRecoverClone(e)) return;
       setError(String(e));
     } finally {
       setToolBusy(null);
@@ -3381,24 +3382,27 @@ export function Editor({
           : "✨ 이미 잘 정리되어 있어요 — 손볼 게 없습니다",
       );
     } catch (e) {
-      // 연습판이 서버 정리로 사라진 경우(no job): 조용히 새 판을 만들어 복구
-      if (practice && String(e).includes("no job")) {
-        try {
-          await practiceSession(ytVideoId, practiceKey(), true);
-          const next = await fetchSegments(videoId, langRef.current);
-          segmentsRef.current = next;
-          setSegments(next);
-          setUndoStack([]);
-          undoStackRef.current = [];
-          setToolMsg("연습판을 새로 준비했어요 — ✨ 버튼을 다시 눌러주세요");
-          return;
-        } catch {
-          /* fall through to error */
-        }
-      }
+      if (await maybeRecoverClone(e)) return;
       setError(String(e));
     } finally {
       setToolBusy(null);
+    }
+  }
+  /** 연습판이 서버 정리(TTL 등)로 사라진 뒤의 요청 실패(no job)를 조용히
+   *  복구: 같은 키로 재복제 → 행 다시 로드 → "다시 눌러주세요" 안내. */
+  async function maybeRecoverClone(e: unknown): Promise<boolean> {
+    if (!practice || !String(e).includes("no job")) return false;
+    try {
+      await practiceSession(ytVideoId, practiceKey(), true);
+      const next = await fetchSegments(videoId, langRef.current);
+      segmentsRef.current = next;
+      setSegments(next);
+      setUndoStack([]);
+      undoStackRef.current = [];
+      setToolMsg("연습판을 새로 준비했어요 — 방금 그 버튼을 다시 눌러주세요");
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -3415,6 +3419,7 @@ export function Editor({
           : "✂ 이미 발화 구간에 맞게 다듬어져 있어요",
       );
     } catch (e) {
+      if (await maybeRecoverClone(e)) return;
       setError(String(e));
     } finally {
       setToolBusy(null);
@@ -3430,6 +3435,7 @@ export function Editor({
       await refreshSegments();
       setToolMsg(`✅ 안심 구간 ${r.confirmed}개를 한번에 확인했어요 — 이제 남은 것만 보세요`);
     } catch (e) {
+      if (await maybeRecoverClone(e)) return;
       setError(String(e));
     } finally {
       setToolBusy(null);
@@ -3455,6 +3461,7 @@ export function Editor({
             : `📚 학습 완료 — 확인한 자막 ${r.reviewed_segments}개, 새로 배울 고침은 없었어요 (이미 다 아는 내용)`,
       );
     } catch (e) {
+      if (await maybeRecoverClone(e)) return;
       setError(String(e));
     } finally {
       setToolBusy(null);
