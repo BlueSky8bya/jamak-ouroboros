@@ -80,8 +80,12 @@ def inject_course_defects(session: Session, job: Job, course: str) -> int:
             "자막 한 칸에 글이 꽉 차서 보는 사람이 미처 다 읽기도 전에 자막이 "
             "지나가 버리기 때문에 중간의 적당한 곳에서 둘로 나누어 주는 것이 좋습니다"
         )
-        span = [s for s in segs if s.end > 10.0 and s.start < 31.0 and "길지요" not in (s.text_llm or "")]
-        if span and (len(span) > 1 or span[0].text_llm != LONG):
+        # 창은 대본 L2(초장문) 발화 구간만: 17.0~32.5s (timing.json 16.54~32.74).
+        # 넓게 잡으면 앞 대사("차분히 다듬는...") 행까지 삼킨다 — 실제로 삼켜서
+        # 좁힘. 텍스트 앵커('숨도')로 이중 확인.
+        span = [s for s in segs if s.end > 17.0 and s.start < 32.5 and "길지요" not in (s.text_llm or "")]
+        joined = " ".join((s.text_llm or s.text_whisper or "") for s in span)
+        if span and "숨도" in joined and (len(span) > 1 or span[0].text_llm != LONG):
             first = span[0]
             first.end = max(x.end for x in span)
             first.text_llm = LONG
