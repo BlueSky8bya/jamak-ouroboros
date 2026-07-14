@@ -9,6 +9,7 @@ Commands:
 
 from __future__ import annotations
 
+import sys
 import time
 from pathlib import Path
 
@@ -818,6 +819,15 @@ def backup_cloud(
 @app.command()
 def worker(
     poll: float = typer.Option(5.0, help="Seconds between DB polls when idle"),
+    until_idle: bool = typer.Option(
+        False,
+        "--until-idle",
+        help="Exit once the queue stays empty for --idle-grace seconds "
+        "(for the scheduled auto-start — the watcher re-launches on demand)",
+    ),
+    idle_grace: float = typer.Option(
+        90.0, help="--until-idle: seconds of empty queue before exiting"
+    ),
 ) -> None:
     """Process subtitle requests submitted from the web app (local GPU).
 
@@ -832,6 +842,23 @@ def worker(
     from sqlmodel import select
 
     from .db import JobRequest, get_session
+
+    # [WH-CHANGE v0.8.9 | FEAT | 2026-07-15 | CHG-20260715-030]
+    # Reason: 워커가 상시 기동이라 사용자가 손으로 켜고 끄고 중복 기동을 감시해야
+    #   했음 (사용자: "영상 올리면 켜지고 다 올렸으면 꺼지게, 중복 기동 없이").
+    #   OS 네임드 뮤텍스로 싱글턴 강제 — 감시자(스케줄드 태스크)·수동 실행이
+    #   몇 개 겹쳐도 두 번째 프로세스는 즉시 조용히 종료. 큐 비움 자동 종료는
+    #   --until-idle (감시자 전용; 수동 `jamak worker`는 기존처럼 상주).
+    # Related: CHANGELOG CHG-20260715-030, scripts/worker-autostart.ps1.
+    if sys.platform == "win32":
+        import ctypes
+
+        _mutex = ctypes.windll.kernel32.CreateMutexW(  # noqa: F841 (held for life)
+            None, True, "Global\\jamak-worker-singleton"
+        )
+        if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            console.print("another jamak worker is already running - exiting")
+            raise typer.Exit(0)
 
     # Reclaim orphans: a fresh worker means nothing is legitimately in flight, so
     # any request left "processing" was stranded by a previous worker that died
@@ -861,7 +888,10 @@ def worker(
 
     console.print(
         "[bold]jamak worker[/] - waiting for subtitle requests (Ctrl+C to stop)"
+        + (f" [until-idle, grace {idle_grace:.0f}s]" if until_idle else "")
     )
+    idle_since: float | None = None
+    processed_any = False
     while True:
         req = None
         with get_session() as s:
@@ -876,8 +906,21 @@ def worker(
                 s.commit()
                 rid, rurl, rfresh, rvid = req.id, req.url, req.fresh, req.video_id
         if req is None:
+            if until_idle:
+                if not processed_any:
+                    # watcher fired but there is nothing to do — don't linger
+                    console.print("queue empty - exiting (until-idle)")
+                    return
+                now = time.monotonic()
+                if idle_since is None:
+                    idle_since = now
+                elif now - idle_since >= idle_grace:
+                    console.print("queue drained - exiting (until-idle)")
+                    return
             time.sleep(poll)
             continue
+        idle_since = None
+        processed_any = True
 
         console.print(f"[cyan]processing[/] {rvid} (fresh={rfresh})")
         cmd = ["uv", "run", "jamak", "run", rurl] + (["--fresh"] if rfresh else [])

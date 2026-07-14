@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-15 (v0.8.8 — 자유 연습 개념 제거, 튜토리얼 = 코스 6개만)
-Project Version: 0.8.8
+Last Updated: 2026-07-15 (v0.8.9 — 워커 온디맨드 자동화 + 중복 데이터 재생성 검증)
+Project Version: 0.8.9
 Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATION.md)
 
 ## Current Objective
@@ -21,7 +21,9 @@ Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATI
 - **튜토리얼 영상 교체 완료(v0.8.6)**: 시각 큐(키캡·탭포인터·분할/합치기 애니메이션) 재렌더판 6개를 User가 재업로드(lJppD218Lmo/6aMrjCU4heI/Qo09NS2e2-c/bu2Se03ni-8/ruviKyheqNY/rL_5E-1ZQBE) → 워커 처리 + practice 지정 + 코스 1~6 재바인딩 + 결함 주입(basic 4/fast 2/timing 1, 스펙 일치). 구 영상 6개는 자동 언바인딩, User가 유튜브에서 삭제함. 코스 카드 커버는 유튜브 썸네일 → **테마 연동 그라디언트+아이콘**(다크/화이트 자동 적응, `--tut-accent`).
 - **중복 자막 뿌리 차단(v0.8.7, CHG-028)**: 원인 2계통을 파이프라인에서 결정적 차단 — 교정 확장 백스톱(clamp_neighbor_extensions, 이웃 문장 흡수 시 whisper로 되돌리고 uncertain) + 에코 가드 퍼지·양방향 강화. 유닛 스모크 9건 + 실강연 7,614행 시뮬레이션(발동 0.5%, 전부 문제 패턴). CER 재확인은 다음 강연 실행 때.
 - **자유 연습 개념 제거(v0.8.8)**: 구 practice Job 6개 + 클론 DB 삭제(사용자 승인) — practice 기준본은 코스 바인딩 6개뿐. 튜토리얼 탭의 "코스 없는 자유 연습" 섹션 삭제.
-- **PENDING (승인 대기)**: 새 기준본 4개(연습 2·4·5·6)의 기존 중복 자막 13행 데이터 정리 — 파이프라인 가드(CHG-028)는 앞으로의 실행만 막고 이미 들어간 행은 남음. 정리 스크립트 준비됨(`dup_fix_v2.py` — 삭제 4행·축소 9행·클론 폐기), 운영 DB 쓰기라 사용자 승인 대기. **워커 재시작도 필요**(가드 없는 구코드로 기동 중 — 사용자 액션).
+- **중복 데이터 해소 완료(v0.8.9)**: 연습 2·4·5·6을 fresh 재처리(가드 적용 워커) — 인접 중복 전부 0, timing 결함 재주입, 클론 정리. `dup_fix_v2.py` 불필요해짐.
+- **워커 온디맨드 자동화(v0.8.9, CHG-030)**: `--until-idle` + 네임드 뮤텍스 싱글턴 + `jamak-worker-watch` 스케줄드 태스크(5분) + 로그온 1회 확인. 상시 기동·수동 켜고 끄기·중복 기동 걱정 소멸.
+- **진행 중: 연습 체크포인트 동기화(옵션 B, 사용자 확정 2026-07-15)** — 영상이 "직접 해보세요" 하는 시점에 자동 일시정지 → 실제 수행(tourEvent) 확인 → 자동 재개. 투어·영상 이중 지시 충돌과 "하이라이트가 도망가 누를 곳 소멸" 문제의 본질 해결. 재료: TTS 빌드 타임스탬프(tools/tutorial-video), 기존 코스 투어 단계, usePlayer pause/play.
 
 ## Recent Additions (2026-07-14 — v0.6.2~0.7.0, CHG-20260714-012~019)
 
