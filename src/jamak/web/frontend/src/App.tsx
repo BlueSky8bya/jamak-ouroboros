@@ -558,6 +558,23 @@ export function App() {
   } | null>(null);
   // 튜토리얼 전용 탭 — 연습 영상은 강연 목록과 섞지 않는다 (사용자 확정)
   const [tab, setTab] = useState<"work" | "tutorial">("work");
+
+  // 브라우저 뒤로/앞으로 = 앱 내 페이지 스택. 에디터를 열 때 history에 쌓아서,
+  // 뒤로가기가 사이트 이탈이 아니라 목록으로 돌아오게 (사용자 요구)
+  useEffect(() => {
+    if (!window.history.state?.jamak) {
+      window.history.replaceState({ jamak: { video: null, lang: "ko" } }, "");
+    }
+    const onPop = (e: PopStateEvent) => {
+      const st = e.state?.jamak;
+      setPendingCourse(null);
+      setSelectedLang(st?.lang ?? "ko");
+      setSelected(st?.video ?? null);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // language track to open the editor on (the track the reviewer was viewing
   // on the card). Falls back to Korean for resume-hero / paste-to-open.
   const [selectedLang, setSelectedLang] = useState("ko");
@@ -811,6 +828,7 @@ export function App() {
     if (course) setPendingCourse({ course, videoId: target, nonce: Date.now() });
     setSelectedLang(lang);
     setSelected(target);
+    window.history.pushState({ jamak: { video: target, lang } }, "");
   }
 
   async function undoSrtImport(videoId: string) {
@@ -967,8 +985,14 @@ export function App() {
         key={selected} // full remount per video: no mode/tour state leaking across
         videoId={selected}
         onBack={() => {
-          setPendingCourse(null);
-          setSelected(null);
+          // 히스토리를 되감아야 뒤로가기 스택과 어긋나지 않는다 —
+          // popstate 핸들러가 목록 상태로 복귀시킴
+          if (window.history.state?.jamak?.video) {
+            window.history.back();
+          } else {
+            setPendingCourse(null);
+            setSelected(null);
+          }
         }}
         koComplete={bj?.ko_complete ?? false}
         timingDone={bj?.timing_done ?? false}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   fetchTranslations,
   makeTranslations,
+  replaceText,
   retranslateSegment,
   updateTranslation,
   type TranslationRow,
@@ -136,8 +137,15 @@ export function TranslateReview({
   const [rows, setRows] = useState<TranslationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [translating, setTranslating] = useState(false);
-  const [tprog, setTprog] = useState(""); // "번역됨/전체" while the batch loop runs
+  // 배치 루프 진행 상황 — 동적 진행바 렌더용 (숫자 문자열 아님)
+  const [tprog, setTprog] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState("");
+  // 번역 텍스트 찾기·바꾸기 (ko 트랙의 Alt+B와 동일 UX)
+  const [findOpen, setFindOpen] = useState(false);
+  const [findText, setFindText] = useState("");
+  const [replText, setReplText] = useState("");
+  const [findMatches, setFindMatches] = useState<number | null>(null);
+  const [notice, setNotice] = useState(""); // 일괄 작업 성공을 한 줄로 명시
   const seekTo = onSeek;
 
   async function load() {
@@ -162,7 +170,7 @@ export function TranslateReview({
   async function generate() {
     setTranslating(true);
     setError("");
-    setTprog("");
+    setTprog(null);
     try {
       // 60 cues per request = one model call — a 2h video as ONE request blows
       // past the proxy timeout (502) with nothing saved. Each batch commits,
@@ -170,7 +178,7 @@ export function TranslateReview({
       let guard = 0;
       for (;;) {
         const r = await makeTranslations(videoId, lang, 60);
-        setTprog(`${r.translated}/${r.segments}`);
+        setTprog({ done: r.translated, total: r.segments });
         if (r.done) break;
         if (++guard > 300) throw new Error("번역 반복 한도 초과 — 다시 시도해주세요");
       }
@@ -181,7 +189,39 @@ export function TranslateReview({
       await load(); // partial batches are already saved — show them
     } finally {
       setTranslating(false);
-      setTprog("");
+      setTprog(null);
+    }
+  }
+
+  // 찾기 미리보기: 입력 멈추면 전체 번역에서 몇 곳인지 (서버 count, 무과금)
+  useEffect(() => {
+    if (!findOpen || !findText.trim()) {
+      setFindMatches(null);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      replaceText(videoId, findText, "", false, lang)
+        .then((r) => setFindMatches(r.matches))
+        .catch(() => setFindMatches(null));
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [findText, findOpen, videoId, lang]);
+
+  async function applyReplace() {
+    if (!findText.trim()) return;
+    try {
+      const r = await replaceText(videoId, findText, replText, true, lang);
+      setFindMatches(null);
+      setFindText("");
+      setReplText("");
+      setFindOpen(false);
+      await load();
+      onGenerated?.();
+      // 결과는 상단에 한 줄로 (성공 인지)
+      setNotice(`🔎 ${r.segments}개 자막에서 ${r.matches}곳 바꿨어요`);
+      window.setTimeout(() => setNotice(""), 4000);
+    } catch (e) {
+      setError(String(e));
     }
   }
 
@@ -233,12 +273,37 @@ export function TranslateReview({
           <strong>{langLabel}</strong> 번역이 아직 없습니다. 한국어 원문을 문맥에 맞게 번역합니다.
         </p>
         <button className="export" disabled={translating} onClick={generate}>
-          {translating
-            ? tprog
-              ? `번역 만드는 중... ${tprog}`
-              : "번역 만드는 중..."
-            : `${langLabel} 번역 만들기`}
+          {translating ? "번역 만드는 중..." : `${langLabel} 번역 만들기`}
         </button>
+        {translating && (
+          <div className="tprogress" role="status" aria-live="polite">
+            <div className="tprog-top">
+              <span className="busy-spin" aria-hidden />
+              <span>
+                {tprog
+                  ? `번역 진행 중 — 남은 ${Math.max(0, tprog.total - tprog.done)}개`
+                  : "번역 시작하는 중..."}
+              </span>
+              {tprog && (
+                <strong>{Math.round((tprog.done / Math.max(1, tprog.total)) * 100)}%</strong>
+              )}
+            </div>
+            <div className="tprog-bar">
+              <span
+                style={{
+                  width: tprog
+                    ? `${(tprog.done / Math.max(1, tprog.total)) * 100}%`
+                    : "4%",
+                }}
+              />
+            </div>
+            {tprog && (
+              <div className="tprog-nums">
+                {tprog.done.toLocaleString()} / {tprog.total.toLocaleString()}
+              </div>
+            )}
+          </div>
+        )}
         {error && <div className="error">{error}</div>}
       </div>
     );
@@ -287,15 +352,41 @@ export function TranslateReview({
                 ⚠ 번역이 비었거나 원문이 바뀐 자막 <strong>{missing}개</strong>
               </span>
               <button className="tmissing-btn" disabled={translating} onClick={generate}>
-                {translating
-                  ? tprog
-                    ? `번역 중... ${tprog}`
-                    : "번역 중..."
-                  : `🔄 한 번에 다 채우기 (${missing}개만 과금)`}
+                {translating ? "번역 중..." : `🔄 한 번에 다 채우기 (${missing}개만 과금)`}
               </button>
             </div>
           );
         })()}
+        {translating && (
+          <div className="tprogress" role="status" aria-live="polite">
+            <div className="tprog-top">
+              <span className="busy-spin" aria-hidden />
+              <span>
+                {tprog
+                  ? `번역 진행 중 — 남은 ${Math.max(0, tprog.total - tprog.done)}개`
+                  : "번역 시작하는 중..."}
+              </span>
+              {tprog && (
+                <strong>{Math.round((tprog.done / Math.max(1, tprog.total)) * 100)}%</strong>
+              )}
+            </div>
+            <div className="tprog-bar">
+              <span
+                style={{
+                  width: tprog
+                    ? `${(tprog.done / Math.max(1, tprog.total)) * 100}%`
+                    : "4%",
+                }}
+              />
+            </div>
+            {tprog && (
+              <div className="tprog-nums">
+                {tprog.done.toLocaleString()} / {tprog.total.toLocaleString()}
+              </div>
+            )}
+          </div>
+        )}
+        {notice && <div className="tnotice">{notice}</div>}
         <div className="tflow-top">
           <strong>
             {langLabel} 번역 검수 {nReviewed}/{rows.length}
@@ -317,10 +408,52 @@ export function TranslateReview({
         <span>
           {langLabel} 번역 검수 {nReviewed}/{rows.length}
         </span>
+        <button
+          className="mini"
+          onClick={() => setFindOpen((v) => !v)}
+          title="같은 번역 실수를 전체에서 한 번에 교정"
+        >
+          🔎 찾기·바꾸기
+        </button>
         <button className="mini" disabled={translating} onClick={generate} title="확인 안 한 자막만 새로 번역">
           {translating ? "번역 중..." : "미검수 다시 번역"}
         </button>
       </div>
+      {findOpen && (
+        <div className="findbar open tfind">
+          <input
+            className="find-in"
+            placeholder={`찾을 ${langLabel} 내용`}
+            value={findText}
+            autoFocus
+            onChange={(e) => setFindText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && findMatches) void applyReplace();
+              if (e.key === "Escape") setFindOpen(false);
+            }}
+          />
+          <span className="find-arrow">→</span>
+          <input
+            className="find-in"
+            placeholder="바꿀 내용 (비우면 삭제)"
+            value={replText}
+            onChange={(e) => setReplText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && findMatches) void applyReplace();
+              if (e.key === "Escape") setFindOpen(false);
+            }}
+          />
+          <span className="find-count">
+            {findText.trim() ? (findMatches === null ? "…" : `${findMatches}곳`) : ""}
+          </span>
+          <button className="find-apply" disabled={!findMatches} onClick={() => void applyReplace()}>
+            모두 바꾸기
+          </button>
+          <button className="find-close" title="닫기 (Esc)" onClick={() => setFindOpen(false)}>
+            ✕
+          </button>
+        </div>
+      )}
       {error && <div className="error">{error}</div>}
       {rows.map((r) => (
         <Row

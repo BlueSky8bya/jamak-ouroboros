@@ -963,6 +963,36 @@ def replace_text(video_id: str, body: ReplaceBody, lang: str = "ko") -> dict:
         ).all()
         matches = 0
         seg_hits = 0
+        if not segs and lang != "ko":
+            # 비포크 번역 트랙: 자막 행이 없고 Translation 행에 텍스트가 산다 —
+            # 번역 검수의 찾기·바꾸기도 같은 엔드포인트로 (사용자 요청)
+            from ..db import Translation
+
+            ko_ids = session.exec(
+                select(Segment.id).where(Segment.job_id == job.id, Segment.lang == "ko")
+            ).all()
+            trs = (
+                session.exec(
+                    select(Translation).where(
+                        Translation.segment_id.in_(ko_ids), Translation.lang == lang
+                    )
+                ).all()
+                if ko_ids
+                else []
+            )
+            for tr in trs:
+                n = tr.text.count(find)
+                if not n:
+                    continue
+                matches += n
+                seg_hits += 1
+                if body.apply:
+                    tr.text = tr.text.replace(find, body.replace)
+                    tr.edited = True  # 사람 손 = 자동 재번역이 못 덮게 보호
+                    session.add(tr)
+            if body.apply and seg_hits:
+                session.commit()
+            return {"matches": matches, "segments": seg_hits, "applied": body.apply}
         for seg in segs:
             work = seg.text_final or seg.text_llm or seg.text_whisper
             n = work.count(find)

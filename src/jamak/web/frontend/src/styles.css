@@ -4051,6 +4051,62 @@ kbd {
 /* 코스 지정은 UI 없이 서버 스크립트로 관리 (사용자 결정 — 카드에는 연습
    시작만 남긴다) */
 
+/* 번역 배치 진행 — 살아있는 진행바 (정적 숫자 금지) */
+.tprogress {
+  margin: 10px 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--blue) 40%, transparent);
+  background: color-mix(in srgb, var(--blue) 8%, var(--surface));
+}
+.tprog-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.tprog-top strong { margin-left: auto; font-size: 18px; color: var(--blue); }
+.tprog-bar {
+  position: relative;
+  height: 12px;
+  margin-top: 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--blue) 14%, transparent);
+  overflow: hidden;
+}
+.tprog-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--blue), color-mix(in srgb, var(--blue) 55%, #8fd3ff));
+  transition: width 0.6s ease;
+  position: relative;
+  overflow: hidden;
+}
+.tprog-bar > span::after {
+  /* 움직이는 광택 — '진행 중' 생동감 */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  transform: translateX(-100%);
+  animation: tprogshine 1.4s linear infinite;
+}
+@keyframes tprogshine { to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .tprog-bar > span::after { animation: none; } }
+.tprog-nums { margin-top: 6px; font-size: 12.5px; color: var(--muted); text-align: right; }
+.tnotice {
+  margin: 8px 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--green, #2f9e44) 12%, var(--surface));
+  color: var(--green, #2f9e44);
+  font-size: 13.5px;
+  font-weight: 700;
+}
+.tfind { margin-bottom: 10px; }
+
 /* 번역 빈 곳 일괄 채우기 배너 (번역 검수 상단) */
 .tmissing {
   display: flex;
