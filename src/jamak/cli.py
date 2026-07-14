@@ -423,19 +423,30 @@ def eval() -> None:  # noqa: A001
         console.print("no reviewed jobs yet - review segments in the web app first")
         raise typer.Exit(0)
     table = Table(title="CER trend (lower is better)")
-    for col in ("video", "date", "segs", "STT CER", "corrected CER", "gain"):
+    for col in ("video", "date", "src", "segs", "STT CER", "corrected CER", "gain", "matched CER"):
         table.add_column(col)
     for r in rows:
         gain = r["cer_whisper"] - r["cer_llm"]
+        matched = (
+            f"{r['cer_matched']:.2%} ({r['matched_segments']})"
+            if r["cer_matched"] is not None
+            else "-"
+        )
         table.add_row(
             r["video_id"],
             r["date"],
+            r["source"],
             str(r["reviewed_segments"]),
             f"{r['cer_whisper']:.2%}",
             f"{r['cer_llm']:.2%}",
             f"{gain:+.2%}",
+            matched,
         )
     console.print(table)
+    console.print(
+        "matched CER = 길이비 정상(0.5~2.0) 세그먼트만 — 구조 편집(에코 삭제 등)을 "
+        "뺀 '오인식' 다이얼. src=srt는 .srt 임포트라 전량 CER이 부풀려짐."
+    )
 
 
 @app.command("export-training-data")
