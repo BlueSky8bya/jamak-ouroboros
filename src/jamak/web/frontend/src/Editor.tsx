@@ -2053,7 +2053,10 @@ export function Editor({
     const t = tour;
     if (!t) return undefined;
     const step = COURSES[t.course].steps[t.step];
-    if (!step?.targetDefect && !step?.untilTime) return undefined; // 기본 target
+    // subject 단계도 대상 행에 앵커 — 아니면 selector가 화면 밖 "첫 행"에
+    // 붙어 스포트라이트가 미아가 된다 (연습 4에서 실측)
+    if (!step?.targetDefect && !step?.untilTime && !step?.subject)
+      return undefined; // 기본 target
     const seg = stepLoopSeg(t);
     return seg ? `.row[data-segid="${seg.id}"]` : step.target;
   }
@@ -2261,7 +2264,7 @@ export function Editor({
     const t = tourRef.current;
     if (t === null) return;
     const step = COURSES[t.course].steps[t.step];
-    if (step?.on !== "open-row" || !step.targetDefect) return;
+    if (step?.on !== "open-row" || !(step.targetDefect || step.subject)) return;
     if (!tourGateOpen(t)) return;
     const m = resolveTourTarget()?.match(/data-segid="(\d+)"/);
     if (m && focusedId === Number(m[1])) {
