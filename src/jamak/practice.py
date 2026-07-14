@@ -180,6 +180,13 @@ def _delete_clone(session: Session, clone: Job) -> None:
         select(SttBlob).where(SttBlob.job_id == clone.id)
     ).all():
         session.delete(blob)
+    # [WH-CHANGE v0.8.7 | FIX | 2026-07-15 | CHG-20260715-027]
+    # Reason: on Postgres the ORM emitted DELETE job before DELETE sttblob in
+    # the same flush -> sttblob_job_id_fkey violation -> 연습 재입장이 500으로
+    # 죽음 (로컬 SQLite는 FK 미강제라 E2E가 못 잡았음). 자식 행 삭제를 먼저
+    # flush해 순서를 명시적으로 고정한다.
+    # Related: CHANGELOG CHG-20260715-027.
+    session.flush()
     session.delete(clone)
     session.commit()
 

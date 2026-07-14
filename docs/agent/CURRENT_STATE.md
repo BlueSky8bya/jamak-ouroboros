@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-15 (v0.8.6 — 시각 큐 튜토리얼 영상 6개 교체 + 테마 연동 코스 커버)
-Project Version: 0.8.6
+Last Updated: 2026-07-15 (v0.8.7 — 연습 재입장 500 수정(클론 삭제 FK 순서))
+Project Version: 0.8.7
 Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATION.md)
 
 ## Current Objective

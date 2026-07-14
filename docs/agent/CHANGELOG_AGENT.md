@@ -1,5 +1,12 @@
 # Agent Change Log
 
+## v0.8.7 — 2026-07-15 (연습 재입장 500 수정 — 클론 삭제 FK 순서)
+
+### CHG-20260715-027 — FIX — 연습 영상 재입장이 "준비하는 중..."에서 죽던 것
+Change: 재입장 = reset = 기존 클론 삭제 후 재복제인데, Postgres에서 ORM이 같은 flush 안에서 `DELETE job`을 `DELETE sttblob`보다 먼저 내보내 `sttblob_job_id_fkey` 위반 → 500 → 프론트는 pill만 남음. `_delete_clone`에 자식 행(segment/translation/sttblob) 삭제 후 명시적 `session.flush()`를 넣어 부모 job 삭제 순서를 고정.
+Root cause note: 로컬 E2E(clone_smoke)는 SQLite — FK 미강제라 통과해 왔음. FK가 걸린 삭제 검증은 PG에서 해야 함(교훈).
+Validation: 운영 PG에 전용 테스트 키로 입장(reset)×3 연속 성공 후 테스트 클론 정리. 사용자 잔여 클론은 다음 입장 때 정상 리셋됨.
+
 ## v0.8.6 — 2026-07-15 (시각 큐 튜토리얼 영상 교체 + 테마 연동 코스 커버)
 
 ### CHG-20260715-026 — FEAT/DATA — 재렌더 영상 6개 교체 + 커버 테마 적응
