@@ -1354,7 +1354,8 @@ const COURSES: TourCourse[] = [
         body: (
           <>
             <K c="Shift" />+<K c="Tab" /> 또는 <K c="Ctrl" />+<K c="←" /> 를 눌러보세요.
-            3초 뒤로 갑니다.
+            3초 뒤로 갑니다. (글자를 고치는 중일 땐 <K c="Ctrl" />+<K c="←" />가
+            커서 이동이 돼요 — 그럴 땐 <K c="Shift" />+<K c="Tab" />)
           </>
         ),
         on: "seek-back",
@@ -1933,6 +1934,11 @@ export function Editor({
       }
       play();
     } else if (at !== null && at > 0) {
+      // 재생 조작·버튼 단계: 글 상자에 커서가 남아 있으면 Ctrl+화살표 같은
+      // 키가 글자 이동으로 먹혀버린다 — 편집 단계가 아니니 포커스를 풀어
+      // 배우는 키가 바로 듣게 한다 (4차 파일럿)
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && (ae.tagName === "TEXTAREA" || ae.tagName === "INPUT")) ae.blur();
       tourPausedRef.current = true;
       pause();
     }
