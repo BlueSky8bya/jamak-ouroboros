@@ -31,6 +31,7 @@ import type { QcReport, SpellSuggestion, WordTime } from "./api";
 import { Dropdown } from "./Dropdown";
 import { ThemeToggle } from "./theme";
 import { Tour, type TourStep } from "./Tour";
+import { TUTORIAL_CHECKPOINTS } from "./tutorialSync";
 import { TranslateReview } from "./TranslateReview";
 import type { Segment } from "./types";
 import { usePlayer } from "./usePlayer";
@@ -1330,6 +1331,14 @@ const COURSES: TourCourse[] = [
         on: "seek-back",
       },
       {
+        // 나레이션 순서와 일치 (체크포인트 동기화): 배속은 "그래도 빠르면
+        // 느리게" 대사 직후 — 3초 뒤로 다음, 건너뛰기 전
+        target: ".pc-speed",
+        title: "빠른 말은 천천히",
+        body: <>여기서 <b>0.75×</b>를 눌러보세요. 말이 빠른 구간은 느리게 들어요.</>,
+        on: "rate",
+      },
+      {
         target: ".play-controls",
         title: "3초 앞으로",
         body: (
@@ -1359,12 +1368,6 @@ const COURSES: TourCourse[] = [
           </>
         ),
         on: "replay",
-      },
-      {
-        target: ".pc-speed",
-        title: "빠른 말은 천천히",
-        body: <>여기서 <b>0.75×</b>를 눌러보세요. 말이 빠른 구간은 느리게 들어요.</>,
-        on: "rate",
       },
       {
         target: ".pc-toggle-loop",
@@ -1407,30 +1410,9 @@ const COURSES: TourCourse[] = [
     icon: "3️⃣",
     title: "빠르게 훑기 — 멈추지 않는 검수",
     desc: "멈춤 끄기 · 따라가기 조절 · 안심 일괄확인 · 찾기·바꾸기",
+    // 나레이션 순서와 일치 (체크포인트 동기화): 안심 확인 → 찾기·바꾸기 →
+    // 멈춤 끄기 → 따라가기 → 미확인 이동
     steps: [
-      {
-        target: ".pc-toggle-pause",
-        title: "'편집 시작 시 멈춤' 끄기",
-        body: (
-          <>
-            이 체크를 <b>꺼보세요</b>(<K c="Alt" />+<K c="S" />). 끄면 자막 칸을 눌러도
-            영상이 계속 흘러요 — <b>들으면서 바로바로</b> 고칠 때 좋아요. 차분히 볼 땐
-            다시 켜세요.
-          </>
-        ),
-        on: "pausetype",
-      },
-      {
-        target: ".pc-toggle-follow",
-        title: "'자동 따라가기'는 언제 끄나",
-        body: (
-          <>
-            한 번 <b>껐다 켜보세요</b>. <b>켜기</b>: 쭉 들으며 확인할 때(화면이 알아서
-            따라옴). <b>끄기</b>: 한 자막을 붙잡고 오래 고칠 때(화면이 안 움직여서 편함).
-          </>
-        ),
-        on: "follow",
-      },
       {
         target: ".tool-safe",
         title: "쉬운 자막은 한꺼번에 — 안심 확인",
@@ -1453,6 +1435,29 @@ const COURSES: TourCourse[] = [
           </>
         ),
         on: "find",
+      },
+      {
+        target: ".pc-toggle-pause",
+        title: "'편집 시작 시 멈춤' 끄기",
+        body: (
+          <>
+            이 체크를 <b>꺼보세요</b>(<K c="Alt" />+<K c="S" />). 끄면 자막 칸을 눌러도
+            영상이 계속 흘러요 — <b>들으면서 바로바로</b> 고칠 때 좋아요. 차분히 볼 땐
+            다시 켜세요.
+          </>
+        ),
+        on: "pausetype",
+      },
+      {
+        target: ".pc-toggle-follow",
+        title: "'자동 따라가기'는 언제 끄나",
+        body: (
+          <>
+            한 번 <b>껐다 켜보세요</b>. <b>켜기</b>: 쭉 들으며 확인할 때(화면이 알아서
+            따라옴). <b>끄기</b>: 한 자막을 붙잡고 오래 고칠 때(화면이 안 움직여서 편함).
+          </>
+        ),
+        on: "follow",
       },
       {
         target: ".flow-hero",
@@ -1504,16 +1509,7 @@ const COURSES: TourCourse[] = [
         missingHint: "자막 글을 눌러 고치기 칸이 열려 있어야 해요.",
         on: "split",
       },
-      {
-        target: ".undo-mini",
-        title: "연습이니까 되돌려요",
-        body: (
-          <>
-            <K c="Alt" />+<K c="Z" /> (또는 ↶) — 방금 나눈 게 도로 붙어요.
-          </>
-        ),
-        on: "undo",
-      },
+      // 나레이션 순서와 일치 (체크포인트 동기화): 나누기 → 합치기 → 되돌리기 2번
       {
         target: ".row.focused",
         title: "너무 잘게 나뉘었으면 — 합치기",
@@ -1528,10 +1524,21 @@ const COURSES: TourCourse[] = [
       },
       {
         target: ".undo-mini",
-        title: "이것도 되돌려요",
+        title: "연습이니까 되돌려요",
         body: (
           <>
-            <K c="Alt" />+<K c="Z" /> — 합친 게 도로 나뉘어요.
+            <K c="Alt" />+<K c="Z" /> (또는 ↶) — 방금 합친 게 도로 나뉘어요.
+          </>
+        ),
+        on: "undo",
+      },
+      {
+        target: ".undo-mini",
+        title: "한 번 더 — 나눈 것도 복구",
+        body: (
+          <>
+            <K c="Alt" />+<K c="Z" /> 한 번 더 — 아까 나눈 것도 도로 붙어요. 무엇을
+            하든 이걸로 되돌아가요.
           </>
         ),
         on: "undo",
@@ -1620,17 +1627,7 @@ const COURSES: TourCourse[] = [
         missingHint: "자막 글을 누르면 아래에 시간 도구가 나와요.",
         on: "set-times",
       },
-      {
-        target: ".timing-strip",
-        title: "타임라인 손잡이 끌기",
-        body: (
-          <>
-            여기 타임라인의 <b>밝은 손잡이를 좌우로 끌어보세요</b> — 자막의 시작/끝이
-            따라 움직여요. 미세조정은 이걸로.
-          </>
-        ),
-        on: "edge-drag",
-      },
+      // 나레이션 순서와 일치 (체크포인트 동기화): 무음 다듬기 → 타임라인 끌기
       {
         target: ".tool-tighten",
         title: "무음 다듬기",
@@ -1641,6 +1638,17 @@ const COURSES: TourCourse[] = [
           </>
         ),
         on: "tighten",
+      },
+      {
+        target: ".timing-strip",
+        title: "타임라인 손잡이 끌기",
+        body: (
+          <>
+            여기 타임라인의 <b>밝은 손잡이를 좌우로 끌어보세요</b> — 자막의 시작/끝이
+            따라 움직여요. 미세조정은 이걸로.
+          </>
+        ),
+        on: "edge-drag",
       },
       {
         target: null,
@@ -1807,13 +1815,59 @@ export function Editor({
   const [tourMenu, setTourMenu] = useState(false);
   const tourRef = useRef<typeof tour>(null);
   tourRef.current = tour;
+  // [WH-CHANGE v0.9.0 | FEAT | 2026-07-15 | CHG-20260715-031]
+  // Reason: 연습 영상(나레이션)과 투어(말풍선)가 서로 모르는 두 타임라인이라
+  //   지시가 엇갈리고, 영상이 계속 흘러 하이라이트가 대상을 지나치면 누를 곳이
+  //   사라졌음 (사용자: 어르신용으로 최악). 체크포인트 동기화(옵션 B, 사용자
+  //   확정): 나레이션이 "직접 해보세요"를 마치는 시각에 영상을 자동 일시정지
+  //   하고 그때만 말풍선을 띄운다. 수행하면 자동 재개 — 선생은 영상 하나,
+  //   앱은 멈추고 확인하는 조교.
+  // Related: ACTIVE_PLAN 2026-07-15 / tutorialSync.ts / CHG-20260715-031.
+  const tourMaxTimeRef = useRef(0); // 코스 시작 후 최대 재생 시각 (되감기 방어)
+  const tourPausedRef = useRef(false); // 체크포인트 때문에 우리가 멈춘 상태인가
+  const tourFiredRef = useRef(-1); // 일시정지를 이미 실행한 단계 index
+  const [tourGate, setTourGate] = useState(true); // 현재 단계 말풍선 표시 여부
+
+  /** 이 단계의 체크포인트 시각(초). null = 동기화 없음(항상 표시). */
+  function stepCheckpoint(t: { course: number; step: number }): number | null {
+    if (!practice) return null; // 실제 영상 투어는 기존 동작 그대로
+    const at = TUTORIAL_CHECKPOINTS[COURSES[t.course].id]?.[t.step];
+    return typeof at === "number" ? at : null;
+  }
+  function tourGateOpen(t: { course: number; step: number }): boolean {
+    const at = stepCheckpoint(t);
+    return at === null || tourMaxTimeRef.current >= at;
+  }
+  /** 단계 통과 직후: 다음 체크포인트가 앞이면 영상 재개, 이미 지났으면(연쇄
+   *  단계) 멈춘 채 다음 말풍선을 바로 연다. */
+  function afterTourAdvance(next: { course: number; step: number } | null) {
+    if (next === null || next.step >= COURSES[next.course].steps.length) {
+      tourPausedRef.current = false;
+      return;
+    }
+    if (tourGateOpen(next)) {
+      tourFiredRef.current = next.step; // 재일시정지 생략 (이미 멈춰 있음)
+      setTourGate(true);
+    } else {
+      setTourGate(false);
+      if (tourPausedRef.current) {
+        tourPausedRef.current = false;
+        play();
+      }
+    }
+  }
   /** an instrumented action happened — advance if it's what the step waits for */
   function tourEvent(name: string) {
     const t = tourRef.current;
     if (!t) return;
     const step = COURSES[t.course].steps[t.step];
     if (step?.on !== name) return;
-    setTour({ course: t.course, step: t.step + 1 });
+    // 동기화 코스에선 영상이 시키기 전(말풍선 없음)의 행동은 세지 않는다 —
+    // 단계가 소리 없이 넘어가면 나레이션과 다시 어긋난다
+    if (!tourGateOpen(t)) return;
+    const next = { course: t.course, step: t.step + 1 };
+    setTour(next);
+    afterTourAdvance(next);
   }
   function courseDone(id: string): boolean {
     // legacy: jamak.tourDone was the old single-course flag → counts as basic
@@ -1831,12 +1885,17 @@ export function Editor({
     const t = tourRef.current;
     if (markDone && t)
       localStorage.setItem(`jamak.tour.${COURSES[t.course].id}`, "1");
+    tourPausedRef.current = false;
     setTour(null);
   }
   function startCourse(i: number) {
     setTourMenu(false);
     setMode("text"); // 모든 코스는 내용 모드에서 출발 (타이밍 코스는 탭 전환부터 가르침)
+    tourMaxTimeRef.current = 0;
+    tourPausedRef.current = false;
+    tourFiredRef.current = -1;
     setTour({ course: i, step: 0 });
+    setTourGate(tourGateOpen({ course: i, step: 0 }));
   }
   // 전용 연습 영상 딥링크: App이 영상 전환과 함께 넘긴 코스를, 세그먼트가
   // 로드된 뒤 자동 시작. nonce 기억으로 재실행 오발 방지 (일회성 소비).
@@ -1876,14 +1935,17 @@ export function Editor({
     }
   }
   function skipTourStep() {
-    setTour((t) => {
-      if (!t) return null;
-      if (t.step >= COURSES[t.course].steps.length - 1) {
-        localStorage.setItem(`jamak.tour.${COURSES[t.course].id}`, "1");
-        return null;
-      }
-      return { course: t.course, step: t.step + 1 };
-    });
+    const t = tourRef.current;
+    if (!t) return;
+    if (t.step >= COURSES[t.course].steps.length - 1) {
+      localStorage.setItem(`jamak.tour.${COURSES[t.course].id}`, "1");
+      tourPausedRef.current = false;
+      setTour(null);
+      return;
+    }
+    const next = { course: t.course, step: t.step + 1 };
+    setTour(next);
+    afterTourAdvance(next);
   }
   // 내보내기 전 점검 모달 (QC + 선택적 AI 맞춤법). null = closed.
   const [qcModal, setQcModal] = useState<null | {
@@ -1920,6 +1982,32 @@ export function Editor({
   const ytVideoId = videoId.split("~")[0];
   const { currentTime, playing, rate, setRate, seekTo, seekBy, play, pause, playPause } =
     usePlayer(ytVideoId, dragFreezeRef);
+
+  // 체크포인트 감시: 나레이션이 지시를 마친 시각에 영상을 멈추고 말풍선을 연다
+  // (usePlayer 아래 위치 필수 — currentTime/pause 사용)
+  useEffect(() => {
+    if (!tour) return;
+    if (currentTime > tourMaxTimeRef.current) tourMaxTimeRef.current = currentTime;
+    const at = stepCheckpoint(tour);
+    if (at === null) {
+      setTourGate(true);
+      return;
+    }
+    if (tourMaxTimeRef.current < at) {
+      setTourGate(false);
+      return;
+    }
+    setTourGate(true);
+    if (tourFiredRef.current !== tour.step) {
+      tourFiredRef.current = tour.step;
+      const isFinal = !!COURSES[tour.course].steps[tour.step]?.final;
+      if (!isFinal && at > 0) {
+        tourPausedRef.current = true;
+        pause(); // Tour가 대상 scrollIntoView는 알아서 함
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTime, tour, practice]);
 
   const rowsRef = useRef(new Map<number, RowHandle>());
   const focusedIdRef = useRef<number | null>(null);
@@ -2168,10 +2256,14 @@ export function Editor({
       ),
     [segments],
   );
-  // 따라하기 자동 시작: 첫 에디터 방문(기본기 미완료) + 내용 모드 + 자막 있는 트랙
+  // 따라하기 자동 시작: 첫 에디터 방문(기본기 미완료) + 내용 모드 + 자막 있는 트랙.
+  // 코스 딥링크(pendingCourse)가 있으면 그쪽이 우선 — 같은 커밋에서 이 effect의
+  // tour===null 가드는 startCourse의 setTour를 못 보고 basic으로 덮어썼다
+  // (기본기 미완료 신규 사용자가 연습 2~6에 들어가면 엉뚱한 투어가 뜨던 버그).
   useEffect(() => {
     if (
       tour === null &&
+      !pendingCourse &&
       segments.length > 0 &&
       (isKo || forked) &&
       mode === "text" &&
@@ -3859,8 +3951,9 @@ export function Editor({
           </button>
         </div>
       )}
-      {/* 따라하기 투어 — 실제 컨트롤을 하나씩 밝혀 직접 해보게 함 */}
-      {tour !== null && (
+      {/* 따라하기 투어 — 실제 컨트롤을 하나씩 밝혀 직접 해보게 함.
+          동기화 코스에선 나레이션이 지시를 마친 순간에만 뜬다 (체크포인트). */}
+      {tour !== null && tourGate && (
         <Tour
           steps={COURSES[tour.course].steps}
           step={tour.step}
@@ -3868,6 +3961,15 @@ export function Editor({
           onSkipStep={skipTourStep}
           onFinish={() => endTour(true)}
         />
+      )}
+      {/* 체크포인트 대기 중: 영상이 선생 — 화면은 자유, 작은 안내만 */}
+      {tour !== null && !tourGate && (
+        <div className="tour-wait">
+          <span>
+            🎓 {tour.step + 1}단계 준비 중 — <b>영상 설명을 따라가세요</b>
+          </span>
+          <button onClick={() => endTour(false)}>그만두기</button>
+        </div>
       )}
       {/* 🎓 코스 선택 메뉴 */}
       {tourMenu && (

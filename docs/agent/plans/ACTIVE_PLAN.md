@@ -1,53 +1,50 @@
-# ACTIVE PLAN — 검수 모드 분리 + 자동 타이밍 (2026-07-13, ADR-0009)
+# ACTIVE PLAN — 연습 체크포인트 동기화 (옵션 B)
 
-Status: Done (2026-07-13) — 전 항목 구현·검증 완료 (흘려듣기 실재생·YT 연동은 DELEGATED)
-Started: 2026-07-13
-Owner: User(방향) + Agent(구현)
+Status: Done (2026-07-15) — 전 항목 구현·실브라우저 E2E 검증 (실재생 체크포인트 일시정지·수행 후 자동 재개·연쇄 게이트 실측; 남은 것은 사용자 실사용 확인)
+Risk: L2 (연습 UX 핵심 경로 변경; 파이프라인 정확도 무관)
+Decision: 사용자 확정 2026-07-15 — "B. 체크포인트 동기화" (AskUserQuestion)
 
-(이전 플랜 = 동시편집 안전화·반응성, 완료 → plans/completed/ 또는 git 이력.)
+(이전 플랜 "검수 모드 분리 + 자동 타이밍" = Done 2026-07-13, git 이력 참조.)
 
-## 배경
+## 문제
 
-텍스트 검수 중 타이밍 UI가 "지금 고쳐야 하나?" 불안 유발. 검수자에 고령자 많음
-→ 화면 최소·큰 버튼·항상 되돌리기. 설계 결정은 ADR-0009.
+연습 영상(나레이션)과 앱 투어(말풍선)가 서로 모르는 두 타임라인로 진행:
+1. 순서 불일치 — 코스 2·3·4·5는 투어 단계 순서 ≠ 나레이션 지시 순서 (예: 영상은
+   배속→건너뛰기, 투어는 건너뛰기→배속).
+2. 타이밍 불일치 — 영상은 계속 흐르고 투어는 사용자 행동 대기 → 카라오케
+   하이라이트가 대상 행을 지나쳐 스크롤 아웃 → 누를 대상 소멸(막다른 골목).
 
-## 단계
+## 설계
 
-### A. 백엔드 (db.py, app.py, pipeline/retime.py 신규)
-- [x] `Segment.review_flag: str = ""` + `_ensure_columns` additive ("hold" 단일값)
-- [x] `SegmentUpdate`/`SegmentSnapshot`/`restore_rows`에 review_flag 반영
-      (undo가 플래그를 지우지 않게)
-- [x] update_segment: reviewed=True 저장 시 review_flag 자동 해제
-- [x] `pipeline/retime.py`: 순수 함수 — 단어 스트림 + 세그먼트 → (스냅된 시간,
-      분할 계획). 발화 스냅(tighten 로직) + >17cps 또는 >7s 자막을 내부 최대
-      침묵 지점에서 분할(공백 스냅 char-split, 재귀). reviewed/review_flag 보존.
-- [x] `POST /api/jobs/{video_id}/auto-timing`: absorb 먼저 → retime 적용(기존
-      split 시맨틱: machine 텍스트 왼쪽, Translation은 원 행 유지+stale) →
-      idx 재정규화 → `{changed, created_ids, before, tightened, split_count}`
-      반환 (클라 undo용 before-rows 포함)
+한 선생(영상 목소리) + 조교(앱) 모델:
+- **체크포인트** = 나레이션이 "직접 해보세요"를 마치는 시각 (timing.json 대사 end).
+  `tutorialSync.ts`: course id → step index별 체크포인트 초(또는 null).
+- 체크포인트 도달 전: 말풍선/딤 숨김 — 사용자는 영상만 본다.
+- 도달: 영상 **자동 일시정지**(final 단계 제외) + 말풍선/스포트라이트 등장
+  (Tour 컴포넌트가 대상 scrollIntoView 기존 동작 재사용).
+- 사용자가 실제 행동 수행(tourEvent) → 다음 단계로 → 다음 체크포인트가 아직
+  앞이면 영상 **자동 재개**, 이미 지났으면(연쇄 단계) 정지 유지·다음 말풍선 즉시.
+- 행동 이벤트는 말풍선 떠 있을 때만 인정 (미리 눌러버려서 단계가 조용히
+  넘어가는 혼란 방지). '건너뛰기'도 동일한 재개 규칙.
+- 되감기 방어: maxTime 단조 증가 기준(한 번 열린 게이트는 닫히지 않음).
+- 코스 2·3·4·5 단계 순서를 나레이션 순서로 재배열 (내용 동일, 순서만).
+  structure의 undo 2연타는 합치기→나누기 역순 되돌리기로 본문 수정.
 
-### B. 프론트 Editor.tsx (+types.ts, api.ts, styles)
-- [x] mode: "text" | "timing" — 기본값 파생(ko_complete/timing_done), 큰 탭 2개
-- [x] 내용 모드: Row 간소 렌더(시간 필드·nudge·타이밍 도구·구조 버튼·⏩빠름
-      숨김), TimingStrip·무음다듬기·타이밍완료 체크 숨김
-- [x] 🙉 잘 안 들림 버튼(행 + 단축키 Alt+H): review_flag 토글 + 다음 미검수·
-      미보류로 이동. 행 배지. 확인 시 해제. 히어로에 "보류 N개" + 보류만 순회
-      버튼(0.75×+구간반복 프리셋)
-- [x] 흘려듣기: 내용 모드 토글(기본 ON, localStorage) — active 행 중앙 스크롤,
-      입력칸 밖 Enter=현재 자막 확인(재생 유지)
-- [x] 타이밍 모드: 문제 자막(⏩빠름·0.35s 미만·7s 초과) 카운트 + "다음 문제 →"
-      순회
-- [x] ✨ 타이밍 자동 정리 버튼(타이밍 모드) + 확인 모달 + 응답 before로
-      pushOpUndo → Alt+Z 되돌리기
-- [x] nextWorkTarget: 보류 행은 뒤로 미룸(미검수·미보류 우선)
+## 범위
 
-### C. 검증 (실 DB 금지 — scratch SQLite: DATABASE_URL=sqlite:///<scratch>)
-- [x] `npm run build` + `uv run python -c "import jamak.web.app"`
-- [x] 마이그레이션 스모크: 기존 스키마 DB 복사본 부트 → review_flag 추가·행 보존
-- [x] auto-timing API 스모크: 합성 job(세그먼트+SttBlob) → 분할 수/reviewed
-      보존/translation 행 보존/idx dense 확인 + restore-rows로 원복
-- [x] 브라우저: 모드 탭, 내용 모드 간소화, 잘 안 들림 플로우, 자동 정리+undo
+- `tutorialSync.ts` (신규): TUTORIAL_CHECKPOINTS 테이블 (out/practice-N/timing.json
+  대사 end + 0.15s 수동 대조 — 빌드 산출물이 바뀌면 같이 갱신해야 함).
+- `Editor.tsx`: COURSES 재배열, 체크포인트 엔진 effect, tourEvent/skip 게이트+재개,
+  startCourse 리셋.
+- 영상/나레이션/서버 변경 없음.
 
-### D. 마무리
-- [x] WH-CHANGE 주석, CHANGELOG_AGENT(CHG-20260713-006~), CURRENT_STATE 갱신
-- [x] 커밋·푸시, 배포 SHA 보고
+## 검증
+
+- 빌드 클린 + 체크포인트 테이블이 timing.json 대사와 1:1 대조되는 스크립트 확인.
+- 실브라우저: 연습 1 진입 → 재생 → 50.3s 체크포인트에서 (a) 플레이어 paused,
+  (b) 말풍선 표시, (c) Enter 수행 시 재생 재개를 JS로 실측. (YT iframe 재생이
+  막히는 환경이면 NOT VERIFIED로 보고하고 사용자 실사용 확인으로 위임.)
+
+## 완료 기준
+
+6개 코스 모두 체크포인트 테이블 보유, 빌드·배포, CURRENT_STATE/CHANGELOG 기록.
