@@ -61,6 +61,32 @@ def _normalize(text: str) -> str:
     return re.sub(r"[^\w가-힣]", "", text)
 
 
+_SINO = "영일이삼사오육칠팔구"
+
+
+def _num_to_hangul(m: re.Match) -> str:
+    # 1-4자리 숫자 -> 한자어 수사 (100 -> 백, 12 -> 십이, 2026 -> 이천이십육).
+    # whisper는 한글 수사, 유튜브 자동자막은 아라비아 숫자를 쓰는 일이 많아
+    # 같은 발화가 다른 문자열이 된다 — 에코 비교 전에 한쪽으로 접는다.
+    n = int(m.group())
+    if n == 0:
+        return "영"
+    out = []
+    for unit, name in ((1000, "천"), (100, "백"), (10, "십")):
+        d = n // unit
+        n %= unit
+        if d:
+            out.append(("" if d == 1 else _SINO[d]) + name)
+    if n:
+        out.append(_SINO[n])
+    return "".join(out)
+
+
+def _normalize_echo(text: str) -> str:
+    """에코 가드 전용: 일반 정규화 + 숫자를 한자어 수사로 통일."""
+    return _normalize(re.sub(r"\d{1,4}", _num_to_hangul, text))
+
+
 LOW_CONF_PROB = 0.55  # whisper word-probability below this = flag as suspect
 
 
@@ -143,12 +169,26 @@ def youtube_gap_rows(
             else:
                 break
         if prev is not None:
-            prev_text = _normalize(
+            # [WH-CHANGE v0.9.12 | FIX | 2026-07-15 | CHG-20260715-036]
+            # Reason: whisper는 한글 수사(백도·열두), 유튜브 자막은 숫자(100도·
+            #   12도)를 써서 같은 발화의 에코가 유사도 문턱(85)을 통과했음
+            #   (연습 3에서 유령 2행). 비교 전에 숫자를 수사로 접고, 이전 행
+            #   "안"에서 시작하는 후보(겹침 = 롤링 자막 꼬리)는 문턱 65로 검사.
+            # Related: CHANGELOG CHG-20260715-036.
+            prev_text = _normalize_echo(
                 prev.get("text_llm") or prev.get("text_whisper") or ""
             )
-            cand = _normalize(t)
+            cand = _normalize_echo(t)
             if cand and cand in prev_text:
                 continue  # echo of the sentence that just ended — ghost line
+            overlap_prev = s < prev["end"] - 0.2  # 이전 행 도중에 뜬 꼬리 자막
+            if (
+                cand
+                and len(prev_text) >= 6
+                and overlap_prev
+                and fuzz.partial_ratio(cand, prev_text) >= 65
+            ):
+                continue
             # [WH-CHANGE v0.8.7 | FIX | 2026-07-15 | CHG-20260715-028]
             # Reason: 재렌더 연습 영상에서 에코가 다시 뚫림 — ① STT 오타
             #   ('다듭'≠'다듬')가 정확 부분문자열 매칭을 깨고, ② 꼬리 자막이
