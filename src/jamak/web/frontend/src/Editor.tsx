@@ -1017,6 +1017,39 @@ function Row({
             {seg.review_flag === "hold" ? "🙉 보류 해제" : "🙉 잘 안 들림"}
           </button>
         )}
+        {textMode && focused && (
+          // 모바일 전용 (CSS로 데스크톱에선 숨김): 키보드 단축키의 터치 대체.
+          // 데스크톱 내용 모드는 ADR-0009대로 구조 도구를 숨긴 채 유지.
+          <span className="structure structure-mobile">
+            <button
+              title="텍스트 커서 위치에서 자막을 둘로 나누기"
+              onClick={() => {
+                void flush().then(() =>
+                  onStructure("split", seg, taRef.current?.selectionStart ?? 0),
+                );
+              }}
+            >
+              ✂ 나누기
+            </button>
+            <button
+              title="아래 자막과 합치기"
+              onClick={() => {
+                void flush().then(() => onStructure("merge", seg));
+              }}
+            >
+              ⇣ 합치기
+            </button>
+            <button
+              className="danger"
+              title="이 자막을 지움 (되돌리기 가능)"
+              onClick={() => {
+                void flush().then(() => onStructure("delete", seg));
+              }}
+            >
+              ✕
+            </button>
+          </span>
+        )}
         {focused && !textMode && (
         <>
         <span className="timing-tools">
@@ -3690,6 +3723,14 @@ export function Editor({
             }
           >
             🙉
+          </button>
+          <button
+            className="mb-btn"
+            title="방금 한 일 되돌리기 (Alt+Z와 동일)"
+            disabled={undoStack.length === 0}
+            onClick={() => void undoLast()}
+          >
+            ↶
           </button>
           <button
             className="mb-btn mb-confirm"

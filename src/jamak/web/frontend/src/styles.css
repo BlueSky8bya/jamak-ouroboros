@@ -3920,6 +3920,7 @@ kbd {
    하단 액션 바(엄지 영역 — 햄버거 대신 고정 바가 고령자 표준), safe-area
    inset(노치·홈바). PWA 설치는 manifest.webmanifest + 아이콘. */
 .mobile-bar { display: none; }
+.structure-mobile { display: none; } /* 터치 전용 — 모바일 블록에서만 켜짐 */
 
 @media (max-width: 700px) {
   /* 좌 패널 해체 -> 세로 흐름: 영상(스티키) -> 재생 줄 -> 자막 목록 ->
@@ -4017,4 +4018,27 @@ kbd {
 
   /* 미리보기 모드: 모바일에선 스티키 영상이 곧 극장 — 그리드 강제 해제 */
   .editor.preview { grid-template-columns: none; }
+
+  /* 터치 편집: 포커스 행에 나누기·합치기·지우기 (키보드 단축키 대체).
+     데스크톱 내용 모드는 ADR-0009대로 구조 도구 숨김 유지 — 모바일만 표시 */
+  .structure-mobile {
+    display: flex !important;
+    gap: 8px;
+    margin-left: auto;
+  }
+  .structure-mobile button {
+    min-height: 42px;
+    padding: 6px 12px;
+    font-size: 14px;
+    border-radius: 10px;
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    color: var(--text);
+  }
+  .structure-mobile button.danger { color: var(--red, #d33); }
+  .row-foot { flex-wrap: wrap; gap: 8px; }
+  .reviewed-check { min-height: 42px; font-size: 15px; }
+  .reviewed-check input { width: 22px; height: 22px; }
+  .hold-btn { min-height: 42px; font-size: 15px; }
+  .mb-btn:disabled { opacity: 0.45; }
 }
