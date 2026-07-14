@@ -173,13 +173,15 @@ function chipsFor(j: JobSummary, lang: string, proc?: QueueItem): Chip[] {
 }
 
 // 튜토리얼 탭의 코스 카드 순서·라벨 (id는 Editor COURSES와 동일 — 영구 불변 key)
+// 카드 커버는 유튜브 썸네일 대신 테마 연동 그라디언트로 그린다 — 영상
+// 썸네일(어두운 고정 이미지)이 화이트 모드와 충돌하지 않도록 (사용자 결정).
 const TUTORIAL_COURSES = [
-  { id: "basic", n: 1, title: "기본기", desc: "듣고, 확인하고, 고치기" },
-  { id: "playback", n: 2, title: "재생 다루기", desc: "키보드·버튼으로 영상 조종" },
-  { id: "fast", n: 3, title: "빠르게 훑기", desc: "멈추지 않는 검수 요령" },
-  { id: "structure", n: 4, title: "나누기·합치기", desc: "자막 모양 다듬기" },
-  { id: "timing", n: 5, title: "타이밍", desc: "자막 시간 맞추기" },
-  { id: "finish", n: 6, title: "마무리", desc: "미리보기·복구·내보내기" },
+  { id: "basic", n: 1, title: "기본기", desc: "듣고, 확인하고, 고치기", icon: "🎧", accent: "#4c8dff" },
+  { id: "playback", n: 2, title: "재생 다루기", desc: "키보드·버튼으로 영상 조종", icon: "⏯️", accent: "#9a6cf5" },
+  { id: "fast", n: 3, title: "빠르게 훑기", desc: "멈추지 않는 검수 요령", icon: "⚡", accent: "#ff8a3d" },
+  { id: "structure", n: 4, title: "나누기·합치기", desc: "자막 모양 다듬기", icon: "✂️", accent: "#2fbf8f" },
+  { id: "timing", n: 5, title: "타이밍", desc: "자막 시간 맞추기", icon: "⏱️", accent: "#f0b429" },
+  { id: "finish", n: 6, title: "마무리", desc: "미리보기·복구·내보내기", icon: "🏁", accent: "#e0568c" },
 ];
 
 function JobCard({
@@ -1144,16 +1146,14 @@ export function App() {
                   <button
                     className={"tut-card" + (vid ? "" : " off")}
                     disabled={!vid}
+                    style={{ "--tut-accent": c.accent } as React.CSSProperties}
                     onClick={() => vid && void openVideo(vid, "ko", c.id)}
                   >
                     <span className="tut-thumb">
-                      {vid && (
-                        <img
-                          src={`https://img.youtube.com/vi/${vid}/mqdefault.jpg`}
-                          alt=""
-                          loading="lazy"
-                        />
-                      )}
+                      <span className="tut-cover" aria-hidden="true">
+                        <span className="tut-cover-icon">{c.icon}</span>
+                        <span className="tut-cover-bignum">{c.n}</span>
+                      </span>
                       <span className="tut-num">연습 {c.n}</span>
                       {done && <span className="tut-done-badge">✓ 완료</span>}
                     </span>

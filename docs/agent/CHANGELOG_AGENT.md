@@ -1,5 +1,14 @@
 # Agent Change Log
 
+## v0.8.6 — 2026-07-15 (시각 큐 튜토리얼 영상 교체 + 테마 연동 코스 커버)
+
+### CHG-20260715-026 — FEAT/DATA — 재렌더 영상 6개 교체 + 커버 테마 적응
+Change:
+(a) **데이터 작업 (코드 아님)**: 시각 큐 재렌더판 6개(User 재업로드: lJppD218Lmo/6aMrjCU4heI/Qo09NS2e2-c/bu2Se03ni-8/ruviKyheqNY/rL_5E-1ZQBE)를 JobRequest 큐로 처리 → practice=True → 코스 1~6 재바인딩 + 결함 주입(basic 4·fast 2·timing 1). 구 영상 6개 자동 언바인딩(User가 유튜브에서 삭제).
+(b) **테마 연동 코스 커버**: 코스 카드가 유튜브 썸네일(어두운 고정 이미지 — 화이트 모드와 충돌, 업로드 직후 회색 placeholder) 대신 surface/bg 변수 기반 그라디언트 + 코스 아이콘 + 큰 번호로 자체 렌더. 카드별 `--tut-accent` 색 포인트. 다크/화이트 자동 적응.
+Known issue (승인 대기): 새 기준본 4개에 중복 자막 13행 — LLM 교정 규칙 9 위반(9) + 에코 가드 우회(4). `dup_fix_v2.py` 준비, 운영 DB 쓰기 승인 대기. 구 practice Job 6개 DB 정리도 동일.
+Validation: 바인딩·결함·언바인딩 스크립트 실측(verify_rebind.py). 커버는 실브라우저 양 테마 computed style 확인. 스크린샷은 Browser pane 렌더러 타임아웃으로 미확보.
+
 ## v0.8.5 — 2026-07-15 (에디터 상단·도구 정리 + 즉시 피드백 원칙 명문화)
 
 ### CHG-20260715-025 — FEAT/UX — 글씨 3단계·따라하기 버튼 제거·도구 그리드·도구 피드백

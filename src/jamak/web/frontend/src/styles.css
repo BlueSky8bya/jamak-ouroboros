@@ -3983,6 +3983,43 @@ kbd {
   object-fit: cover;
   display: block;
 }
+/* 테마 연동 코스 커버 — 어두운 고정 썸네일 대신 surface/bg 변수로 그려서
+   다크·화이트 모드 모두 자연스럽다. 색 포인트는 카드별 --tut-accent. */
+.tut-cover {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background:
+    radial-gradient(
+      120% 95% at 88% -12%,
+      color-mix(in srgb, var(--tut-accent, var(--blue)) 30%, transparent),
+      transparent 62%
+    ),
+    linear-gradient(
+      150deg,
+      color-mix(in srgb, var(--tut-accent, var(--blue)) 12%, var(--surface)),
+      color-mix(in srgb, var(--tut-accent, var(--blue)) 26%, var(--bg))
+    );
+}
+.tut-cover-icon {
+  font-size: 46px;
+  line-height: 1;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.22));
+}
+.tut-cover-bignum {
+  position: absolute;
+  right: 8px;
+  bottom: -18px;
+  font-size: 96px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: color-mix(in srgb, var(--tut-accent, var(--blue)) 45%, transparent);
+  user-select: none;
+}
 .tut-num {
   position: absolute;
   top: 8px;
