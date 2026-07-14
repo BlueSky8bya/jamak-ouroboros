@@ -31,7 +31,7 @@ import type { QcReport, SpellSuggestion, WordTime } from "./api";
 import { Dropdown } from "./Dropdown";
 import { ThemeToggle } from "./theme";
 import { Tour, type TourStep } from "./Tour";
-import { TUTORIAL_CHECKPOINTS } from "./tutorialSync";
+import { COURSE_PRESETS, TUTORIAL_CHECKPOINTS, TUTORIAL_DEFECT_WORDS } from "./tutorialSync";
 import { TranslateReview } from "./TranslateReview";
 import type { Segment } from "./types";
 import { usePlayer } from "./usePlayer";
@@ -764,6 +764,7 @@ function Row({
   return (
     <div
       ref={ref}
+      data-segid={seg.id}
       className={
         "row" +
         (active ? " active" : "") +
@@ -1232,36 +1233,53 @@ const COURSES: TourCourse[] = [
         on: "play",
       },
       {
+        // v2 흐름 확인: 영상이 멈춘 동안, 지금까지 나온 자막을 전부 확인해야
+        // 다음으로 — 말풍선이 다음 미확인 자막을 따라 내려간다 (untilTime)
         target: ".row:not(.collapsed)",
-        title: "자막을 듣고, 맞으면 Enter",
+        title: "위에서부터 차례로 Enter",
         body: (
           <>
-            자막 줄 왼쪽의 작은 <b>▶</b>를 누르면 그 자막부터 들려드려요. 말과 글이
-            맞으면 <K c="Enter" /> — 확인 ✓ 되고 다음으로 넘어가요.
+            말과 자막이 맞으면 <K c="Enter" /> — 확인 ✓ 되고 다음 자막으로 내려가요.
+            <b> 방금 나온 자막을 모두 확인하면</b> 영상이 이어져요.
           </>
         ),
         missingHint: "확인 안 된 자막이 남아 있어야 진행돼요.",
         on: "confirm",
+        untilTime: true,
       },
       {
         target: ".row:not(.collapsed) .read-text",
-        title: "글자가 틀렸으면? 글을 누르세요",
+        targetDefect: true,
+        title: "여기, 글자가 달라요",
         body: (
           <>
-            고치고 싶은 <b>자막 글을 한 번 눌러보세요</b>. 고칠 수 있는 칸으로 바뀌어요.
-            (고친 뒤에도 <K c="Enter" />면 확인+다음)
+            이 자막에 <b>틀린 글자</b>가 심어져 있어요. 실제 들린 말과 비교해 보세요.
+            <b> 자막 글을 한 번 누르면</b> 고칠 수 있는 칸이 열려요.
           </>
         ),
         missingHint: "확인 안 된 자막이 남아 있으면 여기 글이 보여요.",
         on: "open-row",
       },
       {
+        target: ".row.focused",
+        targetDefect: true,
+        title: "들린 대로 고치고 Enter",
+        body: (
+          <>
+            틀린 낱말을 <b>실제 들린 말로 고친 다음</b> <K c="Enter" /> — 확인되고
+            영상이 이어져요. (다른 자막에도 틀린 글자가 몇 개 더 숨어 있어요)
+          </>
+        ),
+        missingHint: "자막 글을 눌러 고치기 칸을 먼저 여세요.",
+        on: "confirm",
+      },
+      {
         target: ".hold-btn",
         title: "잘 안 들리면 🙉",
         body: (
           <>
-            지금은 못 정하겠으면 <b>🙉 잘 안 들림</b>을 눌러보세요. 건너뛰고 나중에
-            <b> 느리게</b> 다시 들려드려요.
+            방금 웅얼거린 자막처럼 못 정하겠으면 <b>그 자막 글을 누르고 🙉 잘 안
+            들림</b>을 눌러보세요. 건너뛰고 나중에 <b>느리게</b> 다시 들려드려요.
           </>
         ),
         missingHint: "자막 글을 누르면 그 자막 아래에 🙉 버튼이 나와요.",
@@ -1799,7 +1817,12 @@ export function Editor({
   // 흘려듣기: video keeps playing, the active cue follows centered, Enter (outside
   // a text box) confirms it — passive listening for long lectures
   const [follow, setFollow] = useState(() => localStorage.getItem("jamak.follow") !== "0");
-  useEffect(() => localStorage.setItem("jamak.follow", follow ? "1" : "0"), [follow]);
+  // 연습 코스 프리셋이 강제한 값이 실제 작업의 저장된 선호를 덮어쓰지 않게,
+  // 연습 영상에서는 저장하지 않는다
+  useEffect(() => {
+    if (!practice) localStorage.setItem("jamak.follow", follow ? "1" : "0");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [follow]);
   // 큰 글씨 (고령 검수자): 자막 글자·주요 버튼 확대. 세션 간 유지.
   // 글씨 크기 3단계 (보통/크게/최대) — 구 bigtype("1")은 1단계로 승계
   const [fontScale, setFontScale] = useState(() => {
@@ -1865,6 +1888,9 @@ export function Editor({
     // 동기화 코스에선 영상이 시키기 전(말풍선 없음)의 행동은 세지 않는다 —
     // 단계가 소리 없이 넘어가면 나레이션과 다시 어긋난다
     if (!tourGateOpen(t)) return;
+    // 흐름 확인 단계는 개별 confirm으로 넘어가지 않는다 — "체크포인트까지
+    // 나온 자막 전부 확인" 판정 effect(tourRemain)가 진행을 소유
+    if (step.untilTime) return;
     const next = { course: t.course, step: t.step + 1 };
     setTour(next);
     afterTourAdvance(next);
@@ -1891,11 +1917,57 @@ export function Editor({
   function startCourse(i: number) {
     setTourMenu(false);
     setMode("text"); // 모든 코스는 내용 모드에서 출발 (타이밍 코스는 탭 전환부터 가르침)
+    // 코스 프리셋: 이전 저장값·디폴트가 연습 목표를 방해하지 않게 재생 설정을
+    // 코스에 맞게 강제 (사용자 결정 2026-07-15 — 나레이션이 이 상태를 설명함)
+    const preset = practice ? COURSE_PRESETS[COURSES[i].id] : undefined;
+    if (preset) {
+      setPauseOnType(preset.pauseOnType);
+      setFollow(preset.follow);
+      setLoopSeg(false);
+      setShowPreview(false);
+    }
     tourMaxTimeRef.current = 0;
     tourPausedRef.current = false;
     tourFiredRef.current = -1;
     setTour({ course: i, step: 0 });
     setTourGate(tourGateOpen({ course: i, step: 0 }));
+  }
+  // 흐름 확인 단계(untilTime): 체크포인트 시각보다 먼저 시작한 자막 중 아직
+  // 확인도 보류도 안 된 것의 수 — 0이 되면 자동 진행, 말풍선에 남은 수 표시
+  const tourRemain = useMemo(() => {
+    if (!tour) return null;
+    const step = COURSES[tour.course].steps[tour.step];
+    if (!step?.untilTime) return null;
+    const at = stepCheckpoint(tour) ?? Infinity;
+    return segments.filter(
+      (s) => s.start < at && !s.reviewed && s.review_flag !== "hold",
+    ).length;
+  }, [segments, tour]);
+  useEffect(() => {
+    const t = tourRef.current;
+    if (t === null || tourRemain === null || tourRemain > 0) return;
+    if (!tourGateOpen(t)) return;
+    const next = { course: t.course, step: t.step + 1 };
+    setTour(next);
+    afterTourAdvance(next);
+    // tourGate 포함: 체크포인트 전에 이미 다 확인해 둔 경우, 게이트가 열리는
+    // 순간 진행돼야 한다 (remain은 이미 0이라 그것만으론 재발화 안 됨)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tourRemain, tourGate]);
+  /** 심은 오타 행 지목: targetDefect 단계의 대상 selector를 세그먼트에서 푼다 */
+  function resolveTourTarget(): string | null | undefined {
+    const t = tour;
+    if (!t) return undefined;
+    const step = COURSES[t.course].steps[t.step];
+    if (!step?.targetDefect) return undefined; // 기본 target 사용
+    const seg = segments.find(
+      (s) =>
+        !s.reviewed &&
+        TUTORIAL_DEFECT_WORDS.some((w) =>
+          (s.text_final || s.text_llm || s.text_whisper || "").includes(w),
+        ),
+    );
+    return seg ? `.row[data-segid="${seg.id}"]` : step.target;
   }
   // 전용 연습 영상 딥링크: App이 영상 전환과 함께 넘긴 코스를, 세그먼트가
   // 로드된 뒤 자동 시작. nonce 기억으로 재실행 오발 방지 (일회성 소비).
@@ -1956,6 +2028,23 @@ export function Editor({
   }>(null);
   const [showKeys, setShowKeys] = useState(true);
   const [focusedId, setFocusedId] = useState<number | null>(null);
+  // 오타 지목 단계(open-row)의 자동 통과: 직전 흐름 확인의 "확인+다음"이 이미
+  // 그 행을 열어둔 경우가 흔하다 — 열려 있으면 누를 글이 없으니 막다른 골목.
+  // 지목 행이 이미 포커스면 연 것으로 치고 다음(고치기) 단계로 넘어간다.
+  useEffect(() => {
+    const t = tourRef.current;
+    if (t === null) return;
+    const step = COURSES[t.course].steps[t.step];
+    if (step?.on !== "open-row" || !step.targetDefect) return;
+    if (!tourGateOpen(t)) return;
+    const m = resolveTourTarget()?.match(/data-segid="(\d+)"/);
+    if (m && focusedId === Number(m[1])) {
+      const next = { course: t.course, step: t.step + 1 };
+      setTour(next);
+      afterTourAdvance(next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusedId, tour, tourGate]);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [statusMsg, setStatusMsg] = useState("");
   const [findOpen, setFindOpen] = useState(false);
@@ -3960,6 +4049,12 @@ export function Editor({
           onExit={() => endTour(false)}
           onSkipStep={skipTourStep}
           onFinish={() => endTour(true)}
+          targetOverride={resolveTourTarget()}
+          note={
+            tourRemain !== null && tourRemain > 0
+              ? `남은 자막 ${tourRemain}개 — 다 확인되면 영상이 이어져요`
+              : undefined
+          }
         />
       )}
       {/* 체크포인트 대기 중: 영상이 선생 — 화면은 자유, 작은 안내만 */}

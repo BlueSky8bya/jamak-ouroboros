@@ -26,6 +26,11 @@ export interface TourStep {
   final?: boolean;
   /** action event (tourEvent name) that completes this step */
   on?: string;
+  /** 흐름 확인 단계: 체크포인트 시각까지 나온 자막이 전부 확인/보류되면 자동
+   *  진행 (Editor가 세그먼트 상태로 판정). on:"confirm"과 함께 쓴다. */
+  untilTime?: boolean;
+  /** 심은 오타가 든 자막 행을 동적으로 지목 (Editor가 selector로 풀어줌) */
+  targetDefect?: boolean;
 }
 
 const PAD = 8; // spotlight breathing room around the target
@@ -36,32 +41,41 @@ export function Tour({
   onExit,
   onSkipStep,
   onFinish,
+  targetOverride,
+  note,
 }: {
   steps: TourStep[];
   step: number;
   onExit: () => void;
   onSkipStep: () => void;
   onFinish: () => void;
+  /** Editor가 동적으로 푼 대상 selector (오타 행 지목 등) — target보다 우선 */
+  targetOverride?: string | null;
+  /** 진행 상황 한 줄 (예: "남은 자막 3개") — 흐름 확인 단계에서 갱신됨 */
+  note?: string;
 }) {
   const cur = steps[step];
   const [rect, setRect] = useState<DOMRect | null>(null);
-  const scrolledFor = useRef(-1);
+  const scrolledEl = useRef<Element | null>(null);
+  const target = targetOverride !== undefined ? targetOverride : cur?.target;
 
   // follow the target: elements move (scroll, playback, layout), so poll its
   // rect while the tour is up. Cheap — one querySelector per 250ms.
   useEffect(() => {
     function measure() {
-      if (!cur?.target) {
+      if (!target) {
         setRect(null);
         return;
       }
-      const el = document.querySelector(cur.target);
+      const el = document.querySelector(target);
       if (!el) {
         setRect(null);
         return;
       }
-      if (scrolledFor.current !== step) {
-        scrolledFor.current = step;
+      // 대상 "요소"가 바뀔 때마다 다시 화면 중앙으로 — 흐름 확인 단계에서
+      // 말풍선이 다음 미확인 자막을 따라 내려가야 한다 (단계당 1회였던 것 개선)
+      if (scrolledEl.current !== el) {
+        scrolledEl.current = el;
         el.scrollIntoView({ block: "center", behavior: "smooth" });
       }
       const r = el.getBoundingClientRect();
@@ -82,7 +96,7 @@ export function Tour({
       window.clearInterval(t);
       window.removeEventListener("resize", measure);
     };
-  }, [cur?.target, step]);
+  }, [target, step]);
 
   if (!cur) return null;
 
@@ -137,7 +151,8 @@ export function Tour({
         </div>
         <h3>{cur.title}</h3>
         <div className="tour-body">{cur.body}</div>
-        {cur.target && !rect && cur.missingHint && (
+        {note && <div className="tour-note">{note}</div>}
+        {target && !rect && cur.missingHint && (
           <div className="tour-missing">{cur.missingHint}</div>
         )}
         <div className="tour-actions">

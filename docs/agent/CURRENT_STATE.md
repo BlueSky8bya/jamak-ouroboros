@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-15 (v0.9.1 — 사용법 모달 제거, 첫 방문 = 튜토리얼 탭 자동 안내)
-Project Version: 0.9.1
+Last Updated: 2026-07-15 (v0.9.2 — 튜토리얼 v2: 흐름형 단계·코스 프리셋·오타 셀 지목)
+Project Version: 0.9.2
 Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATION.md)
 
 ## Current Objective
@@ -23,7 +23,8 @@ Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATI
 - **자유 연습 개념 제거(v0.8.8)**: 구 practice Job 6개 + 클론 DB 삭제(사용자 승인) — practice 기준본은 코스 바인딩 6개뿐. 튜토리얼 탭의 "코스 없는 자유 연습" 섹션 삭제.
 - **중복 데이터 해소 완료(v0.8.9)**: 연습 2·4·5·6을 fresh 재처리(가드 적용 워커) — 인접 중복 전부 0, timing 결함 재주입, 클론 정리. `dup_fix_v2.py` 불필요해짐.
 - **워커 온디맨드 자동화(v0.8.9, CHG-030)**: `--until-idle` + 네임드 뮤텍스 싱글턴 + `jamak-worker-watch` 스케줄드 태스크(5분) + 로그온 1회 확인. 상시 기동·수동 켜고 끄기·중복 기동 걱정 소멸.
-- **사용법 모달 폐지(v0.9.1, CHG-032)**: Guide.tsx 삭제, 첫 방문은 튜토리얼 탭 자동 이동(`jamak.visited`). 잔여: practice-6 나레이션이 사라진 두 버튼(따라하기·사용법)을 언급 — 다음 재렌더 때 대본 수정.
+- **튜토리얼 v2(v0.9.2, CHG-033)**: 흐름형 확인 단계(untilTime, 남은 N개 카운트다운)·코스 프리셋(설정 강제+나레이션 설명)·오타 셀 지목(targetDefect, 이미 열린 행 자동 통과). 대본 v2로 mp4 6개 재렌더 완료 — **User: 6개 전부 유튜브 재업로드 대기** (`tools/tutorial-video/out/practice-1..6.mp4`; 링크 오면 자동 워커 재처리→재바인딩→구 영상 DB 정리, 체크포인트 표는 새 timing 기준이라 그대로).
+- **사용법 모달 폐지(v0.9.1, CHG-032)**: Guide.tsx 삭제, 첫 방문은 튜토리얼 탭 자동 이동(`jamak.visited`). practice-6 나레이션의 구 버튼 언급도 v2 대본에서 해소됨.
 - **연습 체크포인트 동기화 완료(v0.9.0, CHG-031)**: 나레이션이 지시를 마치는 시각에 자동 일시정지+말풍선, 수행하면 자동 재개, 그 전엔 "N단계 준비 중" pill만. 코스 2·3·4·5 투어 순서를 나레이션 순서로 재배열, 신규 사용자 딥링크가 basic에 덮이던 경합 FIX. 실브라우저 실재생 E2E 통과 — **사용자 파일럿(코스 1~6 완주) 대기**. 영상 재렌더 시 tutorialSync.ts 표도 갱신할 것.
 
 ## Recent Additions (2026-07-14 — v0.6.2~0.7.0, CHG-20260714-012~019)

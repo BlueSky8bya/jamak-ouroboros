@@ -25,11 +25,12 @@ export type Visual =
 
 export const VISUALS: Record<number, Record<number, Visual[]>> = {
   1: {
-    6: [{ kind: "keys", rows: [["Enter"]] }],
-    10: [{ kind: "tap-row" }, { kind: "keys", rows: [["Enter"]] }],
-    12: [{ kind: "button", label: "🙉 잘 안 들림" }],
-    13: [{ kind: "keys", rows: [["Alt", "Z"]] }],
-    14: [{ kind: "button", label: "글씨 크게", zone: "top-left" }],
+    // v2 대본(17줄): 7 흐름 확인, 12 오타 고치기, 14 🙉, 15 Alt+Z, 16 글씨 크게
+    7: [{ kind: "keys", rows: [["Enter"]] }],
+    12: [{ kind: "tap-row" }, { kind: "keys", rows: [["Enter"]] }],
+    14: [{ kind: "button", label: "🙉 잘 안 들림" }],
+    15: [{ kind: "keys", rows: [["Alt", "Z"]] }],
+    16: [{ kind: "button", label: "글씨 크게", zone: "top-left" }],
   },
   2: {
     2: [{ kind: "keys", rows: [["Tab"]] }],
