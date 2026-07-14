@@ -2407,6 +2407,29 @@ def import_srt(request: Request, video_id: str, body: SrtImport) -> dict:
             "끝난 뒤 해당 언어 트랙에서 지원할 예정입니다.",
         )
 
+    # [WH-CHANGE v0.8.0 | FEAT | 2026-07-15 | CHG-20260715-020]
+    # Reason: 사용자 확정 — 임포트되는 .srt는 이미 검수 완료된 결과물이므로
+    #   기존 기계 분할에 텍스트만 채우는 게 아니라 **.srt의 큐 구조(분할·타이밍)
+    #   그대로 갈아엎는다**. 기존 번역은 (텍스트 동일 + 시간 근접) 큐에 한해
+    #   이어받아 재번역 비용을 없앤다 — 2시간 영상 전체 재번역 방지.
+    # Related: CHANGELOG CHG-20260715-020.
+    import json as _json
+    import re as _re
+
+    from ..db import SrtBackup, Translation
+    from ..pipeline.translate import _hash as _thash
+
+    def _norm_txt(t: str) -> str:
+        return _re.sub(r"[^\w가-힣]", "", t or "")
+
+    new_cues = sorted(
+        (
+            (s.start.total_seconds(), s.end.total_seconds(), " ".join(s.content.split()))
+            for s in subs
+        ),
+        key=lambda c: c[0],
+    )
+
     with get_session() as session:
         job = session.exec(select(Job).where(Job.video_id == video_id)).first()
         if job is None:
@@ -2419,53 +2442,74 @@ def import_srt(request: Request, video_id: str, body: SrtImport) -> dict:
         if not segs:
             raise HTTPException(400, "이 영상엔 세그먼트가 없습니다.")
 
-        # align: each machine segment takes the .srt line it overlaps most in time
-        sub_spans = [
-            (s.start.total_seconds(), s.end.total_seconds(), " ".join(s.content.split()))
-            for s in subs
-        ]
-        pairs: list[tuple] = []  # (segment, new_text)
-        for seg in segs:
-            best_text, best_ov = None, 0.0
-            for ss, se, txt in sub_spans:
-                ov = min(seg.end, se) - max(seg.start, ss)
-                if ov > best_ov:
-                    best_ov, best_text = ov, txt
-            if best_text and best_ov > 0:
-                pairs.append((seg, best_text))
+        old_ids = [s.id for s in segs]
+        old_trans = session.exec(
+            select(Translation).where(Translation.segment_id.in_(old_ids))
+        ).all()
+        # (norm text, lang) -> 후보 번역들 (시간 근접 매칭용으로 old seg 시각 포함)
+        seg_by_id = {s.id: s for s in segs}
+        carry_pool: dict[tuple[str, str], list] = {}
+        for tr in old_trans:
+            src = seg_by_id.get(tr.segment_id)
+            if src is None or not tr.text.strip():
+                continue
+            key = (_norm_txt(src.text_final or src.text_llm or src.text_whisper), tr.lang)
+            if key[0]:
+                carry_pool.setdefault(key, []).append((src.start, tr))
 
+        # 이어받기 예측/실행 공용: 새 큐 -> (lang -> Translation) 매칭
+        def match_carry(ns: float, ntext: str) -> list:
+            found = []
+            for (ntxt, lang), cands in carry_pool.items():
+                if ntxt != _norm_txt(ntext):
+                    continue
+                best = min(cands, key=lambda c: abs(c[0] - ns))
+                if abs(best[0] - ns) <= 20.0:  # 같은 문장이 반복돼도 시간으로 구분
+                    found.append((lang, best[1]))
+            return found
+
+        carry_count = sum(1 for s0, _e0, t0 in new_cues if match_carry(s0, t0))
         total = len(segs)
-        matched = len(pairs)
-        already_reviewed = sum(1 for s in segs if s.reviewed)
 
         if body.dry_run:
-            sample = [
-                {
-                    "idx": s.idx,
-                    "old": (s.text_final or s.text_llm or s.text_whisper)[:50],
-                    "new": t[:50],
-                }
-                for s, t in pairs[:6]
-            ]
+            # 미리보기: 같은 시간대 기존 텍스트와 나란히
+            sample = []
+            for s0, e0, t0 in new_cues[:6]:
+                near = min(segs, key=lambda x: abs(x.start - s0))
+                sample.append(
+                    {
+                        "idx": near.idx,
+                        "old": (near.text_final or near.text_llm or near.text_whisper)[:50],
+                        "new": t0[:50],
+                    }
+                )
             return {
                 "title": job.title,
                 "video_id": video_id,
-                "srt_count": len(subs),
-                "matched": matched,
+                "srt_count": len(new_cues),
+                "matched": len(new_cues),
                 "total": total,
-                "already_reviewed": already_reviewed,
+                "already_reviewed": sum(1 for s in segs if s.reviewed),
+                "replace": True,
+                "carry": carry_count,
                 "sample": sample,
             }
 
-        # snapshot the CURRENT state first, so this import can be undone if it
-        # turns out to be the wrong file (must be built before the loop mutates)
-        import json as _json
-
-        from ..db import SrtBackup
-
+        # 전체 스냅샷 (구조 교체는 텍스트 스냅샷으로 못 되돌림 — 행+번역 전부)
         snap = _json.dumps(
-            [{"id": s.id, "text_final": s.text_final, "reviewed": s.reviewed} for s in segs],
+            {
+                "v": 2,
+                "segments": [
+                    {k: v for k, v in s.model_dump().items() if k != "id"}
+                    | {"_old_id": s.id}
+                    for s in segs
+                ],
+                "translations": [
+                    t.model_dump() | {"_old_seg_id": t.segment_id} for t in old_trans
+                ],
+            },
             ensure_ascii=False,
+            default=str,
         )
         bk = session.exec(
             select(SrtBackup).where(SrtBackup.video_id == video_id)
@@ -2476,13 +2520,56 @@ def import_srt(request: Request, video_id: str, body: SrtImport) -> dict:
             bk.filename, bk.data, bk.created_at = body.filename, snap, utcnow()
             session.add(bk)
 
-        for seg, txt in pairs:
-            seg.text_final = txt
-            seg.reviewed = True
-            session.add(seg)
+        # 기계 참조(whisper/llm/유튜브)는 시간 겹침으로 이관 — 우로보로스 diff
+        # (absorb·학습쌍)가 새 구조에서도 대략적 초안을 갖게
+        def overlapping_join(field: str, s0: float, e0: float) -> str:
+            parts = []
+            for s in segs:
+                if s.start < e0 and s.end > s0:
+                    v = (getattr(s, field) or "").strip()
+                    if v and (not parts or parts[-1] != v):
+                        parts.append(v)
+            return " ".join(parts)
+
+        # 갈아엎기: 기존 ko 행 + 그 번역 삭제 -> srt 구조로 재생성
+        for tr in old_trans:
+            session.delete(tr)
+        for s in segs:
+            session.delete(s)
+        session.flush()
+
+        carried = 0
+        for i, (s0, e0, t0) in enumerate(new_cues):
+            row = Segment(
+                job_id=job.id,
+                lang="ko",
+                idx=i,
+                start=round(s0, 3),
+                end=round(e0, 3),
+                text_whisper=overlapping_join("text_whisper", s0, e0),
+                text_youtube=overlapping_join("text_youtube", s0, e0),
+                text_llm=overlapping_join("text_llm", s0, e0),
+                text_final=t0,
+                reviewed=True,
+            )
+            session.add(row)
+            session.flush()  # row.id 확보
+            for lang, tr in match_carry(s0, t0):
+                session.add(
+                    Translation(
+                        segment_id=row.id,
+                        lang=lang,
+                        text=tr.text,
+                        reviewed=tr.reviewed,
+                        edited=tr.edited,
+                        source_hash=_thash(t0.strip()),
+                    )
+                )
+                carried += 1
         job.status, job.updated_at = "reviewing", utcnow()
         session.add(job)
         session.commit()
+        matched = len(new_cues)
 
     # ouroboros: diff the freshly-applied finals against the machine draft
     absorbed = {}
@@ -2492,7 +2579,12 @@ def import_srt(request: Request, video_id: str, body: SrtImport) -> dict:
         absorbed = absorb_job(video_id)
     except Exception:
         pass
-    return {"applied": matched, "total": total, "absorbed": absorbed}
+    return {
+        "applied": matched,
+        "total": total,
+        "absorbed": absorbed,
+        "carried_translations": carried,
+    }
 
 
 @app.post("/api/jobs/{video_id}/undo-srt")
@@ -2510,14 +2602,52 @@ def undo_srt(request: Request, video_id: str) -> dict:
         ).first()
         if bk is None:
             raise HTTPException(404, "되돌릴 .srt 적용 내역이 없습니다.")
+        data = _json.loads(bk.data)
         restored = 0
-        for row in _json.loads(bk.data):
-            seg = session.get(Segment, row["id"])
-            if seg is not None and seg.lang == "ko":
-                seg.text_final = row["text_final"]
-                seg.reviewed = row["reviewed"]
+        if isinstance(data, dict) and data.get("v") == 2:
+            # 구조 교체(v2) 되돌리기: 현재 ko 행+번역을 지우고 스냅샷 재삽입
+            from ..db import Translation
+
+            job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+            cur = session.exec(
+                select(Segment).where(Segment.job_id == job.id, Segment.lang == "ko")
+            ).all()
+            cur_ids = [s.id for s in cur]
+            if cur_ids:
+                for tr in session.exec(
+                    select(Translation).where(Translation.segment_id.in_(cur_ids))
+                ).all():
+                    session.delete(tr)
+            for s in cur:
+                session.delete(s)
+            session.flush()
+            id_map: dict[int, int] = {}
+            for row in data["segments"]:
+                old_id = row.pop("_old_id")
+                for drop in ("created_at", "updated_at"):
+                    row.pop(drop, None)
+                seg = Segment(**row)
                 session.add(seg)
+                session.flush()
+                id_map[old_id] = seg.id
                 restored += 1
+            for trow in data["translations"]:
+                old_seg = trow.pop("_old_seg_id")
+                trow.pop("id", None)
+                trow.pop("segment_id", None)
+                for drop in ("created_at", "updated_at"):
+                    trow.pop(drop, None)
+                if old_seg in id_map:
+                    session.add(Translation(segment_id=id_map[old_seg], **trow))
+        else:
+            # v1 스냅샷 (텍스트만 채우던 시절): 텍스트·검수 상태 복원
+            for row in data:
+                seg = session.get(Segment, row["id"])
+                if seg is not None and seg.lang == "ko":
+                    seg.text_final = row["text_final"]
+                    seg.reviewed = row["reviewed"]
+                    session.add(seg)
+                    restored += 1
         session.delete(bk)
         session.commit()
     return {"restored": restored}

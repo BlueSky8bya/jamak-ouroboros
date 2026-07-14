@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-14 (v0.7.0 — 튜토리얼 탭 분리 + 입장 시 무조건 리셋)
-Project Version: 0.7.0
+Last Updated: 2026-07-15 (v0.8.0 — .srt 구조 교체 임포트 + 번역 이어받기)
+Project Version: 0.8.0
 Harness Protocol: project-initializing_260712.md (schema 1.1 — HARNESS_MIGRATION.md)
 
 ## Current Objective

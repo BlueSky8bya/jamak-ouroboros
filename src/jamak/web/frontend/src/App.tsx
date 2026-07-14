@@ -1515,8 +1515,16 @@ export function App() {
             </div>
 
             <p className="srt-summary">
-              이 영상의 자막 <strong>{srtModal.preview.total}개</strong> 중{" "}
-              <strong>{srtModal.preview.matched}개</strong>에 이 .srt 내용이 채워집니다.
+              기존 자막 <strong>{srtModal.preview.total}개</strong>를 이 .srt의{" "}
+              <strong>{srtModal.preview.srt_count}개</strong> 구조(분할·타이밍·내용)로
+              통째로 교체합니다.
+              {(srtModal.preview.carry ?? 0) > 0 && (
+                <>
+                  {" "}
+                  같은 문장의 번역 <strong>{srtModal.preview.carry}개</strong>는 그대로
+                  이어받아요 (재번역 비용 없음).
+                </>
+              )}
             </p>
 
             {srtModal.preview.total > 0 &&

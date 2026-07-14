@@ -31,6 +31,8 @@ export interface SrtPreview {
   matched: number;
   total: number;
   already_reviewed: number;
+  replace?: boolean; // v2: .srt 구조로 통째 교체
+  carry?: number; // 이어받을 번역 수 (재번역 비용 절약분)
   sample: { idx: number; old: string; new: string }[];
 }
 
