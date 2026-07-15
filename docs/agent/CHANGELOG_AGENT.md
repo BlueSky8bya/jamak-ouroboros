@@ -1,5 +1,11 @@
 # Agent Change Log
 
+## v0.9.24 — 2026-07-15 (부팅 때 뜨던 워커 콘솔 창 제거)
+
+### CHG-20260715-045 — FIX — 시작 시 초록 화살표(콘솔) 아이콘
+Change: 로그온 Startup의 `jamak-worker-autostart.vbs`가 powershell을 콘솔 없이(WScript mode 0) 띄우면, 그 안의 `& $uv run jamak worker`(콘솔 앱)가 **부모에 콘솔이 없어 새 콘솔 창을 할당** → 작업표시줄에 창(초록 화살표)이 떴음. (a) `run-worker.ps1`이 워커를 `.NET ProcessStartInfo`의 `CreateNoWindow=$true`(+stdout/err를 로그로 리다이렉트)로 실행 — 콘솔 창을 원천 차단. (b) 중복이던 Startup vbs 비활성(`.disabled`) — 워커 기동은 1분 스케줄드 태스크 `jamak-worker-watch`(무창 wscript 경유) 하나로 일원화.
+Validation: 스케줄드 태스크 수동 트리거 — 워커가 창 없이 기동→큐 비어 종료(exit=0) 로그 확인, 창 프로세스 0개. (경로 절대경로는 이 머신 전용.)
+
 ## v0.9.23 — 2026-07-15 (.srt 등록 제목 채우기 + 드롭존 UX)
 
 ### CHG-20260715-044 — FIX/UX — 제목 없음(video_id 표시) + 불편한 버튼

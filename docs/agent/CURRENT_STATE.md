@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-15 (v0.9.23 — .srt 등록 제목(oEmbed) + 드롭존 UX)
-Project Version: 0.9.23
+Last Updated: 2026-07-15 (v0.9.24 — 부팅 워커 콘솔 창 제거, 무창 실행 일원화)
+Project Version: 0.9.24
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)
 
