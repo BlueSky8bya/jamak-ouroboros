@@ -1,6 +1,6 @@
 # Current State
 
-Last Updated: 2026-07-16 (v0.9.36 — 온톨로지 가지치기 34종 grounding 편입: glossary 463종)
+Last Updated: 2026-07-16 (v0.9.37 — 온톨로지 6라운드 소진: glossary 783종, 통합 도메인 어휘 1195)
 Project Version: 0.9.25
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)
