@@ -1,5 +1,11 @@
 # Agent Change Log
 
+## v0.9.21 — 2026-07-15 (.srt로 바로 등록 — 파이프라인 없이 자막 붙이기)
+
+### CHG-20260715-042 — FEAT — 자막 이미 있는 영상은 STT·교정·GPU 전부 생략
+Change: 등록을 두 갈래로 — **자막 만들기**(기존 전체 파이프라인)와 **📄 .srt로 바로 등록**(신규). 후자는 `POST /api/jobs/srt-only`: URL+.srt를 받아 Job을 클라우드에서 직접 생성하고 .srt 큐를 ko 세그먼트로 삽입(reviewed=True, timing_done=True, status=reviewing) — **STT·Claude·yt-dlp·GPU 워커 어떤 것도 호출 안 함**(순수 파싱+삽입, 사용자 요청 "컴퓨팅 최소화"). duration은 마지막 큐 end에서, title은 비움(카드가 썸네일+video_id로 표시). 관리자 전용, 한국어 가드, 중복 409. 프론트: url-box에 보조 버튼 + 숨은 파일 입력, 성공 시 .srt-result 배너.
+Validation: TestClient E2E — 관리자 등록 200(applied=3), **JobRequest 큐 0개(워커 미개입)**, 세그먼트 3개 전부 reviewed+text_final, duration 11.0s, 중복 409, 영어 .srt 400, 검수자 403. 빌드·import 클린.
+
 ## v0.9.20 — 2026-07-15 (번역 관리자 전용 — API 비용 통제)
 
 ### CHG-20260715-041 — SEC/COST — 번역·재번역이 검수자에게도 열려 있던 것

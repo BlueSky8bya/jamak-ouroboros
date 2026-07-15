@@ -2,6 +2,7 @@ import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useStat
 import {
   cancelRequest,
   createJob,
+  createJobSrtOnly,
   exportUrl,
   fetchJobs,
   fetchMe,
@@ -583,6 +584,8 @@ export function App() {
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // 단순 업로드(.srt 바로 등록)용 숨은 파일 입력
+  const srtOnlyInputRef = useRef<HTMLInputElement>(null);
   // remembered view preferences (less re-setup between visits)
   const [filter, setFilter] = useState(() => localStorage.getItem("jamak.filter") || "all");
   const [status, setStatus] = useState<StatusKey>(
@@ -734,6 +737,34 @@ export function App() {
       setError(String(e));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // 단순 업로드: URL + .srt를 받아 파이프라인 없이 바로 등록 (STT·Claude·GPU X)
+  async function submitSrtOnly(file: File) {
+    const u = url.trim();
+    if (!u) {
+      setError("먼저 영상 링크를 붙여넣어 주세요.");
+      return;
+    }
+    if (!file.name.toLowerCase().endsWith(".srt")) {
+      setError(`.srt 파일만 올릴 수 있어요 (받은 파일: ${file.name})`);
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    setBusyMsg("📄 자막 파일로 바로 등록하는 중...");
+    try {
+      const content = await file.text();
+      const r = await createJobSrtOnly(u, content, file.name);
+      setUrl("");
+      await refresh();
+      setSrtResult({ ok: true, msg: `✅ 자막 ${r.applied}개로 바로 등록했어요 (검수 완료 상태)` });
+    } catch (e) {
+      setError(`바로 등록 실패: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setSubmitting(false);
+      setBusyMsg("");
     }
   }
 
@@ -1229,6 +1260,31 @@ export function App() {
           <button onClick={submit} disabled={submitting || !url.trim()}>
             {submitting ? "시작 중" : "자막 만들기"}
           </button>
+          <button
+            className="srt-only-btn"
+            title="이미 검수 끝난 .srt가 있으면, 음성인식·교정 없이 영상에 바로 붙여요 (컴퓨팅 최소)"
+            onClick={() => {
+              if (!url.trim()) {
+                setError("먼저 영상 링크를 붙여넣어 주세요.");
+                return;
+              }
+              srtOnlyInputRef.current?.click();
+            }}
+            disabled={submitting || !url.trim()}
+          >
+            📄 .srt로 바로 등록
+          </button>
+          <input
+            ref={srtOnlyInputRef}
+            type="file"
+            accept=".srt"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) void submitSrtOnly(f);
+            }}
+          />
           {previewId && (
             <div className="url-preview">
               <img
@@ -1236,7 +1292,9 @@ export function App() {
                 alt=""
                 loading="lazy"
               />
-              <span>이 영상으로 자막을 만듭니다 · Enter</span>
+              <span>
+                <b>자막 만들기</b>: 음성인식+교정 · <b>.srt로 바로 등록</b>: 이미 있는 자막 붙이기
+              </span>
             </div>
           )}
         </div>

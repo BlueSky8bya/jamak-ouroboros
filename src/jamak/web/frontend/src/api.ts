@@ -238,6 +238,21 @@ export async function createJob(url: string): Promise<{ video_id: string; status
   return r.json();
 }
 
+// 파이프라인 없이 영상 등록 + .srt 바로 붙이기 (STT·Claude·GPU 안 씀)
+export async function createJobSrtOnly(
+  url: string,
+  content: string,
+  filename: string,
+): Promise<{ video_id: string; applied: number }> {
+  const r = await fetch("/api/jobs/srt-only", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, content, filename }),
+  });
+  if (!r.ok) throw new Error((await r.json()).detail ?? `srt-only: ${r.status}`);
+  return r.json();
+}
+
 export async function replaceText(
   videoId: string,
   find: string,

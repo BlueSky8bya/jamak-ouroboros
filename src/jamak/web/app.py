@@ -386,6 +386,93 @@ def create_job(request: Request, body: JobCreate) -> dict:
     return {"video_id": video_id, "status": status}
 
 
+class SrtOnlyCreate(BaseModel):
+    url: str
+    content: str
+    filename: str = ""
+
+
+@app.post("/api/jobs/srt-only")
+def create_job_srt_only(request: Request, body: SrtOnlyCreate) -> dict:
+    """Register a video straight from an already-reviewed .srt — NO pipeline.
+
+    [WH-CHANGE v0.9.21 | FEAT | 2026-07-15 | CHG-20260715-042]
+    Reason: 자막이 이미 있는 영상은 STT·Claude 교정·GPU 워커가 전부 불필요 —
+      영상만 올리고 .srt를 그대로 붙이면 된다 (사용자 요청, 컴퓨팅 최소화).
+      순수 파싱+삽입만 하고 어떤 모델/API도 호출하지 않는다. 등록된 자막은
+      사람이 검수한 결과물이므로 reviewed=True, timing_done=True(=완료).
+    Related: CHANGELOG CHG-20260715-042.
+
+    Admin-only. Distinct from /import-srt (그건 기존 Job의 자막을 교체).
+    """
+    _require_admin(request)
+    import srt as _srtlib
+
+    from ..pipeline.ingest import extract_video_id
+
+    try:
+        video_id = extract_video_id(body.url)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    try:
+        subs = [s for s in _srtlib.parse(body.content) if s.content.strip()]
+    except Exception as e:
+        raise HTTPException(400, f".srt 파싱 실패: {e}")
+    if not subs:
+        raise HTTPException(400, ".srt에 자막이 없습니다.")
+
+    # Korean-source guard (same as import_srt): a translation belongs to its
+    # own track, never the ko source.
+    joined = " ".join(s.content for s in subs)
+    hangul = sum(1 for ch in joined if "가" <= ch <= "힣")
+    latin = sum(1 for ch in joined if "a" <= ch.lower() <= "z")
+    if hangul + latin > 0 and hangul < latin:
+        raise HTTPException(400, "한국어 자막(.srt)만 올릴 수 있어요.")
+
+    cues = sorted(
+        (
+            (s.start.total_seconds(), s.end.total_seconds(), " ".join(s.content.split()))
+            for s in subs
+        ),
+        key=lambda c: c[0],
+    )
+    with get_session() as session:
+        if session.exec(select(Job).where(Job.video_id == video_id)).first():
+            raise HTTPException(
+                409,
+                "이미 등록된 영상입니다. 자막을 바꾸려면 카드에 .srt를 끌어다 놓으세요.",
+            )
+        job = Job(
+            video_id=video_id,
+            url=body.url,
+            title="",  # yt-dlp 없이 등록 — 카드가 썸네일+video_id로 표시
+            duration_seconds=round(cues[-1][1], 3) if cues else 0.0,
+            status="reviewing",
+            timing_done=True,  # .srt는 사람 타이밍을 담고 있다
+        )
+        session.add(job)
+        session.commit()
+        session.refresh(job)
+        for i, (st, en, txt) in enumerate(cues):
+            session.add(
+                Segment(
+                    job_id=job.id,
+                    lang="ko",
+                    idx=i,
+                    start=st,
+                    end=en,
+                    text_whisper="",
+                    text_youtube="",
+                    text_llm=txt,
+                    text_final=txt,
+                    flagged=False,
+                    reviewed=True,
+                )
+            )
+        session.commit()
+    return {"video_id": video_id, "applied": len(cues)}
+
+
 @app.get("/api/queue")
 def queue_state() -> list[dict]:
     """Pipeline queue: the video processing now + any waiting behind it."""

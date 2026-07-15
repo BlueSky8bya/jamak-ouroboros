@@ -4136,6 +4136,15 @@ kbd {
   font-size: 12.5px;
 }
 
+/* .srt로 바로 등록 버튼 (자막 만들기 옆) — 보조 액션이라 아웃라인 스타일 */
+.srt-only-btn {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--line) !important;
+  font-weight: 700;
+}
+.srt-only-btn:hover:not(:disabled) { border-color: var(--blue) !important; }
+
 /* 번역 관리자 전용 안내 (검수자에게 버튼 대신 문구) */
 .tadmin-note {
   color: var(--muted);

@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-15 (v0.9.20 — 번역 관리자 전용, API 비용 통제)
-Project Version: 0.9.20
+Last Updated: 2026-07-15 (v0.9.21 — .srt로 바로 등록: 파이프라인 없이 자막 붙이기)
+Project Version: 0.9.21
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)
 
