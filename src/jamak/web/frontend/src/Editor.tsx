@@ -1863,6 +1863,7 @@ export function Editor({
   // 도구 줄 피드백: 어떤 도구가 돌고 있는지(버튼 스피너·전체 비활성) +
   // 결과 배너(도구 줄 바로 아래, 눈에 띄게) — "눌렀는데 변화가 안 보임" 금지
   const [toolBusy, setToolBusy] = useState<string | null>(null);
+  const [hanjaProg, setHanjaProg] = useState<{ done: number; total: number } | null>(null);
   const [toolMsg, setToolMsg] = useState("");
   useEffect(() => {
     if (!toolMsg) return;
@@ -3453,27 +3454,53 @@ export function Editor({
   }
 
   async function runFillHanja() {
+    // 배치 루프: 200행씩 처리하며 버튼에 진행률 표시 (맞춤법과 같은 패턴 —
+    // "채우는 중..."만 떠 있으면 진행인지 멈춤인지 알 수 없다는 피드백).
+    // 멱등이라 중간에 끊겨도 다시 누르면 이어서 안전하게 진행된다.
     setToolBusy("hanja");
+    setHanjaProg(null);
     await flushAll();
+    const changedIds = new Set<number>();
+    let changed = 0;
     try {
-      const r = await fillHanja(videoId, lang);
-      if (r.before.length) {
-        const beforeRows = segmentsRef.current.filter((s) =>
-          r.before.some((b) => b.id === s.id),
+      const BATCH = 200;
+      let offset = 0;
+      for (;;) {
+        const r = await fillHanja(videoId, lang, BATCH, offset);
+        changed += r.changed;
+        for (const b of r.before) changedIds.add(b.id);
+        offset += BATCH;
+        setHanjaProg({ done: Math.min(offset, r.total), total: r.total });
+        if (r.remaining <= 0) break;
+      }
+      if (changedIds.size) {
+        // segmentsRef는 아직 새로고침 전 = 변경 전 텍스트 → 되돌리기 스냅샷
+        pushOpUndo(
+          "한자 채우기",
+          segmentsRef.current.filter((s) => changedIds.has(s.id)),
         );
-        pushOpUndo("한자 채우기", beforeRows);
       }
       await refreshSegments();
       setToolMsg(
-        r.changed
-          ? `漢 한자 병기 ${r.changed}개 자막에 채웠어요 (↶로 전체 되돌리기 가능)`
+        changed
+          ? `漢 한자 병기 ${changed}개 자막에 채웠어요 (↶로 전체 되돌리기 가능)`
           : "漢 채울 한자어를 찾지 못했어요 — 사전에 있는 표현이 없거나 이미 병기됨",
       );
     } catch (e) {
+      // 중간 배치까지는 적용된 상태 — 되돌리기 스냅샷과 화면 갱신은 해 둔다
+      if (changedIds.size) {
+        pushOpUndo(
+          "한자 채우기",
+          segmentsRef.current.filter((s) => changedIds.has(s.id)),
+        );
+        await refreshSegments().catch(() => {});
+      }
       if (await maybeRecoverClone(e)) return;
-      setError(String(e));
+      setError(`한자 채우기 중 오류가 났어요 (${changed}개까지 적용됨) — ${String(e)}`);
+      setToolMsg("漢 한자 채우기가 중간에 멈췄어요 — 다시 누르면 이어서 진행돼요");
     } finally {
       setToolBusy(null);
+      setHanjaProg(null);
     }
   }
 
@@ -4039,7 +4066,11 @@ export function Editor({
             title="강조해서 풀어 말한 한자어에 한자를 병기 — '얼굴 안 자' → '얼굴 안(顔) 자'. 검수 완료 대본에서 만든 사전 기반, API 사용 안 함 (되돌리기 가능)"
             onClick={() => void runFillHanja()}
           >
-            {toolBusy === "hanja" ? "⏳ 채우는 중..." : "漢 한자 채우기"}
+            {toolBusy === "hanja"
+              ? hanjaProg
+                ? `⏳ 채우는 중 ${Math.round((hanjaProg.done / Math.max(1, hanjaProg.total)) * 100)}% (${hanjaProg.done}/${hanjaProg.total})`
+                : "⏳ 채우는 중..."
+              : "漢 한자 채우기"}
           </button>
           <button
             className="tool tool-absorb"

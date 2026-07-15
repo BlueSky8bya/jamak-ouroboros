@@ -2473,7 +2473,7 @@ def spellcheck(video_id: str, lang: str = "ko", batch: int = 0) -> dict:
 
 
 @app.post("/api/jobs/{video_id}/fill-hanja")
-def fill_hanja(video_id: str, lang: str = "ko") -> dict:
+def fill_hanja(video_id: str, lang: str = "ko", batch: int = 0, offset: int = 0) -> dict:
     """강조 한자어 병기 채우기 — "얼굴 안 자" → "얼굴 안(顔) 자".
 
     [WH-CHANGE v0.9.25 | FEAT | 2026-07-15 | CHG-20260715-047]
@@ -2483,6 +2483,14 @@ def fill_hanja(video_id: str, lang: str = "ko") -> dict:
       안전), 다자어는 2자 이상 단어 경계 일치 시. 이미 병기된 곳은 스킵.
       되돌리기용 before 행을 돌려준다 (auto-timing 패턴).
     Related: CHANGELOG CHG-20260715-047.
+
+    [WH-CHANGE v0.9.26 | PERF | 2026-07-15 | CHG-20260715-048]
+    Reason: (1) batch/offset — 긴 영상에서 한 요청이 오래 걸리면 진행 상황이
+      안 보인다는 피드백. 맞춤법과 같은 배치 루프로 진행률을 낸다. remaining을
+      돌려주면 클라이언트가 offset을 올려 이어간다. (2) 다자어 900+종을 행마다
+      개별 re.sub 하면 re 모듈 패턴 캐시(512개)를 넘겨 행마다 재컴파일된다 —
+      통합 alternation 패턴 1개로 사전 컴파일 (긴 표현 우선 순서 유지).
+    Related: CHANGELOG CHG-20260715-048.
     """
     import re as _re
 
@@ -2498,15 +2506,25 @@ def fill_hanja(video_id: str, lang: str = "ko") -> dict:
 
         # 단일자: "뜻 음 자" 패턴 전용. 다자어: 단어 경계 일치 (긴 것 먼저).
         single = {(t.gloss, t.reading): t.hanja for t in terms if t.gloss}
-        multi = sorted(
-            ((t.reading, t.hanja) for t in terms if not t.gloss and len(t.reading) >= 2),
-            key=lambda x: -len(x[0]),
-        )
+        multi = {
+            t.reading: t.hanja for t in terms if not t.gloss and len(t.reading) >= 2
+        }
+        multi_re = None
+        if multi:
+            alts = "|".join(
+                _re.escape(r) for r in sorted(multi, key=len, reverse=True)
+            )
+            multi_re = _re.compile(rf"(?<![가-힣])(?:{alts})(?![가-힣(])")
         seg_rows = session.exec(
             select(Segment)
             .where(Segment.job_id == job.id, Segment.lang == lang)
             .order_by(Segment.idx)
         ).all()
+        total = len(seg_rows)
+        remaining = 0
+        if batch > 0:
+            remaining = max(0, total - offset - batch)
+            seg_rows = seg_rows[offset : offset + batch]
 
         def fill(text: str) -> str:
             # 규칙 A: "얼굴 안 자" -> "얼굴 안(顔) 자" (이미 괄호 있으면 스킵)
@@ -2516,12 +2534,8 @@ def fill_hanja(video_id: str, lang: str = "ko") -> dict:
 
             out = _re.sub(r"([가-힣]+) ([가-힣]) 자(?![가-힣(])", sub_glyph, text)
             # 규칙 B: 다자어 병기 (단어 경계, 뒤에 괄호 없을 때만)
-            for reading, hanja in multi:
-                out = _re.sub(
-                    rf"(?<![가-힣]){_re.escape(reading)}(?![가-힣(])",
-                    f"{reading}({hanja})",
-                    out,
-                )
+            if multi_re:
+                out = multi_re.sub(lambda m: f"{m.group(0)}({multi[m.group(0)]})", out)
             return out
 
         before: list[dict] = []
@@ -2544,6 +2558,8 @@ def fill_hanja(video_id: str, lang: str = "ko") -> dict:
         session.commit()
         return {
             "changed": len(changed),
+            "total": total,
+            "remaining": remaining,
             "before": before,
             "segments": [
                 {

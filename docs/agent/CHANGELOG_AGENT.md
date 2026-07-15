@@ -1,5 +1,11 @@
 # Agent Change Log
 
+## v0.9.26 — 2026-07-15 (한자 채우기 진행률 + 다자어 매칭 성능)
+
+### CHG-20260715-048 — PERF/UX — fill-hanja 배치 진행률 + alternation 사전 컴파일
+Change: (a) `POST /fill-hanja?batch=&offset=` — batch>0이면 offset부터 batch행만 처리하고 `total/remaining` 반환. 프론트는 200행씩 루프하며 버튼에 "채우는 중 N% (done/total)" 표시(맞춤법과 동일 패턴). 오류 시 "N개까지 적용됨 — 다시 누르면 이어서 진행" 안내(멱등이라 재시도 안전) + 중간 적용분도 ↶ 되돌리기 스냅샷·화면 갱신 유지. (b) 다자어 940종을 행마다 개별 `re.sub` 하면 re 패턴 캐시(512개) 초과로 행마다 재컴파일 — 통합 alternation 패턴 1개로 요청당 1회 사전 컴파일(긴 표현 우선 순서 유지, 치환 결과 동일).
+Validation: TestClient E2E — batch=2 루프 3회(changed 2+2+0, remaining 3→1→0), 전체 실행과 결과 텍스트 동일, 멱등 유지. 빌드 클린. 버튼 라벨 체감은 851회 실사용 확인 위임.
+
 ## v0.9.25 — 2026-07-15 (사용자 피드백 5건 — 맞춤법 UX 3종·긴 영상 성능·한자 병기)
 
 ### CHG-20260715-046 — FIX/UX — 맞춤법 진행률·단어 diff·애매 체크 + 긴 영상 성능
