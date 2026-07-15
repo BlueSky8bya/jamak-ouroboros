@@ -1,6 +1,6 @@
 # Current State
 
-Last Updated: 2026-07-15 (v0.9.28 — 한자 사전 tier 분류: 흑판 특수어 391종만 자동 병기)
+Last Updated: 2026-07-16 (v0.9.29 — corpus 한자어 채굴: 흑판 특수어 23종 큐레이션 편입, special 414종)
 Project Version: 0.9.25
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)
