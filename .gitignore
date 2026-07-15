@@ -10,6 +10,10 @@ data/jobs/
 data/training/
 data/*.db
 data/*.db-journal
+# corpus inbox: third-party transcript .txt drops for hanja/vocab mining —
+# lecture text must never reach the public repo (only the README is tracked)
+data/corpus/*
+!data/corpus/README.md
 
 # Node (M3 frontend)
 node_modules/
