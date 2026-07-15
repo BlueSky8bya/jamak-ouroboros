@@ -1,6 +1,6 @@
 # Current State
 
-Last Updated: 2026-07-16 (v0.9.37 — 온톨로지 6라운드 소진: glossary 783종, 통합 도메인 어휘 1195)
+Last Updated: 2026-07-16 (v0.9.38 — 일상어 205종 정리: glossary 578종, 통합 도메인 어휘 990)
 Project Version: 0.9.25
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)
