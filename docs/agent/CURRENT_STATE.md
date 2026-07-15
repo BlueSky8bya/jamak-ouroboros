@@ -1,6 +1,6 @@
 # Current State
 
-Last Updated: 2026-07-16 (v0.9.38 — 일상어 205종 정리: glossary 578종, 통합 도메인 어휘 990)
+Last Updated: 2026-07-16 (v0.9.39 — 정책 용어 9종 + 정책 참고 문서(금액 미고정), glossary 587종)
 Project Version: 0.9.25
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)
