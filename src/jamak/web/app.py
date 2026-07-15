@@ -2514,9 +2514,13 @@ def fill_hanja(
             raise HTTPException(409, "한자 사전이 비어 있습니다 — 관리자에게 문의")
 
         # 단일자: "뜻 음 자" 패턴 전용. 다자어: 단어 경계 일치 (긴 것 먼저).
+        # 다자어는 흑판 특수어(tier=special)만 — 일반 한자어(불교·일본 등)는
+        # 사전에 남아 있어도 자동 병기하지 않는다 (CHG-20260715-050).
         single = {(t.gloss, t.reading): t.hanja for t in terms if t.gloss}
         multi = {
-            t.reading: t.hanja for t in terms if not t.gloss and len(t.reading) >= 2
+            t.reading: t.hanja
+            for t in terms
+            if not t.gloss and len(t.reading) >= 2 and t.tier == "special"
         }
         multi_re = None
         if multi:

@@ -1,5 +1,11 @@
 # Agent Change Log
 
+## v0.9.28 — 2026-07-15 (한자 사전 tier — 흑판 특수어만 자동 병기)
+
+### CHG-20260715-050 — FEAT — HanjaTerm.tier + 강연 한자어 사전 문서
+Change: "흑판에 쓴 한자만 병기하고 싶다"는 요청. `HanjaTerm.tier` 신설(special/common, prod PG ALTER 완료) — 다자어 571종을 검수 대본 **병기 비율**로 분류(검수자가 병기한 비율 ≥50% = 흑판 어휘, 우로보로스 신호) + 수동 보정: 일상어·동형어 39종 강등(무시/다정/자체/수면/일석이조 등), 만트라·팔소다류 11종 승격(아뇩다라/삼먁/양설/소의다욕…). 결과 **special 391 / common 180** (단일자 379는 규칙 A 전용이라 그대로). fill-hanja 규칙 B는 special만 사용 — 불교(佛敎)·일본(日本)·정신(精神) 같은 일반어 제안 소멸. `scripts/export_hanja_lexicon.py`로 DB→`docs/hanja-lexicon.md`(신인님 강연 한자어 사전, 생성 문서 — DB가 원본) 내보내기.
+Validation: TestClient E2E — tier=common 불교 미병기 + 기존 dry/멱등/batch 전부 통과. prod 분류 적용·문서 생성 확인. 로컬 모델 불필요(결정적) — 새 강연의 새 흑판 어휘는 검수자가 한 번 병기하면 재채굴 시 사전에 편입.
+
 ## v0.9.27 — 2026-07-15 (한자 채우기 미리보기 — 확인 후 선택 적용)
 
 ### CHG-20260715-049 — FEAT/UX — fill-hanja dry-run + 미리보기 모달

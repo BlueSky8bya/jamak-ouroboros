@@ -1,6 +1,6 @@
 # Current State
 
-Last Updated: 2026-07-15 (v0.9.27 — 한자 채우기 미리보기: dry-run 제안 → 체크 선택 적용)
+Last Updated: 2026-07-15 (v0.9.28 — 한자 사전 tier 분류: 흑판 특수어 391종만 자동 병기)
 Project Version: 0.9.25
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)

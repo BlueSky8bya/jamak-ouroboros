@@ -226,6 +226,13 @@ class HanjaTerm(SQLModel, table=True):
     gloss: str = Field(default="")  # 단일자 구분용 뜻 단어 ('' = 다자어)
     hanja: str  # 채워 넣을 한자 (顔, 無常, 勇猛精進)
     count: int = 1  # 채굴 출처에서의 등장 횟수 (충돌 시 다수결 근거)
+    # [WH-CHANGE v0.9.28 | FEAT | 2026-07-15 | CHG-20260715-050]
+    # Reason: 흑판 특수어만 자동 병기하라는 요청 — 일반 한자어(불교·일본·정신)는
+    #   사전에 보존하되(tier=common) 채우기 규칙 B에서 제외. 판정 근거는 검수
+    #   대본에서의 병기 비율(검수자가 병기한 비율 높음 = 흑판 어휘) + 일상어·
+    #   동형어(무시/다정/자체 등) 수동 강등, 만트라·팔소다류 수동 승격.
+    # Related: CHANGELOG CHG-20260715-050.
+    tier: str = Field(default="special")  # special=자동 병기 | common=보존만
     created_at: datetime = Field(default_factory=utcnow)
 
 
