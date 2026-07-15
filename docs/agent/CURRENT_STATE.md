@@ -1,6 +1,6 @@
 # Current State
 
-Last Updated: 2026-07-16 (v0.9.33 — glossary STT 힌트 상한 상향+중요도 정렬, 129종 전부 STT/교정 반영)
+Last Updated: 2026-07-16 (v0.9.34 — 도메인 어휘 통합: glossary ∪ 한자 특수어, 129→541종 STT/맞춤법 반영)
 Project Version: 0.9.25
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)

@@ -67,12 +67,20 @@ def _domain_block(max_terms: int = 250) -> str:
       안 썼다. 변형(오인식 예)도 함께 넣어 잘못된 형태를 바른 형태로 돌린다.
     Related: CHANGELOG CHG-20260716-052.
     """
-    from ..glossary import glossary_block
+    from ..glossary import glossary_block, hanja_domain_readings
 
     block = glossary_block(max_terms=max_terms)
-    if not block:
+    # 검증된 흑판 한자어도 고유 용어 — 맞춤법이 일반어로 바꾸지 않게 함께 보호
+    # (v0.9.34: glossary와 한자 사전이 갈라져 특수어 412종이 새던 문제)
+    hanja = hanja_domain_readings()
+    parts = [SYSTEM_PROMPT]
+    if block:
+        parts.append(f"\n[이 강연의 고유 용어 — 위 규칙 7 적용]\n{block}")
+    if hanja:
+        parts.append(f"\n[강연 한자어 (표기 유지)]\n{', '.join(hanja)}")
+    if len(parts) == 1:
         return SYSTEM_PROMPT
-    return f"{SYSTEM_PROMPT}\n\n[이 강연의 고유 용어 — 위 규칙 7 적용]\n{block}"
+    return "".join(parts)
 
 
 def _hash(text: str, salt: str = "") -> str:

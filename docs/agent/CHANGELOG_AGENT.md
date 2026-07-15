@@ -1,5 +1,11 @@
 # Agent Change Log
 
+## v0.9.34 — 2026-07-16 (도메인 어휘 통합 — glossary ∪ 한자 사전, 129→541)
+
+### CHG-20260716-056 — FIX — glossary와 한자 사전 통합 (STT 힌트·맞춤법 보호)
+Change: 사용자 지적("특화어가 130개밖에?") 원인 규명 — 도메인 어휘가 두 테이블에 갈라져 glossary(129)만 STT/맞춤법에 물리고 검증된 한자 특수어(420)는 새고 있었다(합집합 541, 겹침 8). `glossary.domain_terms()` = glossary(confidence순) ∪ 한자 특수어(빈도순), 중복 제거. `whisper_hotwords`가 이 통합 어휘 상위 300을 STT 힌트로, `spellcheck._domain_block`이 glossary 서술 블록 + 한자어 목록을 함께 보호. 일상어인 한자 common tier(인간·일본 등 180)는 제외(보호 불필요·힌트 희석). 결과: 검증 도메인 어휘 129→541이 STT·맞춤법에 반영.
+Validation: domain_terms 541, STT 힌트 300(용맹정진·사성제·백궁·33정책 포함), spellcheck 블록에 사성제·백궁 보호 확인, cli·app·spellcheck import 클린.
+
 ## v0.9.33 — 2026-07-16 (glossary STT 힌트 상한 상향 + 중요도 정렬)
 
 ### CHG-20260716-055 — FIX — whisper 힌트가 전체 glossary를 커버하도록
