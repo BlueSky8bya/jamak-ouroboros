@@ -1,6 +1,6 @@
 # Current State
 
-Last Updated: 2026-07-16 (v0.9.30 — 맞춤법 glossary 주입 + 백궁 숫자형 보호, glossary 106종)
+Last Updated: 2026-07-16 (v0.9.31 — 선별병기 채굴: 과잉병기자 제외 후 교리어 7종 추가, special 421종)
 Project Version: 0.9.25
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)
