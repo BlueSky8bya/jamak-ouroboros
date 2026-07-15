@@ -1,5 +1,11 @@
 # Agent Change Log
 
+## v0.9.30 — 2026-07-16 (맞춤법 용어 보호 — glossary 주입 + 숫자형 방지)
+
+### CHG-20260716-052 — FEAT — spellcheck에 glossary 주입 + 숫자형 오정규화 방지
+Change: 맞춤법 검사가 강연 고유어를 일반어로 오교정하던 문제 — 특히 '5백궁'(백궁 5등급)을 '500궁'으로 정규화(corpus에서 실제 오기 '500궁' 7건 목격). (a) `spellcheck._domain_block()`이 승인 glossary 용어+변형을 시스템 프롬프트에 주입(correct.py는 이미 썼으나 spellcheck는 미사용). (b) 규칙 7 신설 — 고유 용어를 다른 말/숫자로 바꾸지 말 것, 특히 등급·단위 숫자형('5백궁'→'500궁' 금지, '백궁'→'100궁' 금지, '레벨 700무'의 '무' 삭제 금지). (c) PROMPT_VERSION v1→v2 + 캐시 키에 glossary 해시(salt) 포함 — glossary 편집 시 stale 캐시 대신 재검사. (d) 백궁 glossary 강화(변형 100궁/500궁 + 등급 설명) + flagship 도메인어 7종 추가(본궁·고령산·진사성인출·본향·우명지·궁을·삼풍양백).
+Validation: scratch DB 스모크 — 규칙7·백궁·변형 주입 확인, 앱 import 클린. corpus 빈출 용어 채굴은 노이즈 과다(최선우류 일상어 병기 오염)로 자동 대량편입 안 함 — 후보는 `data/corpus/_corpus-용어-후보.md`(로컬)로 남겨 /glossary-review 선별용.
+
 ## v0.9.29 — 2026-07-16 (corpus 채굴 — 흑판 한자어 23종 추가)
 
 ### CHG-20260716-051 — DATA — corpus 한자어 채굴 + 큐레이션 편입

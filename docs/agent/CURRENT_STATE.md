@@ -1,6 +1,6 @@
 # Current State
 
-Last Updated: 2026-07-16 (v0.9.29 — corpus 한자어 채굴: 흑판 특수어 23종 큐레이션 편입, special 414종)
+Last Updated: 2026-07-16 (v0.9.30 — 맞춤법 glossary 주입 + 백궁 숫자형 보호, glossary 106종)
 Project Version: 0.9.25
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)
