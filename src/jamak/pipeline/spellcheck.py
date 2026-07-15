@@ -69,7 +69,9 @@ def _domain_block(max_terms: int = 250) -> str:
     """
     from ..glossary import glossary_block, hanja_domain_readings
 
-    block = glossary_block(max_terms=max_terms)
+    # glossary가 429종으로 커져 250 상한으론 잘림 — 보호는 넉넉히 (프롬프트는
+    # 청크 간 ephemeral 캐시되어 첫 청크만 비용)
+    block = glossary_block(max_terms=max(max_terms, 500))
     # 검증된 흑판 한자어도 고유 용어 — 맞춤법이 일반어로 바꾸지 않게 함께 보호
     # (v0.9.34: glossary와 한자 사전이 갈라져 특수어 412종이 새던 문제)
     hanja = hanja_domain_readings()

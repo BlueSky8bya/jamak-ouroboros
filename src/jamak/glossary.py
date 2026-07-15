@@ -28,23 +28,35 @@ def hanja_domain_readings(limit: int = 600) -> list[str]:
     return [r for r in rows if r and len(r) >= 2]
 
 
-def domain_terms(limit: int = 900) -> list[str]:
+def domain_terms(limit: int = 1200) -> list[str]:
     """맞춤법 보호·STT 힌트용 통합 도메인 어휘 (glossary ∪ 한자 특수어).
 
-    glossary 용어를 confidence 순으로 먼저(가장 중요), 이어서 한자 특수어를
-    빈도순으로 붙이고 중복 제거(첫 등장 순서 유지)."""
+    순서가 중요하다 — whisper 힌트는 상한이 좁아 앞쪽만 실효. 그래서
+    (1) 손수 승인한 고확신 glossary(백궁·신인·섭리…), (2) 빈출 한자 특수어,
+    (3) 자동채굴 저확신 glossary 대량어 순. 이러면 힌트 슬롯을 핵심어가 먼저
+    차지하고, 대량어는 맞춤법 보호(넉넉한 상한)에서 커버된다. 중복 제거."""
+    approved = _approved_terms(2000)
+    hi = [t.term for t in approved if t.confidence >= 0.95 and t.term]
+    lo = [t.term for t in approved if t.confidence < 0.95 and t.term]
+
     seen: set[str] = set()
     out: list[str] = []
-    for t in _approved_terms(limit):
-        if t.term and t.term not in seen:
-            seen.add(t.term)
-            out.append(t.term)
+
+    def push(term: str) -> None:
+        if term not in seen:
+            seen.add(term)
+            out.append(term)
+
+    for term in hi:
+        push(term)
     for r in hanja_domain_readings():
-        if r not in seen:
-            seen.add(r)
-            out.append(r)
+        if len(out) >= limit:
+            return out
+        push(r)
+    for term in lo:
         if len(out) >= limit:
             break
+        push(term)
     return out
 
 
@@ -78,7 +90,7 @@ def whisper_prompt(max_terms: int = 120) -> str:
     return f"허경영 강연입니다. 다음 용어가 자주 나옵니다: {words}."
 
 
-def whisper_hotwords(max_terms: int = 300) -> str:
+def whisper_hotwords(max_terms: int = 200) -> str:
     """Unified domain vocabulary (glossary ∪ 한자 특수어) as a space-separated
     hotword string.
 
