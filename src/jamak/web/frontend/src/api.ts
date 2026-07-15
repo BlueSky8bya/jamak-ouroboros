@@ -429,21 +429,24 @@ export interface SpellSuggestion {
 }
 
 // 강조 한자어 병기 채우기 (사전 기반 결정적 치환, API 0원)
-// batch>0이면 offset부터 batch행만 처리하고 remaining을 돌려줌 — 진행률 루프용
+// batch>0이면 offset부터 batch행만 처리하고 remaining을 돌려줌 — 진행률 루프용.
+// dry=true면 DB는 그대로 두고 before/after 제안만 — 맞춤법처럼 확인 후 선택 적용
 export async function fillHanja(
   videoId: string,
   lang = "ko",
   batch = 0,
   offset = 0,
+  dry = false,
 ): Promise<{
   changed: number;
   total: number;
   remaining: number;
+  suggestions: SpellSuggestion[];
   before: { id: number; text_final: string; reviewed: boolean }[];
   segments: { id: number; text_final: string; text_llm: string }[];
 }> {
   const r = await fetch(
-    `/api/jobs/${videoId}/fill-hanja?lang=${lang}&batch=${batch}&offset=${offset}`,
+    `/api/jobs/${videoId}/fill-hanja?lang=${lang}&batch=${batch}&offset=${offset}&dry=${dry ? 1 : 0}`,
     { method: "POST" },
   );
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? `hanja: ${r.status}`);

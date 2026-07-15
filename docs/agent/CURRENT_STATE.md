@@ -1,6 +1,6 @@
 # Current State
 
-Last Updated: 2026-07-15 (v0.9.26 — 한자 채우기 배치 진행률 + 다자어 alternation 성능)
+Last Updated: 2026-07-15 (v0.9.27 — 한자 채우기 미리보기: dry-run 제안 → 체크 선택 적용)
 Project Version: 0.9.25
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)

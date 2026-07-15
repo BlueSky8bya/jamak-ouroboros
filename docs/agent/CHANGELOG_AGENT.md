@@ -1,5 +1,11 @@
 # Agent Change Log
 
+## v0.9.27 — 2026-07-15 (한자 채우기 미리보기 — 확인 후 선택 적용)
+
+### CHG-20260715-049 — FEAT/UX — fill-hanja dry-run + 미리보기 모달
+Change: 바로 적용하던 한자 채우기를 맞춤법과 같은 **제안→확인→선택 적용** 흐름으로. `POST /fill-hanja?dry=1` — DB를 안 건드리고 행별 `suggestions`(segment_id/idx/start/before/after)만 반환(비-dry에도 suggestions 항상 포함). 프론트는 dry 배치 루프(진행률 유지)로 제안을 모아 **미리보기 모달**: 단어 단위 diff(tokenDiff, 바뀐 토큰만 빨강/초록) + 시각 + 행별 체크박스 — 잘못 찾은 병기는 체크 해제. 적용은 applySpell과 동일 패턴(낙관적 반영 + 한 번의 ↶ undo + queueSave). 찾기 단계 오류 시 "아직 아무것도 안 바꿈" 명시.
+Validation: TestClient E2E — dry=1이 제안 4건 반환·DB 불변, 이후 비-dry 적용·멱등·batch 루프 기존 검증 전부 통과. 빌드 클린. 모달 체감은 851회 실사용 확인 위임.
+
 ## v0.9.26 — 2026-07-15 (한자 채우기 진행률 + 다자어 매칭 성능)
 
 ### CHG-20260715-048 — PERF/UX — fill-hanja 배치 진행률 + alternation 사전 컴파일

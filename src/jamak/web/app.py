@@ -2473,7 +2473,9 @@ def spellcheck(video_id: str, lang: str = "ko", batch: int = 0) -> dict:
 
 
 @app.post("/api/jobs/{video_id}/fill-hanja")
-def fill_hanja(video_id: str, lang: str = "ko", batch: int = 0, offset: int = 0) -> dict:
+def fill_hanja(
+    video_id: str, lang: str = "ko", batch: int = 0, offset: int = 0, dry: int = 0
+) -> dict:
     """강조 한자어 병기 채우기 — "얼굴 안 자" → "얼굴 안(顔) 자".
 
     [WH-CHANGE v0.9.25 | FEAT | 2026-07-15 | CHG-20260715-047]
@@ -2491,6 +2493,13 @@ def fill_hanja(video_id: str, lang: str = "ko", batch: int = 0, offset: int = 0)
       개별 re.sub 하면 re 모듈 패턴 캐시(512개)를 넘겨 행마다 재컴파일된다 —
       통합 alternation 패턴 1개로 사전 컴파일 (긴 표현 우선 순서 유지).
     Related: CHANGELOG CHG-20260715-048.
+
+    [WH-CHANGE v0.9.27 | FEAT | 2026-07-15 | CHG-20260715-049]
+    Reason: dry=1이면 DB를 건드리지 않고 before/after 제안만 돌려준다 —
+      "어디에 채웠는지 보이고, 잘못된 병기는 빼고 적용하고 싶다"는 피드백.
+      맞춤법 검사와 같은 제안-확인-선택 적용 흐름 (적용은 클라이언트가
+      updateSegment로). suggestions는 dry 여부와 무관하게 항상 채운다.
+    Related: CHANGELOG CHG-20260715-049.
     """
     import re as _re
 
@@ -2540,26 +2549,41 @@ def fill_hanja(video_id: str, lang: str = "ko", batch: int = 0, offset: int = 0)
 
         before: list[dict] = []
         changed: list[Segment] = []
+        suggestions: list[dict] = []
         for s in seg_rows:
             cur = s.text_final or s.text_llm or ""
             if not cur or "(" in cur and cur.count("(") > 6:
                 continue
             new = fill(cur)
-            if new != cur:
-                before.append(
-                    {"id": s.id, "text_final": s.text_final, "reviewed": s.reviewed}
-                )
-                if s.text_final:
-                    s.text_final = new
-                else:
-                    s.text_llm = new
-                session.add(s)
-                changed.append(s)
-        session.commit()
+            if new == cur:
+                continue
+            suggestions.append(
+                {
+                    "segment_id": s.id,
+                    "idx": s.idx,
+                    "start": s.start,
+                    "before": cur,
+                    "after": new,
+                }
+            )
+            if dry:
+                continue
+            before.append(
+                {"id": s.id, "text_final": s.text_final, "reviewed": s.reviewed}
+            )
+            if s.text_final:
+                s.text_final = new
+            else:
+                s.text_llm = new
+            session.add(s)
+            changed.append(s)
+        if not dry:
+            session.commit()
         return {
             "changed": len(changed),
             "total": total,
             "remaining": remaining,
+            "suggestions": suggestions,
             "before": before,
             "segments": [
                 {

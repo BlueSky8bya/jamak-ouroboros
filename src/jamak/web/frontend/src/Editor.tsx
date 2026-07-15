@@ -1864,6 +1864,11 @@ export function Editor({
   // 결과 배너(도구 줄 바로 아래, 눈에 띄게) — "눌렀는데 변화가 안 보임" 금지
   const [toolBusy, setToolBusy] = useState<string | null>(null);
   const [hanjaProg, setHanjaProg] = useState<{ done: number; total: number } | null>(null);
+  // 한자 병기 미리보기 — 맞춤법처럼 확인 후 체크한 것만 적용
+  const [hanjaModal, setHanjaModal] = useState<{
+    suggestions: SpellSuggestion[];
+    accepted: Set<number>;
+  } | null>(null);
   const [toolMsg, setToolMsg] = useState("");
   useEffect(() => {
     if (!toolMsg) return;
@@ -3454,54 +3459,69 @@ export function Editor({
   }
 
   async function runFillHanja() {
-    // 배치 루프: 200행씩 처리하며 버튼에 진행률 표시 (맞춤법과 같은 패턴 —
-    // "채우는 중..."만 떠 있으면 진행인지 멈춤인지 알 수 없다는 피드백).
-    // 멱등이라 중간에 끊겨도 다시 누르면 이어서 안전하게 진행된다.
+    // dry-run 배치 루프: 200행씩 훑으며 진행률 표시, DB는 안 건드리고 제안만
+    // 모은다. 적용은 맞춤법처럼 미리보기 목록에서 확인·선택 후 (어디에
+    // 채웠는지 안 보이고, 잘못된 병기를 거를 수 없다는 피드백).
     setToolBusy("hanja");
     setHanjaProg(null);
     await flushAll();
-    const changedIds = new Set<number>();
-    let changed = 0;
     try {
       const BATCH = 200;
       let offset = 0;
+      const suggestions: SpellSuggestion[] = [];
       for (;;) {
-        const r = await fillHanja(videoId, lang, BATCH, offset);
-        changed += r.changed;
-        for (const b of r.before) changedIds.add(b.id);
+        const r = await fillHanja(videoId, lang, BATCH, offset, true);
+        suggestions.push(...r.suggestions);
         offset += BATCH;
         setHanjaProg({ done: Math.min(offset, r.total), total: r.total });
         if (r.remaining <= 0) break;
       }
-      if (changedIds.size) {
-        // segmentsRef는 아직 새로고침 전 = 변경 전 텍스트 → 되돌리기 스냅샷
-        pushOpUndo(
-          "한자 채우기",
-          segmentsRef.current.filter((s) => changedIds.has(s.id)),
-        );
+      if (!suggestions.length) {
+        setToolMsg("漢 채울 한자어를 찾지 못했어요 — 사전에 있는 표현이 없거나 이미 병기됨");
+      } else {
+        setHanjaModal({
+          suggestions,
+          accepted: new Set(suggestions.map((s) => s.segment_id)),
+        });
       }
-      await refreshSegments();
-      setToolMsg(
-        changed
-          ? `漢 한자 병기 ${changed}개 자막에 채웠어요 (↶로 전체 되돌리기 가능)`
-          : "漢 채울 한자어를 찾지 못했어요 — 사전에 있는 표현이 없거나 이미 병기됨",
-      );
     } catch (e) {
-      // 중간 배치까지는 적용된 상태 — 되돌리기 스냅샷과 화면 갱신은 해 둔다
-      if (changedIds.size) {
-        pushOpUndo(
-          "한자 채우기",
-          segmentsRef.current.filter((s) => changedIds.has(s.id)),
-        );
-        await refreshSegments().catch(() => {});
-      }
       if (await maybeRecoverClone(e)) return;
-      setError(`한자 채우기 중 오류가 났어요 (${changed}개까지 적용됨) — ${String(e)}`);
-      setToolMsg("漢 한자 채우기가 중간에 멈췄어요 — 다시 누르면 이어서 진행돼요");
+      setError(`한자 찾기 중 오류가 났어요 — ${String(e)}`);
+      setToolMsg("漢 한자 찾기가 중간에 멈췄어요 (아직 아무것도 안 바꿈) — 다시 눌러주세요");
     } finally {
       setToolBusy(null);
       setHanjaProg(null);
     }
+  }
+
+  function applyHanja() {
+    // applySpell과 같은 흐름: 낙관적 화면 반영 + 배치 하나로 undo + queueSave
+    const m = hanjaModal;
+    if (!m) return;
+    const chosen = m.suggestions.filter((s) => m.accepted.has(s.segment_id));
+    setHanjaModal(null);
+    if (!chosen.length) return;
+    const before = segmentsRef.current.filter((s) =>
+      chosen.some((c) => c.segment_id === s.id),
+    );
+    pushOpUndo("한자 채우기", before);
+    applyRows(
+      chosen.map((c) => {
+        const old = before.find((s) => s.id === c.segment_id)!;
+        return { ...old, text_final: c.after };
+      }),
+    );
+    for (const c of chosen) {
+      void queueSave(c.segment_id, async () => {
+        try {
+          const updated = await updateSegment(c.segment_id, { text_final: c.after });
+          applyRows([updated]);
+        } catch (e) {
+          setError(String(e));
+        }
+      });
+    }
+    setToolMsg(`漢 한자 병기 ${chosen.length}개 자막에 채웠어요 (↶로 전체 되돌리기 가능)`);
   }
 
   async function runTighten() {
@@ -4063,7 +4083,7 @@ export function Editor({
           <button
             className="tool tool-hanja"
             disabled={!!toolBusy}
-            title="강조해서 풀어 말한 한자어에 한자를 병기 — '얼굴 안 자' → '얼굴 안(顔) 자'. 검수 완료 대본에서 만든 사전 기반, API 사용 안 함 (되돌리기 가능)"
+            title="강조해서 풀어 말한 한자어에 한자를 병기 — '얼굴 안 자' → '얼굴 안(顔) 자'. 찾은 곳을 먼저 보여주고, 체크한 것만 적용합니다. 검수 완료 대본에서 만든 사전 기반, API 사용 안 함 (되돌리기 가능)"
             onClick={() => void runFillHanja()}
           >
             {toolBusy === "hanja"
@@ -4574,6 +4594,66 @@ export function Editor({
             <div className="srt-actions">
               <button className="srt-cancel" onClick={() => setTourMenu(false)}>
                 닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 漢 한자 병기 미리보기 — 맞춤법과 같은 확인·선택 적용 흐름 */}
+      {hanjaModal && (
+        <div
+          className="srt-modal-back"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setHanjaModal(null);
+          }}
+        >
+          <div className="srt-modal qc-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>漢 한자 채우기 — 미리보기</h3>
+            <p className="srt-summary">
+              채울 곳 <strong>{hanjaModal.suggestions.length}곳</strong>을 찾았어요 —
+              체크한 것만 적용됩니다. 잘못 찾은 곳은 체크를 풀어주세요 (적용 후 ↶로
+              전체 되돌리기 가능)
+            </p>
+            <div className="spell-list">
+              {hanjaModal.suggestions.map((s) => {
+                const d = tokenDiff(s.before, s.after);
+                return (
+                  <div key={s.segment_id} className="spell-row">
+                    <label className="spell-main">
+                      <input
+                        type="checkbox"
+                        checked={hanjaModal.accepted.has(s.segment_id)}
+                        onChange={(e) =>
+                          setHanjaModal((m) => {
+                            if (!m) return m;
+                            const next = new Set(m.accepted);
+                            if (e.target.checked) next.add(s.segment_id);
+                            else next.delete(s.segment_id);
+                            return { ...m, accepted: next };
+                          })
+                        }
+                      />
+                      <span className="spell-diff">
+                        <span className="spell-before">{d.del}</span>
+                        <span className="spell-arrow">→</span>
+                        <span className="spell-after">{d.ins}</span>
+                      </span>
+                      <span className="spell-time">{fmt(s.start)}</span>
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="srt-actions">
+              <button className="srt-cancel" onClick={() => setHanjaModal(null)}>
+                취소
+              </button>
+              <button
+                className="srt-apply"
+                disabled={hanjaModal.accepted.size === 0}
+                onClick={() => applyHanja()}
+              >
+                선택한 {hanjaModal.accepted.size}곳 적용
               </button>
             </div>
           </div>
