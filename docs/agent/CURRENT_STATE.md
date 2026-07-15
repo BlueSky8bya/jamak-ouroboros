@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-15 (v0.9.21 — .srt로 바로 등록: 파이프라인 없이 자막 붙이기)
-Project Version: 0.9.21
+Last Updated: 2026-07-15 (v0.9.22 — 라이브였던 영상 /live/ 링크 지원)
+Project Version: 0.9.22
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)
 

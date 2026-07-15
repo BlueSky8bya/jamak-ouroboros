@@ -25,7 +25,13 @@ class IngestResult:
 
 
 def extract_video_id(url: str) -> str:
-    m = re.search(r"(?:v=|youtu\.be/|shorts/)([A-Za-z0-9_-]{11})", url)
+    # [WH-CHANGE v0.9.22 | FIX | 2026-07-15 | CHG-20260715-043]
+    # Reason: 라이브(였던) 영상 링크는 /live/<id> 형식이라 안 걸렸음 — 재생은
+    #   일반 영상과 동일(11자 video_id)이니 지원해야 한다. /embed/도 함께 추가.
+    # Related: CHANGELOG CHG-20260715-043.
+    m = re.search(
+        r"(?:v=|youtu\.be/|shorts/|live/|embed/)([A-Za-z0-9_-]{11})", url
+    )
     if not m:
         raise ValueError(f"Cannot extract video id from URL: {url}")
     return m.group(1)

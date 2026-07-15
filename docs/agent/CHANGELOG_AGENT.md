@@ -1,5 +1,11 @@
 # Agent Change Log
 
+## v0.9.22 — 2026-07-15 (라이브였던 영상 링크 /live/ 지원)
+
+### CHG-20260715-043 — FIX — /live/·/embed/ URL에서 video_id 추출 실패
+Change: `extract_video_id`가 v=·youtu.be/·shorts/만 알아 `youtube.com/live/<id>?si=...`(라이브였던 영상) 링크를 거부했음. 재생은 일반 영상과 동일(11자 id)이라 지원해야 함 — 정규식에 `live/`·`embed/` 추가. 프론트 미리보기 정규식(parseVideoId)에도 `live/` 추가.
+Validation: 6개 URL 형식(live 쿼리유무·watch·youtu.be·shorts·embed) 전부 정확 추출. 빌드 클린.
+
 ## v0.9.21 — 2026-07-15 (.srt로 바로 등록 — 파이프라인 없이 자막 붙이기)
 
 ### CHG-20260715-042 — FEAT — 자막 이미 있는 영상은 STT·교정·GPU 전부 생략

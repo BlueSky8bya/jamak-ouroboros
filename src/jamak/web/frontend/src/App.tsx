@@ -52,7 +52,7 @@ const STATUS_FILTERS: { key: StatusKey; label: string }[] = [
 /** pull the 11-char YouTube id out of a pasted URL (or a bare id) */
 function parseVideoId(u: string): string | null {
   const s = u.trim();
-  const m = s.match(/(?:v=|youtu\.be\/|embed\/|shorts\/|\/v\/)([\w-]{11})/);
+  const m = s.match(/(?:v=|youtu\.be\/|embed\/|shorts\/|live\/|\/v\/)([\w-]{11})/);
   if (m) return m[1];
   return /^[\w-]{11}$/.test(s) ? s : null;
 }
