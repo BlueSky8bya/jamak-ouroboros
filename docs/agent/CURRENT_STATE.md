@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-15 (v0.9.22 — 라이브였던 영상 /live/ 링크 지원)
-Project Version: 0.9.22
+Last Updated: 2026-07-15 (v0.9.23 — .srt 등록 제목(oEmbed) + 드롭존 UX)
+Project Version: 0.9.23
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)
 

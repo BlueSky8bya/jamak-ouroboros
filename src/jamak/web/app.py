@@ -408,7 +408,7 @@ def create_job_srt_only(request: Request, body: SrtOnlyCreate) -> dict:
     _require_admin(request)
     import srt as _srtlib
 
-    from ..pipeline.ingest import extract_video_id
+    from ..pipeline.ingest import extract_video_id, fetch_title
 
     try:
         video_id = extract_video_id(body.url)
@@ -445,7 +445,7 @@ def create_job_srt_only(request: Request, body: SrtOnlyCreate) -> dict:
         job = Job(
             video_id=video_id,
             url=body.url,
-            title="",  # yt-dlp 없이 등록 — 카드가 썸네일+video_id로 표시
+            title=fetch_title(video_id),  # oEmbed(가벼운 GET) — 실패 시 빈값
             duration_seconds=round(cues[-1][1], 3) if cues else 0.0,
             status="reviewing",
             timing_done=True,  # .srt는 사람 타이밍을 담고 있다

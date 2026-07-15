@@ -37,6 +37,26 @@ def extract_video_id(url: str) -> str:
     return m.group(1)
 
 
+def fetch_title(video_id: str) -> str:
+    """YouTube 제목만 가볍게 가져온다 (oEmbed — 공개, API키·yt-dlp 불필요).
+
+    .srt 바로 등록처럼 파이프라인을 안 쓰는 경로에서 제목을 채우는 용도.
+    네트워크 실패/차단 시 빈 문자열(카드가 video_id로 폴백). 미디어 미다운로드.
+    """
+    import json
+    import urllib.request
+
+    url = (
+        "https://www.youtube.com/oembed?url="
+        f"https://www.youtube.com/watch?v={video_id}&format=json"
+    )
+    try:
+        with urllib.request.urlopen(url, timeout=6) as r:
+            return (json.load(r).get("title") or "").strip()
+    except Exception:
+        return ""
+
+
 def fetch_upload_date(video_id: str) -> str:
     """Metadata-only fetch of the YouTube upload date (YYYYMMDD).
 

@@ -584,8 +584,9 @@ export function App() {
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  // 단순 업로드(.srt 바로 등록)용 숨은 파일 입력
+  // 단순 업로드(.srt 바로 등록)용 숨은 파일 입력 + 드롭존 하이라이트
   const srtOnlyInputRef = useRef<HTMLInputElement>(null);
+  const [srtDrop, setSrtDrop] = useState(false);
   // remembered view preferences (less re-setup between visits)
   const [filter, setFilter] = useState(() => localStorage.getItem("jamak.filter") || "all");
   const [status, setStatus] = useState<StatusKey>(
@@ -1260,20 +1261,60 @@ export function App() {
           <button onClick={submit} disabled={submitting || !url.trim()}>
             {submitting ? "시작 중" : "자막 만들기"}
           </button>
-          <button
-            className="srt-only-btn"
-            title="이미 검수 끝난 .srt가 있으면, 음성인식·교정 없이 영상에 바로 붙여요 (컴퓨팅 최소)"
+          {previewId && (
+            <div className="url-preview">
+              <img
+                src={`https://img.youtube.com/vi/${previewId}/mqdefault.jpg`}
+                alt=""
+                loading="lazy"
+              />
+              <span>
+                자막 없는 영상은 <b>자막 만들기</b>(음성인식+교정). 이미 .srt가 있으면 아래로.
+              </span>
+            </div>
+          )}
+          {/* 이미 자막(.srt)이 있는 영상: 파이프라인 없이 바로 등록. 끌어놓기
+              또는 클릭 (사용자 피드백 — 버튼만 있으니 불편). */}
+          <div
+            className={"srt-drop" + (srtDrop ? " over" : "") + (url.trim() ? "" : " need-url")}
+            role="button"
+            tabIndex={0}
+            title="이미 검수 끝난 .srt가 있으면 음성인식·교정 없이 바로 등록 (컴퓨팅 최소)"
             onClick={() => {
               if (!url.trim()) {
-                setError("먼저 영상 링크를 붙여넣어 주세요.");
+                setError("먼저 위에 영상 링크를 붙여넣어 주세요.");
                 return;
               }
               srtOnlyInputRef.current?.click();
             }}
-            disabled={submitting || !url.trim()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") srtOnlyInputRef.current?.click();
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setSrtDrop(true);
+            }}
+            onDragLeave={() => setSrtDrop(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setSrtDrop(false);
+              const f = Array.from(e.dataTransfer.files).find((x) =>
+                x.name.toLowerCase().endsWith(".srt"),
+              );
+              if (f) void submitSrtOnly(f);
+              else setError(".srt 파일을 끌어놓아 주세요.");
+            }}
           >
-            📄 .srt로 바로 등록
-          </button>
+            <span className="srt-drop-ico">📄</span>
+            <span className="srt-drop-txt">
+              <b>이미 자막(.srt)이 있어요</b>
+              <small>
+                {url.trim()
+                  ? ".srt 파일을 여기에 끌어놓거나 눌러서 바로 등록 (음성인식·교정 없이)"
+                  : "위에 링크를 넣은 뒤, .srt 파일을 여기에 끌어놓으면 바로 등록돼요"}
+              </small>
+            </span>
+          </div>
           <input
             ref={srtOnlyInputRef}
             type="file"
@@ -1285,18 +1326,6 @@ export function App() {
               if (f) void submitSrtOnly(f);
             }}
           />
-          {previewId && (
-            <div className="url-preview">
-              <img
-                src={`https://img.youtube.com/vi/${previewId}/mqdefault.jpg`}
-                alt=""
-                loading="lazy"
-              />
-              <span>
-                <b>자막 만들기</b>: 음성인식+교정 · <b>.srt로 바로 등록</b>: 이미 있는 자막 붙이기
-              </span>
-            </div>
-          )}
         </div>
       )}
 

@@ -1,5 +1,11 @@
 # Agent Change Log
 
+## v0.9.23 — 2026-07-15 (.srt 등록 제목 채우기 + 드롭존 UX)
+
+### CHG-20260715-044 — FIX/UX — 제목 없음(video_id 표시) + 불편한 버튼
+Change: (a) .srt 바로 등록이 title=""이라 카드에 video_id가 뜨던 것 — `ingest.fetch_title`(YouTube oEmbed, 공개 GET, API키·yt-dlp 불필요, 6s 타임아웃, 실패 시 빈값) 추가해 등록 시 제목을 채운다. 기존 빈 제목 Job도 oEmbed로 백필(운영 1건). (b) UX: 전폭 버튼 → **점선 드롭존**("이미 자막(.srt)이 있어요" — .srt 파일 끌어놓기 또는 클릭, 링크 미입력 시 안내). url-preview 문구도 두 경로 구분 정리.
+Validation: oEmbed 2케이스 제목 정확, 백필 실행 확인, 빌드·import 클린. 드롭존 실동작은 사용자 확인.
+
 ## v0.9.22 — 2026-07-15 (라이브였던 영상 링크 /live/ 지원)
 
 ### CHG-20260715-043 — FIX — /live/·/embed/ URL에서 video_id 추출 실패
