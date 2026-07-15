@@ -1,5 +1,11 @@
 # Agent Change Log
 
+## v0.9.33 — 2026-07-16 (glossary STT 힌트 상한 상향 + 중요도 정렬)
+
+### CHG-20260716-055 — FIX — whisper 힌트가 전체 glossary를 커버하도록
+Change: 사용자 착안("특화어를 STT+교정 앞단에서부터 반영하면 수고·토큰 절약") 확인 — 이미 파이프라인이 glossary를 STT 힌트(whisper_hotwords)·초기 프롬프트(whisper_prompt)·Claude 교정(glossary_block)·저비용 스킵(glossary_surface_forms) 4곳에 쓰고 있었다. 단 glossary가 129종으로 커지며 whisper 상한(hotwords 100/prompt 60)을 넘겨 일부 용어가 STT 단계에서 잘렸고 `.limit()`에 정렬이 없어 임의 누락. 상한을 hotwords 250/prompt 120/block 400으로 올리고 `_approved_terms()` 공용 헬퍼로 **confidence 내림차순 정렬**(잘리면 저확신부터). hotwords에는 정본 term만(오인식 변형은 whisper를 틀린 형태로 유도하므로 제외). 결과: 승인 129종 전부가 STT 힌트·교정에 반영 → 첫 교정 품질↑, 검수 수고↓, 맞춤법 버튼은 순수 맞춤법만.
+Validation: hotwords 129개 전부 포함(백궁·33정책 확인), 변형(500궁/100궁) 미포함 확인, cli·app import 클린.
+
 ## v0.9.32 — 2026-07-16 (강연 특화 용어 23종 glossary 추가 + 용어사전 문서)
 
 ### CHG-20260716-054 — DATA — 허경영 특화 단어·고유명사 glossary 편입

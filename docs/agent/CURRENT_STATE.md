@@ -1,6 +1,6 @@
 # Current State
 
-Last Updated: 2026-07-16 (v0.9.32 — 강연 특화어 23종 glossary 추가 + 용어사전 문서, glossary 129종)
+Last Updated: 2026-07-16 (v0.9.33 — glossary STT 힌트 상한 상향+중요도 정렬, 129종 전부 STT/교정 반영)
 Project Version: 0.9.25
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)
