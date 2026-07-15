@@ -1,6 +1,6 @@
 # Current State
 
-Last Updated: 2026-07-16 (v0.9.35 — 선별병기 300종 편입: glossary 429, 통합 도메인 어휘 841종)
+Last Updated: 2026-07-16 (v0.9.36 — 온톨로지 가지치기 34종 grounding 편입: glossary 463종)
 Project Version: 0.9.25
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)
