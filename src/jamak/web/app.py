@@ -2522,12 +2522,35 @@ def fill_hanja(
             for t in terms
             if not t.gloss and len(t.reading) >= 2 and t.tier == "special"
         }
+        # [WH-CHANGE v0.9.43 | FIX | 2026-07-16 | CHG-20260716-065]
+        # Reason: 규칙 B가 뒤에 한글이 오면 매칭 안 해(?![가-힣]) 조사가 붙은
+        #   대부분(신언서판으로·백궁에서·오온을)을 놓쳤다. 한국어 조사는 용어
+        #   뒤에 직접 붙으므로, 알려진 조사를 선택적으로 흡수하고 그 뒤가 진짜
+        #   경계(비한글)일 때만 병기한다. 조사 뒤 한글이 이어지면(백궁전) 매칭
+        #   안 돼 긴 단어 오분리를 막는다. 미리보기(dry-run)라 오분리도 검토서 걸러짐.
+        # Related: CHANGELOG CHG-20260716-065.
+        # 긴 것 먼저(교대 매칭은 좌→우) — 조사 + 서술격(이다) + 하다동사 종결형.
+        # 명사 뒤에 직접 붙는 것만: 조사(을/에서/으로), 서술격(이다/입니다),
+        # 하다동사(수행하다·정진하세요). 뒤가 진짜 경계일 때만 병기하므로
+        # 긴 단어(백궁전)는 분리되지 않는다.
+        JOSA = (
+            "으로부터|에서부터|에서만|에서는|에서도|으로써|으로서|으로는|으로도"
+            "|이라고|이라는|이라도|이라면|이라서|에게서|한테서|에게로|입니다|이에요"
+            "|이예요|이지만|이라|이란|이나|이야|이랑|이고|이며|이지|인데|이면|이니"
+            "|이다|이었|였다|께서|에서|에게|한테|으로|처럼|보다|마다|부터|까지"
+            "|조차|마저|밖에|만큼|라도|라서|에는|에도|에만|로는|로도"
+            "|합니다|하세요|하시는|하시고|하는|하고|하며|하지|하면|하게|하기|하여"
+            "|하다|한다|해서|해야|해도|했다|했고|했는데"
+            "|은|는|이|가|을|를|와|과|의|에|로|도|만|께|야|아|랑|나|인"
+        )
         multi_re = None
         if multi:
             alts = "|".join(
                 _re.escape(r) for r in sorted(multi, key=len, reverse=True)
             )
-            multi_re = _re.compile(rf"(?<![가-힣])(?:{alts})(?![가-힣(])")
+            multi_re = _re.compile(
+                rf"(?<![가-힣])({alts})((?:{JOSA})?)(?![가-힣(])"
+            )
         seg_rows = session.exec(
             select(Segment)
             .where(Segment.job_id == job.id, Segment.lang == lang)
@@ -2546,9 +2569,11 @@ def fill_hanja(
                 return f"{m.group(1)} {m.group(2)}({h}) 자" if h else m.group(0)
 
             out = _re.sub(r"([가-힣]+) ([가-힣]) 자(?![가-힣(])", sub_glyph, text)
-            # 규칙 B: 다자어 병기 (단어 경계, 뒤에 괄호 없을 때만)
+            # 규칙 B: 다자어 병기 — 용어(그룹1) 뒤 조사(그룹2)는 보존, 그 사이 병기
             if multi_re:
-                out = multi_re.sub(lambda m: f"{m.group(0)}({multi[m.group(0)]})", out)
+                out = multi_re.sub(
+                    lambda m: f"{m.group(1)}({multi[m.group(1)]}){m.group(2)}", out
+                )
             return out
 
         before: list[dict] = []

@@ -1,6 +1,6 @@
 # Current State
 
-Last Updated: 2026-07-16 (v0.9.42 — 인간 등급 10단계(신인만 허경영) 편입/정정, glossary 611종)
+Last Updated: 2026-07-16 (v0.9.43 — 한자 채우기 조사/서술격 인식(신언서판으로 등) + 신언서판 편입)
 Project Version: 0.9.25
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)
