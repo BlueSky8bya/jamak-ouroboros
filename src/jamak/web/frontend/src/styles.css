@@ -2087,6 +2087,11 @@ kbd {
   border-radius: 8px;
   background: var(--surface);
   box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
+  /* 2시간 영상(2000+행)에서 화면 밖 행의 레이아웃·페인트를 건너뛴다 —
+     250ms 재생 틱마다 전체 리스트가 스타일 계산을 다시 하면 메인 스레드가
+     포화되어 단축키가 안 먹는 것처럼 느려짐 (사용자 보고, v0.9.25) */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
 }
 
 .row:hover {
@@ -3518,10 +3523,44 @@ kbd {
 .spell-row:hover { background: var(--surface-strong); }
 .spell-row input { width: 16px; height: 16px; accent-color: var(--blue); flex: 0 0 auto; }
 .spell-diff { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
-.spell-before { color: var(--rose); text-decoration: line-through; }
+/* 단어 단위 diff — 바뀐 토큰만 강조, 나머지는 본문색 (전체 찍 긋기 금지) */
+.spell-before,
+.spell-after { color: var(--text); }
+.spell-before del {
+  color: var(--rose);
+  background: color-mix(in srgb, var(--rose) 14%, transparent);
+  text-decoration: line-through;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+.spell-after ins {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+  text-decoration: none;
+  font-weight: 700;
+  border-radius: 3px;
+  padding: 0 1px;
+}
 .spell-arrow { color: var(--faint); }
-.spell-after { color: var(--green); font-weight: 600; }
 .spell-time { color: var(--faint); font-size: 0.8rem; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.spell-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; cursor: pointer; }
+.spell-hold {
+  flex: none;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.spell-hold.on {
+  border-color: var(--amber, #d97706);
+  color: var(--amber, #d97706);
+  background: color-mix(in srgb, var(--amber, #d97706) 12%, var(--surface));
+  font-weight: 700;
+}
 
 /* ===== 어르신 사용법 화면 (Guide) ======================================== */
 .guide-btn {

@@ -62,12 +62,22 @@ def _hash(text: str) -> str:
     ).hexdigest()[:20]
 
 
-def spellcheck_lines(lines: list[tuple[int, str]]) -> tuple[dict[int, str], dict]:
+def spellcheck_lines(
+    lines: list[tuple[int, str]], limit: int = 0
+) -> tuple[dict[int, str], dict]:
     """Check (key, text) lines; return ({key: fixed_text} for changed lines,
     stats). Keys are opaque to this function (the caller passes segment ids).
     Cached per exact text — unchanged lines from a previous run cost nothing.
+
+    [WH-CHANGE v0.9.25 | FIX | 2026-07-15 | CHG-20260715-046]
+    Reason: 2시간 영상은 미캐시 2천여 줄 = 청크 ~28개를 한 요청에 처리 —
+      진행률이 안 보이고(사용자 요청) 프록시 타임아웃 위험(번역 502와 동일
+      패턴). `limit` > 0이면 미캐시 줄을 그 수까지만 API로 처리하고 나머지는
+      stats["remaining"]으로 알린다 — 프론트가 짧은 요청을 반복하며 진행률
+      표시. 캐시 조회는 항상 전체(무료).
+    Related: CHANGELOG CHG-20260715-046.
     """
-    stats = {"checked": 0, "cached": 0, "sent": 0}
+    stats = {"checked": 0, "cached": 0, "sent": 0, "remaining": 0}
     fixes: dict[int, str] = {}
     todo: list[tuple[int, str]] = []
 
@@ -88,6 +98,10 @@ def spellcheck_lines(lines: list[tuple[int, str]]) -> tuple[dict[int, str], dict
                     fixes[key] = cached.text
             else:
                 todo.append((key, t))
+
+    if limit and len(todo) > limit:
+        stats["remaining"] = len(todo) - limit
+        todo = todo[:limit]
 
     if not todo:
         return fixes, stats

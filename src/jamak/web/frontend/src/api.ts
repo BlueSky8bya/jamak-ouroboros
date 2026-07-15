@@ -428,11 +428,34 @@ export interface SpellSuggestion {
   after: string;
 }
 
+// 강조 한자어 병기 채우기 (사전 기반 결정적 치환, API 0원)
+export async function fillHanja(
+  videoId: string,
+  lang = "ko",
+): Promise<{
+  changed: number;
+  before: { id: number; text_final: string; reviewed: boolean }[];
+  segments: { id: number; text_final: string; text_llm: string }[];
+}> {
+  const r = await fetch(`/api/jobs/${videoId}/fill-hanja?lang=${lang}`, { method: "POST" });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? `hanja: ${r.status}`);
+  return r.json();
+}
+
 export async function runSpellcheck(
   videoId: string,
   lang = "ko",
-): Promise<{ suggestions: SpellSuggestion[]; checked: number; cached: number; sent: number }> {
-  const r = await fetch(`/api/jobs/${videoId}/spellcheck?lang=${lang}`, { method: "POST" });
+  batch = 0,
+): Promise<{
+  suggestions: SpellSuggestion[];
+  checked: number;
+  cached: number;
+  sent: number;
+  remaining: number;
+}> {
+  const r = await fetch(`/api/jobs/${videoId}/spellcheck?lang=${lang}&batch=${batch}`, {
+    method: "POST",
+  });
   if (!r.ok) {
     let msg = `spellcheck: ${r.status}`;
     try {

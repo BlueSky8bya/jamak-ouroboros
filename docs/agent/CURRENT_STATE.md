@@ -1,7 +1,7 @@
 # Current State
 
-Last Updated: 2026-07-15 (v0.9.24 — 부팅 워커 콘솔 창 제거, 무창 실행 일원화)
-Project Version: 0.9.24
+Last Updated: 2026-07-15 (v0.9.25 — 맞춤법 진행률·단어 diff·🙉 애매 체크, 긴 영상 성능, 漢 한자 채우기)
+Project Version: 0.9.25
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)
 

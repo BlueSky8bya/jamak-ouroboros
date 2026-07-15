@@ -213,6 +213,22 @@ class JobRequest(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utcnow)
 
 
+class HanjaTerm(SQLModel, table=True):
+    """강조 한자어 병기 사전 — "얼굴 안 자" → "얼굴 안(顔) 자" 채우기의 원본.
+
+    검수 완료 대본(txt·DB)의 기존 병기 패턴에서 채굴한다 (학습 데이터는 DB가
+    원본 — 코드 하드코딩 금지 규칙). 단일자는 동음이 많아 문맥 뜻 단어(gloss)와
+    짝으로 저장한다: (얼굴, 안)→顔 vs (편안할, 안)→安.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    reading: str = Field(index=True)  # 한글 표기 (안, 무상, 용맹정진)
+    gloss: str = Field(default="")  # 단일자 구분용 뜻 단어 ('' = 다자어)
+    hanja: str  # 채워 넣을 한자 (顔, 無常, 勇猛精進)
+    count: int = 1  # 채굴 출처에서의 등장 횟수 (충돌 시 다수결 근거)
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class SrtBackup(SQLModel, table=True):
     """Pre-import snapshot of a video's Korean segments, so applying a .srt is
     undoable (in case the wrong file was dropped). One row per job (the last

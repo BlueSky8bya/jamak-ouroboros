@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   absorbFeedback,
   autoTiming,
+  fillHanja,
   boundaryNext,
   boundaryPrev,
   edgeDrag,
@@ -41,6 +42,46 @@ import {
 import { TranslateReview } from "./TranslateReview";
 import type { Segment } from "./types";
 import { usePlayer } from "./usePlayer";
+
+/** 단어 단위 diff — 바뀐 토큰만 <del>/<ins>로 표시 (전체 문장 취소선 대신,
+ *  어디가 고쳐졌는지 바로 보이게 — 사용자 요청 2026-07-15). 공백 토큰을
+ *  보존한 LCS라 띄어쓰기 교정도 정확히 하이라이트된다. */
+function tokenDiff(
+  a: string,
+  b: string,
+): { del: React.ReactNode; ins: React.ReactNode } {
+  const A = a.split(/(\s+)/).filter((x) => x !== "");
+  const B = b.split(/(\s+)/).filter((x) => x !== "");
+  const n = A.length;
+  const m = B.length;
+  const dp: number[][] = Array.from({ length: n + 1 }, () =>
+    new Array(m + 1).fill(0),
+  );
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      dp[i][j] =
+        A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const delOut: React.ReactNode[] = [];
+  const insOut: React.ReactNode[] = [];
+  let i = 0;
+  let j = 0;
+  let k = 0;
+  while (i < n && j < m) {
+    if (A[i] === B[j]) {
+      delOut.push(A[i]);
+      insOut.push(B[j]);
+      i++;
+      j++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      delOut.push(<del key={k++}>{A[i++]}</del>);
+    } else {
+      insOut.push(<ins key={k++}>{B[j++]}</ins>);
+    }
+  }
+  while (i < n) delOut.push(<del key={k++}>{A[i++]}</del>);
+  while (j < m) insOut.push(<ins key={k++}>{B[j++]}</ins>);
+  return { del: <>{delOut}</>, ins: <>{insOut}</> };
+}
 
 function fmt(t: number): string {
   const m = Math.floor(t / 60);
@@ -2256,7 +2297,9 @@ export function Editor({
     report: QcReport | null; // null while loading
     spell: SpellSuggestion[] | null; // null = not run yet
     spellBusy: boolean;
+    spellProg?: { done: number; total: number } | null; // 배치 진행률
     accepted: Set<number>; // segment_ids the reviewer kept checked
+    spellHold?: Set<number>; // 🙉 애매 — 적용 후 다시 듣기로 표시할 행
   }>(null);
   const [showKeys, setShowKeys] = useState(true);
   const [focusedId, setFocusedId] = useState<number | null>(null);
@@ -3409,6 +3452,31 @@ export function Editor({
     }
   }
 
+  async function runFillHanja() {
+    setToolBusy("hanja");
+    await flushAll();
+    try {
+      const r = await fillHanja(videoId, lang);
+      if (r.before.length) {
+        const beforeRows = segmentsRef.current.filter((s) =>
+          r.before.some((b) => b.id === s.id),
+        );
+        pushOpUndo("한자 채우기", beforeRows);
+      }
+      await refreshSegments();
+      setToolMsg(
+        r.changed
+          ? `漢 한자 병기 ${r.changed}개 자막에 채웠어요 (↶로 전체 되돌리기 가능)`
+          : "漢 채울 한자어를 찾지 못했어요 — 사전에 있는 표현이 없거나 이미 병기됨",
+      );
+    } catch (e) {
+      if (await maybeRecoverClone(e)) return;
+      setError(String(e));
+    } finally {
+      setToolBusy(null);
+    }
+  }
+
   async function runTighten() {
     tourEvent("tighten");
     setToolBusy("tighten");
@@ -3498,21 +3566,45 @@ export function Editor({
   }
 
   async function runSpell() {
-    setQcModal((m) => (m ? { ...m, spellBusy: true } : m));
+    // 배치 루프: 미캐시 줄을 160개씩 처리하며 진행률 표시 (긴 영상 타임아웃
+    // 방지 + "어디까지 됐는지" — 사용자 요청). 각 응답은 지금까지 아는 제안
+    // 전부를 담으므로 마지막 응답만 채택하면 된다.
+    setQcModal((m) => (m ? { ...m, spellBusy: true, spellProg: null } : m));
     try {
-      const r = await runSpellcheck(videoId, lang);
-      setQcModal((m) =>
-        m
-          ? {
-              ...m,
-              spellBusy: false,
-              spell: r.suggestions,
-              accepted: new Set(r.suggestions.map((s) => s.segment_id)),
-            }
-          : m,
-      );
+      const BATCH = 160;
+      let total: number | null = null;
+      let done = 0;
+      for (;;) {
+        const r = await runSpellcheck(videoId, lang, BATCH);
+        done += r.sent;
+        if (total === null) total = done + r.remaining;
+        setQcModal((m) =>
+          m
+            ? {
+                ...m,
+                spellProg: total ? { done, total } : null,
+                spell: r.remaining > 0 ? m.spell : r.suggestions,
+              }
+            : m,
+        );
+        if (r.remaining <= 0) {
+          setQcModal((m) =>
+            m
+              ? {
+                  ...m,
+                  spellBusy: false,
+                  spellProg: null,
+                  spell: r.suggestions,
+                  accepted: new Set(r.suggestions.map((s) => s.segment_id)),
+                  spellHold: new Set<number>(),
+                }
+              : m,
+          );
+          break;
+        }
+      }
     } catch (e) {
-      setQcModal((m) => (m ? { ...m, spellBusy: false } : m));
+      setQcModal((m) => (m ? { ...m, spellBusy: false, spellProg: null } : m));
       setError(String(e));
     }
   }
@@ -3521,8 +3613,26 @@ export function Editor({
     const m = qcModal;
     if (!m || !m.spell) return;
     const chosen = m.spell.filter((s) => m.accepted.has(s.segment_id));
+    const held = [...(m.spellHold ?? [])];
+    // 🙉 애매 표시: 적용 여부와 무관하게 그 자막을 '다시 듣기' 상태로 —
+    // reviewed 해제 + hold 플래그 → 미확인 순회/🙉 대기열에 다시 잡힌다
+    for (const segId of held) {
+      void queueSave(segId, async () => {
+        try {
+          const updated = await updateSegment(segId, {
+            reviewed: false,
+            review_flag: "hold",
+          });
+          applyRows([updated]);
+        } catch (e) {
+          setError(String(e));
+        }
+      });
+    }
     if (!chosen.length) {
       setQcModal(null);
+      if (held.length)
+        setStatusMsg(`🙉 애매한 ${held.length}곳을 다시 듣기로 표시했어요`);
       return;
     }
     const before = segmentsRef.current.filter((s) =>
@@ -3547,7 +3657,10 @@ export function Editor({
       });
     }
     setQcModal(null);
-    setStatusMsg(`✏️ 맞춤법 ${chosen.length}곳 적용 — Alt+Z로 전체 되돌릴 수 있어요`);
+    const heldNote = held.length ? ` · 🙉 다시 듣기 ${held.length}곳` : "";
+    setStatusMsg(
+      `✏️ 맞춤법 ${chosen.length}곳 적용${heldNote} — Alt+Z로 전체 되돌릴 수 있어요`,
+    );
   }
 
   async function doExport() {
@@ -3919,6 +4032,14 @@ export function Editor({
             onClick={() => void runRepair()}
           >
             {toolBusy === "repair" ? "⏳ 복구 중..." : "🛠 복구·채우기"}
+          </button>
+          <button
+            className="tool tool-hanja"
+            disabled={!!toolBusy}
+            title="강조해서 풀어 말한 한자어에 한자를 병기 — '얼굴 안 자' → '얼굴 안(顔) 자'. 검수 완료 대본에서 만든 사전 기반, API 사용 안 함 (되돌리기 가능)"
+            onClick={() => void runFillHanja()}
+          >
+            {toolBusy === "hanja" ? "⏳ 채우는 중..." : "漢 한자 채우기"}
           </button>
           <button
             className="tool tool-absorb"
@@ -4466,29 +4587,51 @@ export function Editor({
                     적용됩니다 (적용 후 Alt+Z로 전체 되돌리기 가능)
                   </p>
                   <div className="spell-list">
-                    {qcModal.spell.map((s) => (
-                      <label key={s.segment_id} className="spell-row">
-                        <input
-                          type="checkbox"
-                          checked={qcModal.accepted.has(s.segment_id)}
-                          onChange={(e) =>
-                            setQcModal((m) => {
-                              if (!m) return m;
-                              const next = new Set(m.accepted);
-                              if (e.target.checked) next.add(s.segment_id);
-                              else next.delete(s.segment_id);
-                              return { ...m, accepted: next };
-                            })
-                          }
-                        />
-                        <span className="spell-diff">
-                          <span className="spell-before">{s.before}</span>
-                          <span className="spell-arrow">→</span>
-                          <span className="spell-after">{s.after}</span>
-                        </span>
-                        <span className="spell-time">{fmt(s.start)}</span>
-                      </label>
-                    ))}
+                    {qcModal.spell.map((s) => {
+                      const d = tokenDiff(s.before, s.after);
+                      const held = qcModal.spellHold?.has(s.segment_id) ?? false;
+                      return (
+                        <div key={s.segment_id} className="spell-row">
+                          <label className="spell-main">
+                            <input
+                              type="checkbox"
+                              checked={qcModal.accepted.has(s.segment_id)}
+                              onChange={(e) =>
+                                setQcModal((m) => {
+                                  if (!m) return m;
+                                  const next = new Set(m.accepted);
+                                  if (e.target.checked) next.add(s.segment_id);
+                                  else next.delete(s.segment_id);
+                                  return { ...m, accepted: next };
+                                })
+                              }
+                            />
+                            <span className="spell-diff">
+                              <span className="spell-before">{d.del}</span>
+                              <span className="spell-arrow">→</span>
+                              <span className="spell-after">{d.ins}</span>
+                            </span>
+                            <span className="spell-time">{fmt(s.start)}</span>
+                          </label>
+                          <button
+                            type="button"
+                            className={"spell-hold" + (held ? " on" : "")}
+                            title="애매하면 표시 — 적용 후 그 자막이 🙉(다시 듣기)로 남아, 직접 들으면서 재확인할 수 있어요"
+                            onClick={() =>
+                              setQcModal((m) => {
+                                if (!m) return m;
+                                const next = new Set(m.spellHold ?? []);
+                                if (next.has(s.segment_id)) next.delete(s.segment_id);
+                                else next.add(s.segment_id);
+                                return { ...m, spellHold: next };
+                              })
+                            }
+                          >
+                            {held ? "🙉 다시 듣기" : "🙉 애매함"}
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                   <div className="srt-actions">
                     <button className="srt-cancel" onClick={() => setQcModal(null)}>
@@ -4553,7 +4696,11 @@ export function Editor({
                       title="AI가 맞춤법·띄어쓰기 오타를 찾아 제안합니다. 제안만 하고, 적용은 직접 고릅니다."
                       onClick={() => void runSpell()}
                     >
-                      {qcModal.spellBusy ? "검사 중... (수십 초)" : "✏️ 맞춤법 검사 (AI)"}
+                      {qcModal.spellBusy
+                        ? qcModal.spellProg
+                          ? `검사 중 ${Math.round((qcModal.spellProg.done / Math.max(1, qcModal.spellProg.total)) * 100)}% (${qcModal.spellProg.done}/${qcModal.spellProg.total})`
+                          : "검사 시작하는 중..."
+                        : "✏️ 맞춤법 검사 (AI)"}
                     </button>
                   )}
                   <button

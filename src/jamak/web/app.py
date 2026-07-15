@@ -2414,7 +2414,7 @@ def qc_report(video_id: str, lang: str = "ko") -> dict:
 
 
 @app.post("/api/jobs/{video_id}/spellcheck")
-def spellcheck(video_id: str, lang: str = "ko") -> dict:
+def spellcheck(video_id: str, lang: str = "ko", batch: int = 0) -> dict:
     """AI 맞춤법 검사 (suggestions only — nothing is written here).
 
     Checks each cue's working text for spelling/spacing typos the reviewer
@@ -2449,7 +2449,9 @@ def spellcheck(video_id: str, lang: str = "ko") -> dict:
         text_by_id = dict(lines)
 
     try:
-        fixes, stats = spellcheck_lines(lines)
+        # batch>0: 미캐시 줄을 그만큼만 처리하고 remaining 반환 — 프론트가
+        # 반복 호출하며 진행률 표시 (긴 영상 타임아웃 방지)
+        fixes, stats = spellcheck_lines(lines, limit=max(0, batch))
     except HTTPException:
         raise
     except Exception as e:  # API/auth/network error -> clean JSON, not a 500
@@ -2468,6 +2470,90 @@ def spellcheck(video_id: str, lang: str = "ko") -> dict:
         )
     ]
     return {"suggestions": suggestions, **stats}
+
+
+@app.post("/api/jobs/{video_id}/fill-hanja")
+def fill_hanja(video_id: str, lang: str = "ko") -> dict:
+    """강조 한자어 병기 채우기 — "얼굴 안 자" → "얼굴 안(顔) 자".
+
+    [WH-CHANGE v0.9.25 | FEAT | 2026-07-15 | CHG-20260715-047]
+    Reason: 강연에서 특별히 풀어 설명하는 한자(뜻+음+자 패턴, 불교 용어 등)는
+      한자를 병기해 달라는 요청. 검수 완료 대본에서 채굴한 HanjaTerm 사전으로
+      결정적 치환만 한다 — API 0원. 단일자는 (뜻,음) 짝이 일치할 때만(동음
+      안전), 다자어는 2자 이상 단어 경계 일치 시. 이미 병기된 곳은 스킵.
+      되돌리기용 before 행을 돌려준다 (auto-timing 패턴).
+    Related: CHANGELOG CHG-20260715-047.
+    """
+    import re as _re
+
+    from ..db import HanjaTerm
+
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+        terms = session.exec(select(HanjaTerm)).all()
+        if not terms:
+            raise HTTPException(409, "한자 사전이 비어 있습니다 — 관리자에게 문의")
+
+        # 단일자: "뜻 음 자" 패턴 전용. 다자어: 단어 경계 일치 (긴 것 먼저).
+        single = {(t.gloss, t.reading): t.hanja for t in terms if t.gloss}
+        multi = sorted(
+            ((t.reading, t.hanja) for t in terms if not t.gloss and len(t.reading) >= 2),
+            key=lambda x: -len(x[0]),
+        )
+        seg_rows = session.exec(
+            select(Segment)
+            .where(Segment.job_id == job.id, Segment.lang == lang)
+            .order_by(Segment.idx)
+        ).all()
+
+        def fill(text: str) -> str:
+            # 규칙 A: "얼굴 안 자" -> "얼굴 안(顔) 자" (이미 괄호 있으면 스킵)
+            def sub_glyph(m: _re.Match) -> str:
+                h = single.get((m.group(1), m.group(2)))
+                return f"{m.group(1)} {m.group(2)}({h}) 자" if h else m.group(0)
+
+            out = _re.sub(r"([가-힣]+) ([가-힣]) 자(?![가-힣(])", sub_glyph, text)
+            # 규칙 B: 다자어 병기 (단어 경계, 뒤에 괄호 없을 때만)
+            for reading, hanja in multi:
+                out = _re.sub(
+                    rf"(?<![가-힣]){_re.escape(reading)}(?![가-힣(])",
+                    f"{reading}({hanja})",
+                    out,
+                )
+            return out
+
+        before: list[dict] = []
+        changed: list[Segment] = []
+        for s in seg_rows:
+            cur = s.text_final or s.text_llm or ""
+            if not cur or "(" in cur and cur.count("(") > 6:
+                continue
+            new = fill(cur)
+            if new != cur:
+                before.append(
+                    {"id": s.id, "text_final": s.text_final, "reviewed": s.reviewed}
+                )
+                if s.text_final:
+                    s.text_final = new
+                else:
+                    s.text_llm = new
+                session.add(s)
+                changed.append(s)
+        session.commit()
+        return {
+            "changed": len(changed),
+            "before": before,
+            "segments": [
+                {
+                    "id": s.id,
+                    "text_final": s.text_final,
+                    "text_llm": s.text_llm,
+                }
+                for s in changed
+            ],
+        }
 
 
 class TimingDoneBody(BaseModel):
