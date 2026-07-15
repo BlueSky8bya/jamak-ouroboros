@@ -1,6 +1,6 @@
 # Current State
 
-Last Updated: 2026-07-16 (v0.9.41 — variants 2차 감사(굴절형 4종 제거) + 신인=허경영 호칭 표기, glossary 604종)
+Last Updated: 2026-07-16 (v0.9.42 — 인간 등급 10단계(신인만 허경영) 편입/정정, glossary 611종)
 Project Version: 0.9.25
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)
