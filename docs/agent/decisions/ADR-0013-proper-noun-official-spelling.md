@@ -56,12 +56,13 @@
   재번역하거나 번역 검수에서 고쳐야 한다. (번역 *검수*는 검수자에게 열려 있음)
 - 프롬프트가 길어져 첫 청크 입력 토큰이 소폭 증가 (ephemeral 캐시라 이후 청크는 무료).
 
-## 미확인 (정직하게)
+## 확인/미확인
 
+- **백궁 = `White Heaven` 확정** (사용자 확인 2026-07-17). `White Heaven Palace`(ANU/IJOR
+  논문 제목)는 채택하지 않는다.
 - 공식 사이트 `hkyworld.org` / `huhkyungyoungworld.org`는 **이 환경에서 DNS가 안 잡혀
-  본문을 직접 못 봤다.** 위 표기는 **검색 결과 제목·스니펫과 위키피디아**에서 확인한 것.
-  특히 **백궁 = `White Heaven`인지 `White Heaven Palace`인지 갈린다**
-  (순례단 사이트 제목은 전자, ANU/IJOR 논문 제목은 후자). 사용자 확인 시 정정.
+  본문을 직접 못 봤다.** 나머지 표기는 **검색 결과 제목·스니펫과 위키피디아** 기반이며,
+  사용자 확인으로 백궁은 해소됐다.
 - `Sky Palace`라는 제3의 표기도 존재한다 (`huhkyungyoungworld.org` = "SkyPalaceV2").
   현재 결정은 다수·본인 단체 기준으로 **Heaven Palace**.
 

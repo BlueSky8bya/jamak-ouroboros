@@ -115,6 +115,19 @@ function clamp(v: number, min: number, max: number): number {
   return Math.min(Math.max(v, min), max);
 }
 
+/** 이 자막 구간에서 실제로 들린 말의 시작~끝 (발화 없으면 null).
+ *  단어 하나는 중점 기준으로 정확히 한 자막에만 속한다 (서버 규칙과 동일).
+ *  셀 안 ⤢ 발화 맞춤과 영상 밑 편집 바가 **같은 계산**을 쓰도록 공용. */
+function speechSpan(seg: Segment, words: WordTime[]): [number, number] | null {
+  const inside = words.filter((w) => {
+    const m = (w.start + w.end) / 2;
+    return seg.start <= m && m < seg.end;
+  });
+  if (!inside.length) return null;
+  const r3 = (v: number) => Math.round(v * 1000) / 1000;
+  return [r3(Math.min(...inside.map((w) => w.start))), r3(Math.max(...inside.map((w) => w.end)))];
+}
+
 function TimingStrip({
   segments,
   currentTime,
@@ -1121,15 +1134,8 @@ function Row({
             <button
               title="이 자막을 실제 발화 시작~끝에 자동으로 딱 맞춤 (앞뒤 침묵 제거) (Alt+\\)"
               onClick={() => {
-                const inside = words.filter((w) => {
-                  const m = (w.start + w.end) / 2;
-                  return seg.start <= m && m < seg.end;
-                });
-                if (inside.length) {
-                  const ns = Math.min(...inside.map((w) => w.start));
-                  const ne = Math.max(...inside.map((w) => w.end));
-                  onSetTimes(seg, Math.round(ns * 1000) / 1000, Math.round(ne * 1000) / 1000);
-                }
+                const span = speechSpan(seg, words);
+                if (span) onSetTimes(seg, span[0], span[1]);
               }}
             >
               ⤢ 발화 맞춤
@@ -4225,6 +4231,53 @@ export function Editor({
               dragFreezeRef.current = a;
             }}
           />
+        )}
+        {/* [WH-CHANGE v0.9.63 | FEAT | 2026-07-17 | CHG-20260717-095]
+            Reason: 타임라인(손잡이)은 영상 밑인데 타이밍 편집 버튼은 오른쪽 자막 셀
+              안에 있어 시선이 좌↔우로 튄다 — 미리보기는 영상에서 하고 수정은 저
+              멀리서 하는 꼴(사용자 요청: "영상 밑에서 바로 수정하는 게 편하다").
+              자동 정리 폐지(ADR-0012) 후 타이밍이 전부 수작업이 되어 더 중요해졌다.
+              셀 안 .timing-tools는 그대로 두고(둘 다 동작) 같은 함수를 호출한다.
+            Related: ADR-0012, docs/tutorial/재설계계획-2026-07.md §6-A. */}
+        {!textMode && (
+          <div className="timing-bar">
+            {focusedSeg ? (
+              <>
+                <span className="tb-no">#{segmentNo(segments, focusedSeg.id)}</span>
+                <button
+                  className="tb-btn"
+                  title="지금 영상 시간을 이 자막의 시작으로 (Alt+[)"
+                  onClick={() => void timing("start-here", focusedSeg)}
+                >
+                  여기서 시작
+                </button>
+                <button
+                  className="tb-btn"
+                  title="지금 영상 시간에서 이 자막을 끝내고 다음으로 넘김 (Alt+])"
+                  onClick={() => void timing("next-here", focusedSeg)}
+                >
+                  여기서 넘김
+                </button>
+                {speechSpan(focusedSeg, words) && (
+                  <button
+                    className="tb-btn tb-snap"
+                    title="이 자막을 실제 발화 시작~끝에 딱 맞춤 (Alt+\)"
+                    onClick={() => {
+                      const span = speechSpan(focusedSeg, words);
+                      if (span) setTimes(focusedSeg, span[0], span[1]);
+                    }}
+                  >
+                    ⤢ 발화 맞춤
+                  </button>
+                )}
+                <span className="tb-at">
+                  {fmt(focusedSeg.start)} → {fmt(focusedSeg.end)}
+                </span>
+              </>
+            ) : (
+              <span className="tb-hint">자막을 하나 누르면 여기서 시간을 맞출 수 있어요</span>
+            )}
+          </div>
         )}
         {/* subtle, non-interruptive status (autosave-style) */}
         <div className="statusbar" aria-live="polite">
