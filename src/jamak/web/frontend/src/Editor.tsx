@@ -1,12 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   absorbFeedback,
-  autoTiming,
   fillHanja,
   boundaryNext,
   boundaryPrev,
   edgeDrag,
-  confirmSafe,
   deleteSegment,
   exportUrl,
   fetchLanguages,
@@ -19,7 +17,6 @@ import {
   mergeNext,
   practiceKey,
   practiceSession,
-  repairStt,
   replaceText,
   restoreRows,
   runSpellcheck,
@@ -2311,10 +2308,19 @@ export function Editor({
     const t = tour;
     if (!t) return undefined;
     const step = COURSES[t.course].steps[t.step];
-    // subject 단계도 대상 행에 앵커 — 아니면 selector가 화면 밖 "첫 행"에
-    // 붙어 스포트라이트가 미아가 된다 (연습 4에서 실측)
-    if (!step?.targetDefect && !step?.untilTime && !step?.subject)
-      return undefined; // 기본 target
+    if (!step) return undefined;
+    // [WH-CHANGE v0.9.74 | FIX | 2026-07-17 | CHG-20260717-111]
+    // Reason: 행 앵커는 **행을 가리키는 단계**를 위한 것인데(`.row…` 셀렉터가 화면
+    //   밖 첫 행에 붙는 미아 방지 — 연습4 실측), `subject`만 있으면 무조건 행으로
+    //   바꿔 **행 안의 버튼을 가리키는 단계까지 삼켰다**. 그래서 🙉 단계
+    //   (target `.hold-btn`, subject=웅얼 구간)가 정작 눌러야 할 버튼 대신 자막 셀
+    //   전체를 하이라이트했다(사용자 지적). 같은 이유로 연습5의 `.timing-bar`
+    //   3단계도 오른쪽 셀을 짚고 있었다. `subject`는 "어느 소리를 들려줄지"이지
+    //   "어디를 가리킬지"가 아니다 → target이 행 셀렉터일 때만 좁힌다.
+    //   (`.hold-btn`은 포커스된 행에만 렌더돼 이미 유일하게 잡힌다.)
+    // Related: CHANGELOG CHG-20260717-111.
+    if (!step.target?.startsWith(".row")) return undefined; // 버튼·바는 그대로
+    if (!step.targetDefect && !step.untilTime && !step.subject) return undefined;
     const seg = stepLoopSeg(t);
     return seg ? `.row[data-segid="${seg.id}"]` : step.target;
   }
@@ -2681,7 +2687,6 @@ export function Editor({
     markFocused,
     undoLast,
     replayCurrent,
-    runRepair,
     runTighten,
     runAbsorb,
     hold,
@@ -2707,7 +2712,6 @@ export function Editor({
     markFocused,
     undoLast,
     replayCurrent,
-    runRepair,
     runTighten,
     runAbsorb,
     hold,
@@ -2885,7 +2889,6 @@ export function Editor({
 
   const nReviewed = segments.filter((s) => s.reviewed).length;
   const nRemaining = Math.max(0, segments.length - nReviewed);
-  const nSafe = segments.filter((s) => s.safe && !s.reviewed).length;
   const nHold = segments.filter((s) => s.review_flag === "hold" && !s.reviewed).length;
   const textMode = mode === "text";
   // 타이밍 모드 문제 큐: cues a human should look at — too fast to read, or an
@@ -3332,7 +3335,6 @@ export function Editor({
             setFindOpen((v) => !v);
             H.current.tourEvent("find");
           },
-          g: () => void H.current.runRepair(),
           m: () => void H.current.runTighten(),
           k: () => void H.current.runAbsorb(),
           h: () => H.current.hold(currentRow()),
@@ -3631,67 +3633,7 @@ export function Editor({
     }
   }
 
-  async function runRepair() {
-    tourEvent("repair");
-    setToolBusy("repair");
-    await flushAll();
-    try {
-      const r = await repairStt(videoId);
-      await refreshSegments();
-      const parts: string[] = [];
-      if (r.repaired) parts.push(`오류 ${r.repaired}곳 복구`);
-      if (r.filled) parts.push(`빈 구간 ${r.filled}곳 유튜브 자막으로 채움`);
-      setToolMsg(
-        parts.length
-          ? `🛠 ${parts.join(", ")} (유튜브 자막 기반, 검수 필요)` +
-              (r.no_caption ? ` · 자막 없는 ${r.no_caption}곳은 직접 수정` : "")
-          : "🛠 복구·보충할 구간을 찾지 못했어요 — 이미 깨끗한 상태",
-      );
-    } catch (e) {
-      if (await maybeRecoverClone(e)) return;
-      setError(String(e));
-    } finally {
-      setToolBusy(null);
-    }
-  }
 
-  // ✨ 자동 정리 (ADR-0009): server does absorb → snap → split → extend and
-  // returns before-rows + created ids, so the whole cleanup is ONE undo step
-  // 자체 확인 모달 (브라우저 confirm은 앱과 생김새가 달라 붕 뜬다 — 사용자 피드백)
-  const [askAutoTiming, setAskAutoTiming] = useState(false);
-  function runAutoTiming() {
-    setAskAutoTiming(true);
-  }
-  async function doAutoTiming() {
-    setAskAutoTiming(false);
-    tourEvent("auto-timing");
-    setToolBusy("auto");
-    await flushAll();
-    try {
-      const r = await autoTiming(videoId, lang);
-      if (r.before.length) {
-        pushEntry({
-          label: "자동 정리",
-          kind: "op",
-          segId: null,
-          focusedId: focusedIdRef.current,
-          upsert: r.before,
-          deleteIds: r.created_ids,
-        });
-      }
-      applyRows(r.segments);
-      setToolMsg(
-        r.tightened || r.split
-          ? `✨ 자동 정리 완료 — 말소리에 맞춤 ${r.tightened}개 · 나눔 ${r.split}개 (↶로 되돌리기 가능)`
-          : "✨ 이미 잘 정리되어 있어요 — 손볼 게 없습니다",
-      );
-    } catch (e) {
-      if (await maybeRecoverClone(e)) return;
-      setError(String(e));
-    } finally {
-      setToolBusy(null);
-    }
-  }
   /** 연습판이 서버 정리(TTL 등)로 사라진 뒤의 요청 실패(no job)를 조용히
    *  복구: 같은 키로 재복제 → 행 다시 로드 → "다시 눌러주세요" 안내. */
   async function maybeRecoverClone(e: unknown): Promise<boolean> {
@@ -3830,21 +3772,6 @@ export function Editor({
     }
   }
 
-  async function runConfirmSafe() {
-    tourEvent("confirm-safe");
-    setToolBusy("safe");
-    await flushAll();
-    try {
-      const r = await confirmSafe(videoId);
-      await refreshSegments();
-      setToolMsg(`✅ 안심 구간 ${r.confirmed}개를 한번에 확인했어요 — 이제 남은 것만 보세요`);
-    } catch (e) {
-      if (await maybeRecoverClone(e)) return;
-      setError(String(e));
-    } finally {
-      setToolBusy(null);
-    }
-  }
 
   // [WH-CHANGE v0.9.53 | UX | 2026-07-16 | CHG-20260716-076]
   // Reason: 한 번의 긴 요청이라 "학습 중..."만 떠서 진행 중인지 멈춘 건지
@@ -4618,38 +4545,13 @@ export function Editor({
         {/* secondary tools — Korean-source only (whisper/YouTube based) */}
         {isKo && (
         <div className="tools">
-          {/* 안심 확인·복구 채우기는 연습 투어 교보재로만 노출. 실제 검수에선 숨김
-              — 안심 배지가 띄어쓰기 오류를 못 거르고(신뢰도↓), 복구는 파이프라인
-              crosscheck가 이미 자동 처리(prompt-echo 탐지+유튜브 채움)해 중복.
-              (2026-07-16, 사용자 요청) */}
-          {practice && nSafe > 0 && (
-            <button
-              className="tool accent tool-safe"
-              disabled={!!toolBusy}
-              title="두 음성인식이 일치하고 어려운 용어도 없는 '안심' 구간을 한번에 확인. 나머지에만 집중하세요."
-              onClick={() => void runConfirmSafe()}
-            >
-              {toolBusy === "safe" ? "⏳ 확인 중..." : `✅ 안심 ${nSafe}개 확인`}
-            </button>
-          )}
-          {/* [WH-CHANGE v0.9.59 | FIX | 2026-07-17 | CHG-20260717-089]
-              Reason: 실측 결과 자동 정리가 셀의 66%(검수 끝난 영상은 98%)를
-                건드리는데, 그중 상당수는 근거가 없다 — 단어 텍스트를 버리고
-                시간 비례로 자르는 구조라 사람이 고칠수록 더 헤맨다. 사용자가
-                "잘 쓰지도 않는다"며 폐지 결정. 실검수에서 제거하고, 연습5
-                나레이션이 아직 이 버튼을 지시하므로 재렌더 전까지 practice
-                모드에만 남긴다 (안심 확인·복구 채우기와 같은 처리).
-              Related: ADR-0012, ACTIVE_PLAN(폐기), CHANGELOG CHG-20260717-089. */}
-          {practice && !textMode && (
-            <button
-              className="tool accent tool-auto"
-              disabled={!!toolBusy}
-              title="타이밍을 기계가 먼저 정리 — 말소리에 맞추고, 너무 긴 자막은 나누고, 너무 빠른 자막은 표시 시간을 늘림 (되돌리기 가능)"
-              onClick={() => void runAutoTiming()}
-            >
-              {toolBusy === "auto" ? "⏳ 정리 중..." : "✨ 타이밍 자동 정리"}
-            </button>
-          )}
+          {/* [WH-CHANGE v0.9.75 | FIX | 2026-07-17 | CHG-20260717-112]
+              Reason: ✅ 안심 확인 · ✨ 타이밍 자동 정리 · 🛠 복구·채우기는 실검수에서
+                뺀 뒤 "연습 나레이션이 아직 지시하니 재렌더 전까지만" practice 모드에
+                남겨 뒀던 잔재. **재렌더가 끝나 새 대본엔 셋 다 안 나오므로**(v0.9.67)
+                연습 화면에서도 완전히 삭제한다 — 재설계계획 선행작업 D. 투어 스텝도
+                이 셋을 참조하지 않음(확인함).
+              Related: ADR-0012, 재설계계획 §8-D, CHANGELOG CHG-20260717-112. */}
           {!textMode && (
             <button
               className="tool tool-tighten"
@@ -4658,16 +4560,6 @@ export function Editor({
               onClick={() => void runTighten()}
             >
               {toolBusy === "tighten" ? "⏳ 다듬는 중..." : "✂ 무음 다듬기"}
-            </button>
-          )}
-          {practice && (
-            <button
-              className="tool tool-repair"
-              disabled={!!toolBusy}
-              title="음성인식이 놓치거나 잘못 뱉은 구간을 유튜브 자막으로 복구·보충 (API 사용 안 함) (Alt+G)"
-              onClick={() => void runRepair()}
-            >
-              {toolBusy === "repair" ? "⏳ 복구 중..." : "🛠 복구·채우기"}
             </button>
           )}
           <button
@@ -5119,31 +5011,6 @@ export function Editor({
         </div>
       )}
       {confirmNode}
-      {/* ✨ 자동 정리 확인 — 앱 디자인의 자체 모달 (브라우저 confirm 대체) */}
-      {askAutoTiming && (
-        <div
-          className="srt-modal-back"
-          onMouseDown={(e) => e.target === e.currentTarget && setAskAutoTiming(false)}
-        >
-          <div className="srt-modal confirm-mini" onClick={(e) => e.stopPropagation()}>
-            <h3>✨ 타이밍 자동 정리</h3>
-            <p className="srt-summary">
-              자막 시간을 실제 말소리에 맞추고, 너무 긴 자막은 나누고, 너무 빠른
-              자막은 표시 시간을 늘려요.
-              <br />글 내용과 확인 완료 상태는 그대로예요. <b>Alt+Z(↶)</b>로 전체
-              되돌릴 수 있어요.
-            </p>
-            <div className="confirm-actions">
-              <button className="tour-exit" onClick={() => setAskAutoTiming(false)}>
-                취소
-              </button>
-              <button className="tour-finish" onClick={() => void doAutoTiming()}>
-                ✨ 정리할게요
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {/* 따라하기 투어 — 실제 컨트롤을 하나씩 밝혀 직접 해보게 함.
           동기화 코스에선 나레이션이 지시를 마친 순간에만 뜬다 (체크포인트). */}
       {tour !== null && tourGate && (

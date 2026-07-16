@@ -1,5 +1,17 @@
 # Agent Change Log
 
+## v0.9.74~75 — 2026-07-17 (하이라이트 타깃 수정 + 폐지 도구 완전 삭제)
+
+### CHG-20260717-111 — FIX — 🙉·타이밍 단계가 엉뚱한 곳을 하이라이트
+Change: 사용자 지적("잘 안 들림 버튼 실제 위치에 하이라이팅 해줘야지"). `resolveTourTarget`이 **`subject`가 있으면 무조건 자막 행으로 앵커**했다. 원래는 `.row…` 셀렉터가 화면 밖 첫 행에 붙는 미아 방지용인데(연습4 실측), **행 안의 버튼을 가리키는 단계까지 삼켰다** → 🙉 단계(target `.hold-btn`, subject=웅얼 구간)가 버튼 대신 셀 전체를 밝혔다. `subject`는 "어느 소리를 들려줄지"이지 "어디를 가리킬지"가 아니다 → **target이 행 셀렉터일 때만** 좁힌다.
+덤: 같은 버그로 **연습5의 `.timing-bar` 3단계**(Alt+[ · ] · \)도 오른쪽 셀을 짚고 있었다 — 영상 밑 편집 바를 가르치는 코스인데 정반대를 가리키던 셈. 함께 해소.
+Validation: 스텝별 타깃 해석 표로 확인 — 행 단계 6개는 행 앵커 유지, `.hold-btn`·`.timing-bar` 4개는 타깃 그대로. 프론트 빌드 클린.
+
+### CHG-20260717-112 — CHORE — 폐지 도구 3종 완전 삭제 (재설계계획 선행작업 D)
+Change: 사용자 지적("아까 지운 거는 여기도 다 지워야지. 대본에서도 이젠 안 나온다며"). 맞다 — ✅ 안심 확인 · ✨ 타이밍 자동 정리 · 🛠 복구·채우기는 "연습 나레이션이 아직 지시하니 재렌더 전까지만" `practice &&`로 남겨 둔 잔재였고, **재렌더가 끝나 새 대본엔 셋 다 없다**(대사 줄 확인). 투어 스텝도 참조 안 함(확인). → 버튼 3개 + 죽은 핸들러(`runConfirmSafe`/`runAutoTiming`/`doAutoTiming`/`askAutoTiming`/`runRepair`) + 자동정리 확인 모달 + **Alt+G 단축키**(버튼 없는데 키만 살아 있으면 실수로 유튜브 자막이 텍스트를 덮는다) + 죽은 import·`nSafe` + `api.ts`의 `autoTiming`/`AutoTimingResult` + **백엔드 `/auto-timing` 엔드포인트(149줄)와 `pipeline/retime.py`** 전부 삭제. 총 **-456줄**.
+Validation: 앱 임포트 OK(라우트 50개, auto-timing 라우트 **없음**), `retime` 모듈 삭제 확인, 프론트 빌드 클린(310KB → 306KB), verify_harness OK. **살아 있어야 할 함수 전수 확인** — `maybeRecoverClone`·`runFillHanja`·`applyHanja`·`runTighten`·`runAbsorb`·`speechSpan`·`resolveTourTarget` 및 `runSpellcheck`·`QcReport`·`SpellSuggestion` export 전부 생존.
+Note(작업 실수): 인덱스 슬라이싱으로 블록을 자르다 **인접한 살아있는 함수 3개를 삼켰다**(빌드가 즉시 잡음) → `git checkout`으로 되돌리고 **정확한 문자열 치환**으로 다시 했다. api.ts에서도 같은 실수를 반복해 같은 방식으로 복구. 이런 정리는 인덱스 범위가 아니라 앵커 텍스트로 해야 한다.
+
 ## v0.9.73 — 2026-07-17 (연습1: 한 단어가 두 셀로 갈리던 문제)
 
 ### CHG-20260717-110 — FIX — "잘 하셨습니다"가 "잘" + "하셨습니다"로 쪼개짐

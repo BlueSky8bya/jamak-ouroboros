@@ -376,30 +376,6 @@ export async function repairStt(
   return r.json();
 }
 
-// one-shot timing cleanup (ADR-0009): snap to speech + split oversized cues +
-// extend too-fast cues into silence. `before`/`created_ids` feed one undo step.
-export interface AutoTimingResult {
-  segments: Segment[];
-  created_ids: number[];
-  before: Segment[];
-  tightened: number;
-  split: number;
-}
-
-export async function autoTiming(videoId: string, lang = "ko"): Promise<AutoTimingResult> {
-  const r = await fetch(`/api/jobs/${videoId}/auto-timing?lang=${lang}`, { method: "POST" });
-  if (!r.ok) {
-    let msg = `auto-timing: ${r.status}`;
-    try {
-      msg = (await r.json()).detail ?? msg;
-    } catch {
-      /* non-JSON */
-    }
-    throw new Error(msg);
-  }
-  return r.json();
-}
-
 // rule-based pre-export quality check (no API cost) — per-category segment ids
 export interface QcReport {
   total: number;
