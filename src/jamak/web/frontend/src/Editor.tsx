@@ -4121,18 +4121,22 @@ export function Editor({
                 : "⏳ 채우는 중..."
               : "漢 한자 채우기"}
           </button>
-          <button
-            className="tool tool-spell"
-            disabled={!!toolBusy || !!qcModal?.spellBusy}
-            title="AI가 맞춤법·띄어쓰기 오타를 찾아 제안합니다. 제안만 하고, 적용은 직접 골라요 (API 사용)"
-            onClick={() => openSpellCheck()}
-          >
-            {qcModal?.spellBusy
-              ? qcModal.spellProg
-                ? `⏳ 맞춤법 ${Math.round((qcModal.spellProg.done / Math.max(1, qcModal.spellProg.total)) * 100)}%`
-                : "⏳ 맞춤법 검사 중..."
-              : "✏️ 맞춤법 검사"}
-          </button>
+          {/* 맞춤법 검사는 Claude API 사용 → 관리자 전용 (비용 통제, 사용자 정책
+              2026-07-16: 검수자는 API 안 쓰는 도구만). 번역과 동일 정책. */}
+          {isAdmin && (
+            <button
+              className="tool tool-spell"
+              disabled={!!toolBusy || !!qcModal?.spellBusy}
+              title="AI가 맞춤법·띄어쓰기 오타를 찾아 제안합니다. 제안만 하고, 적용은 직접 골라요 (API 사용 — 관리자 전용)"
+              onClick={() => openSpellCheck()}
+            >
+              {qcModal?.spellBusy
+                ? qcModal.spellProg
+                  ? `⏳ 맞춤법 ${Math.round((qcModal.spellProg.done / Math.max(1, qcModal.spellProg.total)) * 100)}%`
+                  : "⏳ 맞춤법 검사 중..."
+                : "✏️ 맞춤법 검사"}
+            </button>
+          )}
           <button
             className="tool tool-absorb"
             disabled={!!toolBusy}

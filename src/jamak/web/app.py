@@ -2414,7 +2414,9 @@ def qc_report(video_id: str, lang: str = "ko") -> dict:
 
 
 @app.post("/api/jobs/{video_id}/spellcheck")
-def spellcheck(video_id: str, lang: str = "ko", batch: int = 0) -> dict:
+def spellcheck(
+    request: Request, video_id: str, lang: str = "ko", batch: int = 0
+) -> dict:
     """AI 맞춤법 검사 (suggestions only — nothing is written here).
 
     Checks each cue's working text for spelling/spacing typos the reviewer
@@ -2423,7 +2425,14 @@ def spellcheck(video_id: str, lang: str = "ko", batch: int = 0) -> dict:
     exact text (LlmCache kind="spell"), so re-running re-bills only edited
     lines. The client applies accepted suggestions through the normal segment
     PUT, which keeps undo working.
+
+    [WH-CHANGE v0.9.46 | SEC | 2026-07-16 | CHG-20260716-068]
+    Reason: Claude API 사용 → 관리자 전용 (비용 통제). 사용자 정책 2026-07-16:
+      검수자는 API 안 쓰는 도구만, API 도구(맞춤법·번역·초안)는 관리자만.
+      기존엔 검수자에게 열려 있었음(CHG-041에서 번역만 막았었음).
+    Related: CHANGELOG CHG-20260716-068.
     """
+    _require_admin(request)
     if lang != "ko":
         raise HTTPException(400, "맞춤법 검사는 한국어 트랙만 지원합니다")
     if not os.environ.get("ANTHROPIC_API_KEY"):
