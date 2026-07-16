@@ -1311,7 +1311,6 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ["Alt+S"], label: "편집 시작 시 멈춤 켜기 / 끄기" },
       { keys: ["Alt+B"], label: "찾기·바꾸기 열기" },
       { keys: ["Alt+M"], label: "무음 다듬기" },
-      { keys: ["Alt+G"], label: "복구·채우기" },
       { keys: ["Alt+K"], label: "학습(피드백 흡수)" },
     ],
   },
@@ -2097,6 +2096,7 @@ export function Editor({
   }
   /** loopRow 단계의 대상 행: untilTime = 체크포인트 전 첫 미확인 행,
    *  targetDefect = 오타 행, subject = 그 나레이션 구간과 겹치는 행. */
+  const tourDefectAnchorRef = useRef<number | null>(null);
   function stepLoopSeg(
     t: { course: number; step: number },
   ): Segment | undefined {
@@ -2108,14 +2108,26 @@ export function Editor({
         (s) => s.start < at && !s.reviewed && s.review_flag !== "hold",
       );
     }
-    if (step?.targetDefect)
-      return segs.find(
+    if (step?.targetDefect) {
+      // [WH-CHANGE v0.9.77 | FIX | 2026-07-17 | CHG-20260717-114]
+      // Reason: 오타 행을 매번 재계산해서, 오타를 고치는 **그 순간** 스포트라이트
+      //   와 말풍선이 다음 오타 행으로 점프했다 — Enter로 확인할 새도 없이 안내가
+      //   행을 떠나고 소리·포커스는 남아, "엔터도 안 쳤는데 혼자 넘어간다"(사용자,
+      //   브라우저 재현으로 확정). 지목한 행에 **확인(Enter)될 때까지** 앵커를
+      //   고정한다. 행이 확인되거나 사라졌을 때만 다음 오타 행을 찾는다.
+      // Related: CHANGELOG CHG-20260717-114.
+      const cur = segs.find((s) => s.id === tourDefectAnchorRef.current);
+      if (cur && !cur.reviewed) return cur;
+      const found = segs.find(
         (s) =>
           !s.reviewed &&
           TUTORIAL_DEFECT_WORDS.some((w) =>
             (s.text_final || s.text_llm || s.text_whisper || "").includes(w),
           ),
       );
+      tourDefectAnchorRef.current = found?.id ?? null;
+      return found;
+    }
     if (step?.subject) {
       const [a, b] = step.subject;
       return segs.find((s) => s.start < b && s.end > a && !s.reviewed) ??
@@ -2235,6 +2247,7 @@ export function Editor({
     tourMaxTimeRef.current = 0;
     tourPausedRef.current = false;
     tourFiredRef.current = -1;
+    tourDefectAnchorRef.current = null;
     setTour({ course: i, step: 0 });
     setTourGate(tourGateOpen({ course: i, step: 0 }));
   }
@@ -2941,6 +2954,8 @@ export function Editor({
   }, [reviewedPct]);
 
   function markFocused(id: number) {
+    // 다른 셀로 포커스가 옮겨가면 이전 셀의 텍스트 편집 세션을 닫는다
+    if (id !== textSessionRef.current) textSessionRef.current = null;
     focusedIdRef.current = id;
     setFocusedId(id);
   }
@@ -3080,10 +3095,22 @@ export function Editor({
 
   /** text edits get one undo step per editing session of a cell: consecutive
    *  autosaves of the same segment coalesce into the first snapshot (fine-
-   *  grained undo inside the textarea is the browser's native Ctrl+Z) */
+   *  grained undo inside the textarea is the browser's native Ctrl+Z).
+   *
+   *  [WH-CHANGE v0.9.77 | FIX | 2026-07-17 | CHG-20260717-116]
+   *  Reason: 병합 조건이 "스택 톱이 같은 셀"뿐이라, 확인(Enter) 후 나중에 같은
+   *    셀로 돌아와 고쳐도 옛 세션에 흡수됐다 — Alt+Z가 "방금 한 일"이 아니라
+   *    첫 편집 전까지 건너뛰었다. 세션 = 셀에 포커스가 머무는 동안. 포커스가
+   *    떠나면(다른 셀·복원) 세션이 닫히고 다음 수정은 새 되돌리기 단계가 된다.
+   *  Related: CHANGELOG CHG-20260717-116. */
+  const textSessionRef = useRef<number | null>(null);
   function pushTextUndo(before: Segment) {
     const top = undoStackRef.current[undoStackRef.current.length - 1];
-    if (top && top.kind === "text" && top.segId === before.id) return;
+    const sameSession =
+      top && top.kind === "text" && top.segId === before.id &&
+      textSessionRef.current === before.id;
+    textSessionRef.current = before.id;
+    if (sameSession) return;
     pushEntry({
       label: "글 수정",
       kind: "text",
@@ -3095,13 +3122,22 @@ export function Editor({
   }
 
   async function undoLast() {
-    const entry = undoStackRef.current[undoStackRef.current.length - 1];
-    if (!entry) return;
+    if (undoStackRef.current.length === 0) return;
     try {
       // land any in-flight text edit AND queued background PUTs first, so a
       // late save can't overwrite the restore we're about to do
       await flushAll();
       await Promise.all(Array.from(saveQueuesRef.current.values()));
+      // [WH-CHANGE v0.9.77 | FIX | 2026-07-17 | CHG-20260717-115]
+      // Reason: 엔트리를 flush **전에** 집었다 — 타이핑 중 Alt+Z를 누르면 flush가
+      //   그 타이핑의 엔트리를 위에 쌓는데, 복원은 밑의 옛 엔트리로 하고 pop은
+      //   막 쌓인 타이핑 엔트리를 지웠다. 결과: 방금 타이핑 대신 **이전 셀의
+      //   작업이 몰래 되돌아가고**(사용자 보고 그대로) 타이핑의 되돌리기는 증발.
+      //   브라우저 재현으로 확정(깻잎 셀이 깨입으로 복귀). flush가 끝난 뒤의
+      //   스택 톱 = 진짜 "방금 한 일" — 그걸 집는다.
+      // Related: CHANGELOG CHG-20260717-115.
+      const entry = undoStackRef.current[undoStackRef.current.length - 1];
+      if (!entry) return;
       const restored = await restoreRows(videoId, langRef.current, entry.upsert, entry.deleteIds);
       // keep client-computed fields (safe) from rows we already had
       const oldById = new Map(segmentsRef.current.map((s) => [s.id, s]));
@@ -3116,6 +3152,7 @@ export function Editor({
       setUndoStack(rest);
       focusedIdRef.current = entry.focusedId;
       setFocusedId(entry.focusedId);
+      textSessionRef.current = null; // 복원된 셀의 편집 세션은 끝난 것
       setStatusMsg(`${entry.label} 되돌림`);
       tourEvent("undo");
       if (entry.focusedId) {
