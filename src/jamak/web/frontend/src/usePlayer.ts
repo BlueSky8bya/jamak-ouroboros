@@ -36,7 +36,11 @@ function whenApiReady(cb: () => void): void {
 /** Mini player for the review modals — precise (float) seeking + real
  *  play/pause. Created only while `enabled` (the modal is open), and
  *  destroyed on close so it never plays behind the editor. */
-export function useMiniPlayer(videoId: string, enabled: boolean, elementId = "yt-mini-player") {
+export function useMiniPlayer(
+  videoId: string,
+  enabled: boolean,
+  hostRef: RefObject<HTMLDivElement | null>,
+) {
   const playerRef = useRef<any>(null);
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -46,10 +50,21 @@ export function useMiniPlayer(videoId: string, enabled: boolean, elementId = "yt
     let disposed = false;
     setReady(false);
 
+    // YT.Player는 대상 엘리먼트를 iframe으로 **치환**한다. 그래서 React가
+    // 소유한 노드를 넘기면 언마운트 때 React가 이미 사라진 노드를 지우려다
+    // 터진다(removeChild NotFoundError). React가 모르는 자식을 직접 만들어
+    // 넘기고, 정리는 wrapper를 비우는 것으로 한다.
+    const host = hostRef.current;
+    if (!host) return;
+    const mount = document.createElement("div");
+    mount.style.width = "100%";
+    mount.style.height = "100%";
+    host.appendChild(mount);
+
     whenApiReady(() => {
-      if (disposed || !document.getElementById(elementId)) return;
+      if (disposed || !mount.isConnected) return;
       try {
-        playerRef.current = new window.YT.Player(elementId, {
+        playerRef.current = new window.YT.Player(mount, {
           videoId,
           width: "100%",
           height: "100%",
@@ -72,8 +87,10 @@ export function useMiniPlayer(videoId: string, enabled: boolean, elementId = "yt
       setPlaying(false);
       playerRef.current?.destroy?.();
       playerRef.current = null;
+      // destroy()가 남긴 잔해까지 정리 — 우리가 만든 자식이라 React는 모른다
+      host.replaceChildren();
     };
-  }, [videoId, enabled, elementId]);
+  }, [videoId, enabled, hostRef]);
 
   const p = () => playerRef.current;
   return {
