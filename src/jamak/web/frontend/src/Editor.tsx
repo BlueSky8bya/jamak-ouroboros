@@ -3507,10 +3507,10 @@ export function Editor({
     // applySpell과 같은 흐름: 낙관적 화면 반영 + 배치 하나로 undo + queueSave
     const m = hanjaModal;
     if (!m) return;
-    const chosen = m.suggestions.filter((s) => m.accepted.has(s.segment_id));
-    // 사람이 직접 고쳤으면 그 텍스트, 아니면 제안 그대로
+    // 고친(원래와 다른) 줄만 적용 — 체크박스 없이. 사람이 직접 고쳤으면 그 텍스트.
     const finalOf = (c: SpellSuggestion) =>
       (previewEdits[c.segment_id] ?? c.after).trim() || c.after;
+    const chosen = changedSuggestions(m.suggestions);
     setHanjaModal(null);
     if (!chosen.length) return;
     const before = segmentsRef.current.filter((s) =>
@@ -3649,6 +3649,55 @@ export function Editor({
     void runSpell();
   }
 
+  // 검수 카드 (한자·맞춤법 공용). 체크박스/애매함 없이 — 그 자리서 고치면 적용,
+  // '↺ 원래대로'면 스킵. 원래 자막(참고) + 큰 편집칸 + ▶ 재생 (사용자 재설계).
+  function reviewRow(s: SpellSuggestion) {
+    const cur = previewEdits[s.segment_id] ?? s.after;
+    const changed = cur.trim() !== s.before.trim();
+    return (
+      <div key={s.segment_id} className={"review-card" + (changed ? " on" : "")}>
+        <div className="review-head">
+          <button
+            type="button"
+            className="cue-play"
+            title="이 자막 시점으로 영상 재생 — 들으며 확인"
+            onClick={() => previewCue(s.start)}
+          >
+            ▶ {fmt(s.start)}
+          </button>
+          <span className="review-flag">
+            {changed ? "고침 → 적용됨" : "원래대로 (적용 안 함)"}
+          </span>
+          <button
+            type="button"
+            className="review-revert"
+            title="AI 제안 무시하고 원래 자막 그대로 — 이 줄은 안 바뀜"
+            onClick={() =>
+              setPreviewEdits((p) => ({ ...p, [s.segment_id]: s.before }))
+            }
+          >
+            ↺ 원래대로
+          </button>
+        </div>
+        <div className="review-orig">원래: {s.before}</div>
+        <textarea
+          className="review-edit"
+          rows={2}
+          value={cur}
+          spellCheck={false}
+          onChange={(e) =>
+            setPreviewEdits((p) => ({ ...p, [s.segment_id]: e.target.value }))
+          }
+        />
+      </div>
+    );
+  }
+  function changedSuggestions(list: SpellSuggestion[]) {
+    return list.filter(
+      (s) => (previewEdits[s.segment_id] ?? s.after).trim() !== s.before.trim(),
+    );
+  }
+
   async function runSpell() {
     // 배치 루프: 미캐시 줄을 160개씩 처리하며 진행률 표시 (긴 영상 타임아웃
     // 방지 + "어디까지 됐는지" — 사용자 요청). 각 응답은 지금까지 아는 제안
@@ -3696,32 +3745,14 @@ export function Editor({
   function applySpell() {
     const m = qcModal;
     if (!m || !m.spell) return;
-    const chosen = m.spell.filter((s) => m.accepted.has(s.segment_id));
-    const held = [...(m.spellHold ?? [])];
-    // 🙉 애매 표시: 적용 여부와 무관하게 그 자막을 '다시 듣기' 상태로 —
-    // reviewed 해제 + hold 플래그 → 미확인 순회/🙉 대기열에 다시 잡힌다
-    for (const segId of held) {
-      void queueSave(segId, async () => {
-        try {
-          const updated = await updateSegment(segId, {
-            reviewed: false,
-            review_flag: "hold",
-          });
-          applyRows([updated]);
-        } catch (e) {
-          setError(String(e));
-        }
-      });
-    }
-    if (!chosen.length) {
-      setQcModal(null);
-      if (held.length)
-        setStatusMsg(`🙉 애매한 ${held.length}곳을 다시 듣기로 표시했어요`);
-      return;
-    }
-    // 사람이 직접 고쳤으면 그 텍스트, 아니면 제안 그대로
+    // 고친(원래와 다른) 줄만 적용 — 체크박스/애매함 없이.
     const finalOf = (c: SpellSuggestion) =>
       (previewEdits[c.segment_id] ?? c.after).trim() || c.after;
+    const chosen = changedSuggestions(m.spell);
+    if (!chosen.length) {
+      setQcModal(null);
+      return;
+    }
     const before = segmentsRef.current.filter((s) =>
       chosen.some((c) => c.segment_id === s.id),
     );
@@ -3744,9 +3775,8 @@ export function Editor({
       });
     }
     setQcModal(null);
-    const heldNote = held.length ? ` · 🙉 다시 듣기 ${held.length}곳` : "";
     setStatusMsg(
-      `✏️ 맞춤법 ${chosen.length}곳 적용${heldNote} — Alt+Z로 전체 되돌릴 수 있어요`,
+      `✏️ 맞춤법 ${chosen.length}곳 적용 — Alt+Z로 전체 되돌릴 수 있어요`,
     );
   }
 
@@ -4667,18 +4697,17 @@ export function Editor({
           className="srt-modal-back locked"
           /* 검수 중 실수로 닫히지 않게 바깥 클릭 무시 — 취소/적용 버튼으로만 닫음 */
         >
-          <div className="srt-modal qc-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="srt-modal qc-modal review-modal" onClick={(e) => e.stopPropagation()}>
             <h3>漢 한자 채우기 — 미리보기</h3>
             <p className="srt-summary">
-              채울 곳 <strong>{hanjaModal.suggestions.length}곳</strong>을 찾았어요 —
-              체크한 것만 적용됩니다. <strong>▶ 시각</strong>을 누르면 영상이 그 부분을
-              재생해요 — 흑판에 쓴 한자인지·동음이의 중 맞는지 들으며 확인하고, 아니면
-              체크를 풀어주세요 (적용 후 ↶로 전체 되돌리기 가능)
+              채울 곳 <strong>{hanjaModal.suggestions.length}곳</strong>. <strong>▶</strong>로
+              들으며 흑판 한자·동음이의 확인 → 칸에서 바로 고치세요. <strong>↺ 원래대로</strong>면
+              그 줄은 안 바뀌어요. (적용 후 ↶로 되돌리기 가능)
             </p>
             <div className="modal-player">
               {previewSec === null ? (
                 <div className="modal-player-hint">
-                  ▶ 옆의 시각을 누르면 여기서 그 부분 영상이 재생돼요
+                  ▶ 를 누르면 여기서 그 부분 영상이 재생돼요
                 </div>
               ) : (
                 <iframe
@@ -4691,62 +4720,17 @@ export function Editor({
                 />
               )}
             </div>
-            <div className="spell-list">
-              {hanjaModal.suggestions.map((s) => {
-                const d = tokenDiff(s.before, s.after);
-                void d;
-                return (
-                  <div key={s.segment_id} className="spell-row">
-                    <input
-                      type="checkbox"
-                      className="spell-check"
-                      checked={hanjaModal.accepted.has(s.segment_id)}
-                      onChange={(e) =>
-                        setHanjaModal((m) => {
-                          if (!m) return m;
-                          const next = new Set(m.accepted);
-                          if (e.target.checked) next.add(s.segment_id);
-                          else next.delete(s.segment_id);
-                          return { ...m, accepted: next };
-                        })
-                      }
-                    />
-                    <span className="spell-orig" title="원래 자막">{s.before}</span>
-                    <span className="spell-arrow">→</span>
-                    <input
-                      className="spell-edit"
-                      value={previewEdits[s.segment_id] ?? s.after}
-                      title="들으면서 원하는 대로 고치세요"
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setPreviewEdits((p) => ({ ...p, [s.segment_id]: v }));
-                        setHanjaModal((m) =>
-                          m ? { ...m, accepted: new Set(m.accepted).add(s.segment_id) } : m,
-                        );
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className="cue-play"
-                      title="이 자막 시점으로 영상 재생 — 흑판에 쓴 한자인지·문맥에 맞는지 들으며 확인"
-                      onClick={() => previewCue(s.start)}
-                    >
-                      ▶ {fmt(s.start)}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
+            <div className="spell-list">{hanjaModal.suggestions.map(reviewRow)}</div>
             <div className="srt-actions">
               <button className="srt-cancel" onClick={() => setHanjaModal(null)}>
                 취소
               </button>
               <button
                 className="srt-apply"
-                disabled={hanjaModal.accepted.size === 0}
+                disabled={changedSuggestions(hanjaModal.suggestions).length === 0}
                 onClick={() => applyHanja()}
               >
-                선택한 {hanjaModal.accepted.size}곳 적용
+                {changedSuggestions(hanjaModal.suggestions).length}곳 적용
               </button>
             </div>
           </div>
@@ -4767,7 +4751,12 @@ export function Editor({
               setQcModal(null);
           }}
         >
-          <div className="srt-modal qc-modal" onClick={(e) => e.stopPropagation()}>
+          <div
+            className={
+              "srt-modal qc-modal" + (qcModal.mode === "spell" ? " review-modal" : "")
+            }
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3>{qcModal.mode === "spell" ? "✏️ AI 맞춤법 검사" : "📋 내보내기 전 점검"}</h3>
             {qcModal.mode === "spell" && qcModal.spell === null ? (
               <p className="srt-summary">
@@ -4791,9 +4780,9 @@ export function Editor({
               ) : (
                 <>
                   <p className="srt-summary">
-                    맞춤법 제안 <strong>{qcModal.spell.length}곳</strong> — 체크한 것만
-                    적용됩니다. <strong>▶ 시각</strong>을 누르면 여기서 그 부분 영상이
-                    재생돼요 (적용 후 Alt+Z로 전체 되돌리기 가능)
+                    맞춤법 제안 <strong>{qcModal.spell.length}곳</strong>. <strong>▶</strong>로
+                    들으며 확인 → 칸에서 바로 고치세요. <strong>↺ 원래대로</strong>면 그 줄은
+                    안 바뀌어요 (적용 후 Alt+Z로 되돌리기 가능)
                   </p>
                   <div className="modal-player">
                     {previewSec === null ? (
@@ -4811,77 +4800,17 @@ export function Editor({
                       />
                     )}
                   </div>
-                  <div className="spell-list">
-                    {qcModal.spell.map((s) => {
-                      const held = qcModal.spellHold?.has(s.segment_id) ?? false;
-                      return (
-                        <div key={s.segment_id} className="spell-row">
-                          <input
-                            type="checkbox"
-                            className="spell-check"
-                            checked={qcModal.accepted.has(s.segment_id)}
-                            onChange={(e) =>
-                              setQcModal((m) => {
-                                if (!m) return m;
-                                const next = new Set(m.accepted);
-                                if (e.target.checked) next.add(s.segment_id);
-                                else next.delete(s.segment_id);
-                                return { ...m, accepted: next };
-                              })
-                            }
-                          />
-                          <span className="spell-orig" title="원래 자막">{s.before}</span>
-                          <span className="spell-arrow">→</span>
-                          <input
-                            className="spell-edit"
-                            value={previewEdits[s.segment_id] ?? s.after}
-                            title="들으면서 원하는 대로 고치세요"
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              setPreviewEdits((p) => ({ ...p, [s.segment_id]: v }));
-                              setQcModal((m) =>
-                                m ? { ...m, accepted: new Set(m.accepted).add(s.segment_id) } : m,
-                              );
-                            }}
-                          />
-                          <button
-                            type="button"
-                            className="cue-play"
-                            title="이 자막 시점으로 영상 재생 — 흑판에 쓴 한자인지·문맥에 맞는지 들으며 확인"
-                            onClick={() => previewCue(s.start)}
-                          >
-                            ▶ {fmt(s.start)}
-                          </button>
-                          <button
-                            type="button"
-                            className={"spell-hold" + (held ? " on" : "")}
-                            title="애매하면 표시 — 적용 후 그 자막이 🙉(다시 듣기)로 남아, 직접 들으면서 재확인할 수 있어요"
-                            onClick={() =>
-                              setQcModal((m) => {
-                                if (!m) return m;
-                                const next = new Set(m.spellHold ?? []);
-                                if (next.has(s.segment_id)) next.delete(s.segment_id);
-                                else next.add(s.segment_id);
-                                return { ...m, spellHold: next };
-                              })
-                            }
-                          >
-                            {held ? "🙉 다시 듣기" : "🙉 애매함"}
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <div className="spell-list">{qcModal.spell.map(reviewRow)}</div>
                   <div className="srt-actions">
                     <button className="srt-cancel" onClick={() => setQcModal(null)}>
                       취소
                     </button>
                     <button
                       className="srt-apply"
-                      disabled={qcModal.accepted.size === 0}
+                      disabled={changedSuggestions(qcModal.spell).length === 0}
                       onClick={() => applySpell()}
                     >
-                      선택한 {qcModal.accepted.size}곳 적용
+                      {changedSuggestions(qcModal.spell).length}곳 적용
                     </button>
                   </div>
                 </>

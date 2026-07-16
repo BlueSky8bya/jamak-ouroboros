@@ -3540,6 +3540,59 @@ kbd {
 .spell-edit:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 /* 잠금 모달: 검수 중 실수 방지 — 더 진한 딤 */
 .srt-modal-back.locked { background: rgba(0, 0, 0, 0.74); }
+
+/* ── 검수 모달 재설계: 넓은 창 + 세로 카드 (한자·맞춤법 공용) ── */
+.srt-modal.review-modal { width: min(760px, 100%); }
+.review-modal .spell-list { gap: 10px; max-height: 40vh; }
+.review-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+  opacity: 0.6;               /* 안 고친(원래대로) 줄은 흐리게 */
+  transition: opacity 0.12s;
+}
+.review-card.on { opacity: 1; border-color: var(--teal); }
+.review-head { display: flex; align-items: center; gap: 10px; }
+.review-flag {
+  flex: 1;
+  font-size: 0.8rem;
+  color: var(--faint);
+}
+.review-card.on .review-flag { color: var(--teal); }
+.review-revert {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.review-revert:hover { border-color: var(--muted); color: var(--text); }
+.review-orig {
+  font-size: 0.82rem;
+  color: var(--faint);
+  white-space: normal;
+  word-break: break-word;
+}
+.review-edit {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--teal);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1.5;
+  resize: vertical;
+  font-family: inherit;
+}
+.review-edit:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .spell-row:hover { background: var(--surface-strong); }
 .spell-row input { width: 16px; height: 16px; accent-color: var(--blue); flex: 0 0 auto; }
 .spell-diff { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
