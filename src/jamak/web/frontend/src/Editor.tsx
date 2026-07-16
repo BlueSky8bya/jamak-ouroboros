@@ -1555,21 +1555,28 @@ const COURSES: TourCourse[] = [
     id: "fast",
     icon: "3️⃣",
     title: "빠르게 훑기 — 멈추지 않는 검수",
-    desc: "멈춤 끄기 · 따라가기 조절 · 안심 일괄확인 · 찾기·바꾸기",
-    // 나레이션 순서와 일치 (체크포인트 동기화): 안심 확인 → 찾기·바꾸기 →
-    // 멈춤 끄기 → 따라가기 → 미확인 이동
+    desc: "쉬운 건 Enter로 · 찾기·바꾸기 · 멈춤 끄기 · 따라가기 조절",
+    // [WH-CHANGE v0.9.68 | FIX | 2026-07-17 | CHG-20260717-102]
+    // Reason: ✅ 안심 확인은 실검수에서 숨긴 버튼이라 가르쳐도 못 쓴다 → 스텝 삭제.
+    //   새 대본(v0.9.67)은 쉬운 문장 5개를 Enter로 넘기게 하고 🔎 찾기·바꾸기로
+    //   리드하므로 그 순서에 맞춘다. 나레이션 순서 = 스텝 순서 (체크포인트 동기화).
+    // Related: 재설계계획 §4, CHANGELOG CHG-20260717-102.
+    // 대본 순서: 쉬운 문장 Enter(#2~7) → 찾기·바꾸기(#12) → 멈춤 끄기(#13) →
+    //           따라가기(#14) → 미확인 이동(#15) → 끝(#16)
     steps: [
       {
-        target: ".tool-safe",
-        title: "쉬운 자막은 한꺼번에 — 안심 확인",
+        target: ".row:not(.collapsed)",
+        title: "쉬운 자막은 Enter로 쭉",
         body: (
           <>
-            기계 둘이 똑같이 들은 쉬운 자막은 <b>✅ 안심 확인</b>으로 한 번에 넘기고,
-            어려운 것만 보세요. 눌러보세요.
+            지금 나오는 문장들은 아주 쉬워요. 맞으면 <K c="Enter" /> — 멈추지 말고
+            쭉 내려가세요.
           </>
         ),
-        missingHint: "이 영상엔 지금 안심 구간이 없어요 — '건너뛰기'를 누르세요.",
-        on: "confirm-safe",
+        missingHint: "확인 안 된 자막이 남아 있어야 진행돼요.",
+        on: "confirm",
+        untilTime: true,
+        loopRow: true,
       },
       {
         target: ".findbar",
@@ -1624,7 +1631,7 @@ const COURSES: TourCourse[] = [
         body: (
           <>
             요령: 완벽하게 하려고 멈추지 말고, 애매하면 🙉으로 넘기고 계속 가세요.
-            쉬운 건 ✅ 안심으로 한꺼번에, 반복 오타는 🔎로 한 번에.
+            쉬운 건 <K c="Enter" />로 쭉, 반복 오타는 🔎로 한 번에.
           </>
         ),
       },
@@ -1713,7 +1720,15 @@ const COURSES: TourCourse[] = [
     id: "timing",
     icon: "5️⃣",
     title: "타이밍 — 자막이 뜨는 시간 맞추기",
-    desc: "② 탭 · ✨ 자동 정리 · Alt+[ ] \\ · 타임라인 · 무음 다듬기",
+    desc: "② 탭 · 문제만 골라 · 영상 밑 시간 줄 · 무음 다듬기",
+    // [WH-CHANGE v0.9.68 | FIX | 2026-07-17 | CHG-20260717-102]
+    // Reason: ✨ 자동 정리 스텝 삭제 — ADR-0012로 폐지(셀 66%·검수 완료 영상 98%를
+    //   근거 없이 건드림). 리드가 "기계가 먼저"에서 **"문제만 골라 → 영상 밑에서
+    //   직접"**으로 바뀌었고(새 대본 v0.9.67), 편집 타깃도 오른쪽 셀 안
+    //   `.timing-tools` → **영상 밑 `.timing-bar`**(v0.9.63). 9 → 8스텝.
+    // Related: ADR-0012, 재설계계획 §6, CHANGELOG CHG-20260717-102.
+    // 대본 순서: ② 탭(#3) → 다음 문제(#5) → Alt+[(#7) → Alt+](#8) → Alt+\(#9)
+    //           → 타임라인(#11) → 무음 다듬기(#12) → 끝(#14)
     steps: [
       {
         target: ".mode-tabs",
@@ -1726,17 +1741,6 @@ const COURSES: TourCourse[] = [
         on: "mode-timing",
       },
       {
-        target: ".tool-auto",
-        title: "기계가 먼저 — ✨ 자동 정리",
-        body: (
-          <>
-            <b>✨ 타이밍 자동 정리</b>를 눌러보세요. 말소리에 맞추고, 긴 자막은 나누고,
-            빠른 자막은 시간을 늘려줘요. (<K c="Alt" />+<K c="Z" />로 전체 되돌리기 가능)
-          </>
-        ),
-        on: "auto-timing",
-      },
-      {
         target: ".issue-bar",
         title: "남은 문제만 골라 보기",
         body: <><b>다음 문제 →</b>를 눌러보세요. 손볼 자막으로 바로 데려다줘요.</>,
@@ -1744,7 +1748,7 @@ const COURSES: TourCourse[] = [
         on: "next-issue",
       },
       {
-        target: ".timing-tools",
+        target: ".timing-bar",
         subject: [51.4, 57.6],
         loopRow: true,
         title: "여기서 시작 — Alt+[",
@@ -1752,13 +1756,14 @@ const COURSES: TourCourse[] = [
           <>
             이 자막 소리를 반복해서 들려드려요. <b>말이 시작되는 순간</b>{" "}
             <K c="Alt" />+<K c="[" /> — 지금 재생 위치가 자막의 시작이 돼요.
+            <b> 영상 바로 밑 시간 줄</b>에서 눈을 영상에 둔 채로 하시면 돼요.
           </>
         ),
-        missingHint: "자막 글을 누르면 아래에 시간 도구가 나와요.",
+        missingHint: "자막을 하나 누르면 영상 밑 시간 줄에 단추가 나와요.",
         on: "start-here",
       },
       {
-        target: ".timing-tools",
+        target: ".timing-bar",
         subject: [51.4, 57.6],
         loopRow: true,
         title: "여기서 넘김 — Alt+]",
@@ -1768,11 +1773,11 @@ const COURSES: TourCourse[] = [
             넘겨요.
           </>
         ),
-        missingHint: "자막 글을 누르면 아래에 시간 도구가 나와요.",
+        missingHint: "자막을 하나 누르면 영상 밑 시간 줄에 단추가 나와요.",
         on: "next-here",
       },
       {
-        target: ".timing-tools",
+        target: ".timing-bar",
         subject: [51.4, 57.6],
         loopRow: true,
         title: "발화 맞춤 — Alt+\\",
@@ -1782,7 +1787,7 @@ const COURSES: TourCourse[] = [
             시작~끝에 자동으로 딱 맞춰요. 제일 편한 버튼이에요.
           </>
         ),
-        missingHint: "자막 글을 누르면 아래에 시간 도구가 나와요.",
+        missingHint: "자막을 하나 누르면 영상 밑 시간 줄에 단추가 나와요.",
         on: "set-times",
       },
       // 나레이션 순서와 일치 (체크포인트 동기화): 무음 다듬기 → 타임라인 끌기
@@ -1824,42 +1829,137 @@ const COURSES: TourCourse[] = [
   {
     id: "finish",
     icon: "6️⃣",
-    title: "마무리 도구 — 미리보기·복구·학습·내보내기",
-    desc: "Alt+P 미리보기 · 복구·채우기 · 학습 · 자막 받기(점검표)",
+    title: "마무리 — 실전 한 바퀴",
+    desc: "속도 정하기 · Enter 촤르륵 · 지우기/합치기/나누기 · 漢 채우기 · 학습",
+    // [WH-CHANGE v0.9.68 | FEAT | 2026-07-17 | CHG-20260717-102]
+    // Reason: "버튼 하나씩" 나열식(미리보기→복구→학습→받기)을 버리고 **실제 검수
+    //   한 흐름을 처음부터 끝까지** 한 번 몸에 익히게 한다(사용자 요청). 🛠 복구는
+    //   실검수에서 숨김, ✏️ 맞춤법은 관리자 전용이라 둘 다 삭제. 앞 코스에서 배운
+    //   단축키가 여기서 실전 맥락으로 되살아난다.
+    // Related: 재설계계획 §7, CHANGELOG CHG-20260717-102.
+    // 대본 순서(23줄): 속도(#2) → Enter(#3~7) → Alt+Delete(#10) → 합치기(#13) →
+    //   나누기(#15) → 되짚기(#16) → 漢(#19) → 모달 적용(#19 연쇄) → 💬(#20) →
+    //   📚(#21) → 자막 받기(#22) → 끝(#23)
     steps: [
       {
-        target: ".pc-toggle-preview",
-        title: "영화 보듯 최종 확인 — 미리보기",
+        target: ".pc-toggle-pause",
+        title: "먼저 내 속도를 정해요",
         body: (
           <>
-            <b>💬 미리보기 모드</b>를 켜보세요(<K c="Alt" />+<K c="P" />). 영상이
-            커지고 자막이 영상 위에 얹혀요 — 시청자가 보게 될 모습 그대로. 확인 후
-            다시 끄세요.
+            자신 있으면 <b>편집 시작 시 멈춤</b>을 꺼서 흐르듯이(<K c="Alt" />+
+            <K c="S" />), 아직 벅차면 켜 두고 차분히. <b>정답은 없어요 — 본인 속도가
+            정답</b>이에요.
           </>
         ),
-        on: "preview",
+        on: "pausetype",
       },
       {
-        target: ".tool-repair",
-        title: "🛠 복구·채우기",
+        target: ".row:not(.collapsed)",
+        title: "맞는 자막은 Enter로 쭉",
         body: (
           <>
-            음성인식이 놓친 구간을 유튜브 자막으로 채워줘요. 눌러보세요. (관리자
-            전용이라 안 되면 '건너뛰기')
+            지금 나오는 문장들은 자막이 정확해요. 맞으면 <K c="Enter" /> — 멈추지 말고
+            내려가세요.
+          </>
+        ),
+        missingHint: "확인 안 된 자막이 남아 있어야 진행돼요.",
+        on: "confirm",
+        untilTime: true,
+        loopRow: true,
+      },
+      {
+        target: ".row.focused",
+        title: "군소리 칸은 지워요 — Alt+Delete",
+        body: (
+          <>
+            방금 <b>"음..."</b>, <b>"어."</b>는 말이 아니라 군소리예요. 자막에 필요
+            없어요. 그 칸을 누르고 <K c="Alt" />+<K c="Delete" />.
+          </>
+        ),
+        missingHint: "자막 글을 눌러 그 칸을 먼저 고르세요.",
+        on: "delete",
+      },
+      {
+        target: ".row.focused",
+        title: "쪼개진 조각은 합쳐요",
+        body: (
+          <>
+            방금 두 칸은 원래 한 문장이에요. 위 칸을 누르고 <K c="Ctrl" />+
+            <K c="Shift" />+<K c="Enter" />.
+          </>
+        ),
+        missingHint: "자막 글을 눌러 그 칸을 먼저 고르세요.",
+        on: "merge",
+      },
+      {
+        target: ".row.focused",
+        title: "두 문장은 나눠요",
+        body: (
+          <>
+            이번엔 반대 — 한 칸에 두 문장이 있어요. 문장 사이에 <b>커서를 두고</b>{" "}
+            <K c="Ctrl" />+<K c="Enter" />. 나눈 뒤 <K c="Enter" />를 한 번 더 누르면
+            앞 칸이 확인돼요.
+          </>
+        ),
+        missingHint: "자막 글을 눌러 고치기 칸을 먼저 여세요.",
+        on: "split",
+      },
+      {
+        target: ".play-controls",
+        title: "놓친 것 같으면 되짚기",
+        body: (
+          <>
+            <K c="Alt" />+<K c="↑" />/<K c="↓" />로 칸을 오르내리고, <K c="Shift" />+
+            <K c="Tab" />으로 3초 뒤로, <K c="Tab" />으로 재생/멈춤. 그 부분만 다시
+            들어보세요.
+          </>
+        ),
+        on: "nav",
+      },
+      {
+        target: ".tool-hanja",
+        title: "漢 한자 채우기",
+        body: (
+          <>
+            <b>漢 한자 채우기</b>를 눌러보세요. 흑판에 쓰는 말(해탈·열반 같은)을 기계가
+            사전에서 찾아 <b>미리 채워서 보여줘요</b> — 아직 반영된 건 아니에요.
           </>
         ),
         missingHint: "내용 모드에서 보여요 — ① 내용 확인 탭으로 가보세요.",
-        on: "repair",
+        on: "hanja-fill",
+      },
+      {
+        target: ".review-card",
+        title: "듣고, 틀린 건 빼요 — 이게 핵심",
+        body: (
+          <>
+            각 줄의 <b>▶</b>로 들어보세요. <b>"이 영상을 보시는 분들"</b>의 보시는
+            베풀 布施가 <b>아니에요</b> — 그 줄은 <b>안 바꿈</b>. 맞는 것만 남기고
+            적용하세요.
+          </>
+        ),
+        missingHint: "채울 한자어를 못 찾았어요 — '건너뛰기'를 누르세요.",
+        on: "hanja-apply",
+      },
+      {
+        target: ".pc-toggle-preview",
+        title: "💬 시청자가 볼 모습으로",
+        body: (
+          <>
+            <b>미리보기 모드</b>를 켜보세요(<K c="Alt" />+<K c="P" />). 자막이 영상 위에
+            얹혀요. 확인 후 다시 끄세요.
+          </>
+        ),
+        on: "preview",
       },
       {
         target: ".tool-absorb",
         title: "📚 학습 — 기계가 배워요",
         body: (
           <>
-            <b>📚 학습</b>(<K c="Alt" />+<K c="K" />)을 눌러보세요. 여러분이 고친 걸
-            기계가 외워서, 다음 영상부터는 같은 실수를 덜 해요. 검수를 마칠 때마다
-            눌러주면 좋아요. (연습용 영상에서는 "0개"라고 떠요 — 연습이라 진짜로
-            배우지는 않는 게 정상이에요.)
+            <b>📚 학습</b>(<K c="Alt" />+<K c="K" />). 오늘 고친 걸 기계가 외워서 다음
+            영상부터 같은 실수를 덜 해요. (연습 영상은 "0개"가 정상 — 연습이라 진짜로
+            배우지 않아요.)
           </>
         ),
         missingHint: "내용 모드에서 보여요 — ① 내용 확인 탭으로 가보세요.",
@@ -1867,11 +1967,11 @@ const COURSES: TourCourse[] = [
       },
       {
         target: ".export-footer .export",
-        title: "자막 받기 — 점검표가 먼저 떠요",
+        title: "자막 받기 — 점검표가 먼저",
         body: (
           <>
             <b>자막 받기 (.srt)</b>를 눌러보세요. 빠진 곳·문제를 먼저 알려주는 점검표가
-            떠요. 그냥 닫아도 돼요 — 진짜 받는 건 다 끝났을 때.
+            떠요. 그냥 닫아도 돼요.
           </>
         ),
         on: "export-check",
@@ -1879,12 +1979,12 @@ const COURSES: TourCourse[] = [
       {
         target: null,
         final: true,
-        title: "🎉 전부 다 배우셨어요!",
+        title: "🎉 이 순서가 실전이에요!",
         body: (
           <>
-            점검표에서 <b>보기→</b>로 문제 자막에 바로 갈 수 있고, <b>✏️ 맞춤법
-            검사</b>로 오타도 잡아줘요. 이제 진짜 영상에서 시작하세요 — 막히면 언제든{" "}
-            <b>🎓 튜토리얼 연습</b> 탭에서 다시 연습할 수 있어요.
+            <b>속도 정하고 → 맞으면 Enter → 군소리는 지우고 → 조각은 합치고 → 긴 건
+            나누고 → 한자는 들어보고 거르고 → 마지막에 📚 학습.</b> 이제 진짜 영상을
+            맡으셔도 충분해요 — 막히면 <b>🎓 튜토리얼 연습</b>에서 다시 하시면 돼요.
           </>
         ),
       },
@@ -3575,6 +3675,11 @@ export function Editor({
     // dry-run 배치 루프: 200행씩 훑으며 진행률 표시, DB는 안 건드리고 제안만
     // 모은다. 적용은 맞춤법처럼 미리보기 목록에서 확인·선택 후 (어디에
     // 채웠는지 안 보이고, 잘못된 병기를 거를 수 없다는 피드백).
+    // [WH-CHANGE v0.9.68 | FEAT | 2026-07-17 | CHG-20260717-102]
+    // Reason: 연습6 캡스톤이 漢 채우기 → 모달에서 함정 거르기를 실제로 시킨다.
+    //   그런데 한자 흐름엔 투어 이벤트가 아예 없어 말풍선이 넘어가지 못했다.
+    // Related: 재설계계획 §7 스텝 7~8, CHANGELOG CHG-20260717-102.
+    tourEvent("hanja-fill");
     setToolBusy("hanja");
     setHanjaProg(null);
     setPreviewSec(null);
@@ -3614,6 +3719,9 @@ export function Editor({
     // applySpell과 같은 흐름: 낙관적 화면 반영 + 배치 하나로 undo + queueSave
     const m = hanjaModal;
     if (!m) return;
+    // 연습6 스텝 8: 모달에서 함정(보시=布施)을 '안 바꿈'으로 거르고 적용까지 해야
+    // 다음으로 넘어간다 (CHG-20260717-102).
+    tourEvent("hanja-apply");
     // 고친(원래와 다른) 줄만 적용 — 체크박스 없이. 사람이 직접 고쳤으면 그 텍스트.
     const finalOf = (c: SpellSuggestion) =>
       (previewEdits[c.segment_id] ?? c.after).trim() || c.after;
