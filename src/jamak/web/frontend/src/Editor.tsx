@@ -1282,8 +1282,8 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     title: "재생·이동  (화살표는 언제나 이동만 — 안전)",
     items: [
       { keys: ["Tab"], label: "재생 / 일시정지", detail: "스페이스바는 글자 입력용" },
-      { keys: ["Ctrl+←", "Ctrl+→"], label: "3초 뒤로 / 앞으로", detail: "편집 중에도 됩니다 · Shift+Tab도 3초 뒤로" },
-      { keys: ["Ctrl+Shift+←", "Ctrl+Shift+→"], label: "10초 뒤로 / 앞으로", detail: "편집 중에도 됩니다" },
+      { keys: ["Alt+←", "Alt+→"], label: "3초 뒤로 / 앞으로", detail: "편집 중에도 됩니다 · Shift+Tab도 3초 뒤로" },
+      { keys: ["Alt+Shift+←", "Alt+Shift+→"], label: "10초 뒤로 / 앞으로", detail: "편집 중에도 됩니다" },
       { keys: ["Ctrl+\\"], label: "이 자막 처음부터 다시 재생", detail: "편집 중에도 됩니다" },
       { keys: ["Alt+↑", "Alt+↓"], label: "이전 / 다음 자막" },
       {
@@ -1324,6 +1324,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
         label: "글자 삭제 / 되돌리기",
         detail: "편집칸 안에서는 평범한 텍스트 편집으로 동작",
       },
+      { keys: ["Ctrl+←", "Ctrl+→"], label: "낱말 단위로 커서 이동" },
     ],
   },
   {
@@ -1475,7 +1476,7 @@ const COURSES: TourCourse[] = [
         title: "3초 뒤로",
         body: (
           <>
-            <K c="Shift" />+<K c="Tab" /> 또는 <K c="Ctrl" />+<K c="←" />. 글 쓰는
+            <K c="Alt" />+<K c="←" /> 또는 <K c="Shift" />+<K c="Tab" />. 글 쓰는
             중에도 돼요.
           </>
         ),
@@ -1494,7 +1495,7 @@ const COURSES: TourCourse[] = [
         title: "3초 앞으로",
         body: (
           <>
-            <K c="Ctrl" />+<K c="→" />. 조용한 구간은 이걸로 훌쩍.
+            <K c="Alt" />+<K c="→" />. 조용한 구간은 이걸로 훌쩍.
           </>
         ),
         on: "seek-fwd",
@@ -1504,7 +1505,7 @@ const COURSES: TourCourse[] = [
         title: "10초 이동",
         body: (
           <>
-            <K c="Ctrl" />+<K c="Shift" />+<K c="←" /> 또는 <K c="→" />.
+            <K c="Alt" />+<K c="Shift" />+<K c="←" /> 또는 <K c="→" />.
           </>
         ),
         on: "seek-10",
@@ -1545,7 +1546,7 @@ const COURSES: TourCourse[] = [
         title: "🎉 재생 조작 끝!",
         body: (
           <>
-            <K c="Tab" /> 재생/멈춤 · <K c="Ctrl" />+<K c="←→" /> 3초 ·{" "}
+            <K c="Tab" /> 재생/멈춤 · <K c="Alt" />+<K c="←→" /> 3초 ·{" "}
             <K c="Ctrl" />+<K c="\\" /> 구간 처음 · 0.75× 느리게 · 🔁 반복.
           </>
         ),
@@ -3263,19 +3264,23 @@ export function Editor({
         H.current.tourEvent("play");
         return;
       }
-      // seek: Ctrl+←/→ = ∓3s, Ctrl+Shift+←/→ = ∓10s. On Ctrl (not Alt) so it can
-      // never trigger Chrome's Alt+←/→ back/forward navigation.
-      // [WH-CHANGE v0.9.79 | UX | 2026-07-17 | CHG-20260717-119]
-      // Reason: 편집칸 안에서는 단어 점프를 지키려고 빠져 있었는데, 그 결과
-      //   "앞으로 3초"는 타이핑 중 대안이 없었다 — 마우스로 빈 곳을 누른 뒤에야
-      //   눌러야 했다(사용자). 이 사용자층에서 Ctrl+화살표 단어 점프는 안 쓰이고,
-      //   배운 키 하나가 어디서든 통하는 게 더 중요하다. 나레이션(연습2)도 우회
-      //   없이 "컨트롤과 오른쪽 화살표"라고만 가르친다. 편집칸 안에서도 탐색.
-      //   (글자 이동은 맨 화살표·Home/End가 그대로 담당.)
-      // Related: CHANGELOG CHG-20260717-119.
+      // seek: Alt+←/→ = ∓3s, Alt+Shift+←/→ = ∓10s — works inside the text box too.
+      // [WH-CHANGE v0.9.80 | UX | 2026-07-17 | CHG-20260717-120]
+      // Reason: 탐색이 Ctrl에 있어서 편집칸 안 Ctrl+화살표(단어 점프)와 정면
+      //   충돌했다. v0.9.79는 단어 점프를 버리고 탐색을 택했지만 "단어 점프도
+      //   언젠가 필요하다"(사용자) — 맞다. 둘 다 가지려면 **탐색을 Alt로** 옮기면
+      //   된다(사용자 제안). 덤으로 키맵이 한 규칙이 된다:
+      //     Alt = 이동 (←→ 영상 시간 · ↑↓ 자막 · Z 작업 되돌리기)
+      //     Ctrl = 글자 (←→ 단어 점프 · Z 글자 되돌리기 · Enter 나누기)
+      //   나레이션도 "컨트롤 화살표는 영상, 알트 화살표는 자막"(모순된 두 규칙)
+      //   에서 "알트와 화살표는 이동" 하나로 줄어든다 — 어르신 대상이라 이게 크다.
+      //   preventDefault가 크롬의 Alt+←/→ 뒤로/앞으로도 막는다 (이전 판이 stray
+      //   press 방어로 이미 쓰던 바로 그 가정 — 새 가정이 아니다).
+      // Related: ADR-0014, CHANGELOG CHG-20260717-120.
       if (
-        (e.ctrlKey || e.metaKey) &&
-        !e.altKey &&
+        e.altKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
         (e.key === "ArrowLeft" || e.key === "ArrowRight")
       ) {
         e.preventDefault();
@@ -3286,11 +3291,8 @@ export function Editor({
         );
         return;
       }
-      // swallow Alt+←/→ entirely so a stray press can't send Chrome back/forward
-      if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-        e.preventDefault();
-        return;
-      }
+      // Ctrl+←/→ is deliberately NOT bound: it stays the browser's native
+      // word-jump inside the text box (the whole point of moving seek to Alt).
       // Alt+↑/↓ = prev/next cue, Alt+Shift+↑/↓ = prev/next UNREVIEWED cue
       if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
         e.preventDefault();

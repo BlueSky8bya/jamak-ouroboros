@@ -34,10 +34,10 @@ export const VISUALS: Record<number, Record<number, Visual[]>> = {
   },
   2: {
     2: [{ kind: "keys", rows: [["Tab"]] }],
-    5: [{ kind: "keys", rows: [["Ctrl", "←"], ["Shift", "Tab"]] }],
+    5: [{ kind: "keys", rows: [["Alt", "←"], ["Shift", "Tab"]] }],
     6: [{ kind: "speed", zone: "video-below" }],
-    7: [{ kind: "keys", rows: [["Ctrl", "→"]] }],
-    9: [{ kind: "keys", rows: [["Ctrl", "Shift", "→"]] }],
+    7: [{ kind: "keys", rows: [["Alt", "→"]] }],
+    9: [{ kind: "keys", rows: [["Alt", "Shift", "→"]] }],
     10: [{ kind: "keys", rows: [["Ctrl", "\\"]] }],
     11: [{ kind: "check", label: "🔁 구간반복", on: true, zone: "video-below" }],
     12: [{ kind: "keys", rows: [["Alt", "↑"], ["Alt", "↓"]] }],
