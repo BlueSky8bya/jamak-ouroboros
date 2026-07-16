@@ -4308,14 +4308,16 @@ kbd {
 
 /* 흐름 확인 단계 셀 안내 — 상태줄 / 지금·실제 말 대조 / 메타줄 구조
    (통문장 볼드 덩어리는 가독성 최악 — 사용자 피드백) */
+/* 지금 할 일 카드. 본문 산문 대신 이것만 보여준다(CHG-20260717-106) — 곁다리가
+   아니라 주역이므로 테두리를 또렷하게. */
 .tour-note {
   margin-top: 10px;
-  padding: 10px 12px;
+  padding: 11px 13px;
   border-radius: 10px;
-  border: 1px solid var(--line);
+  border: 1.5px solid color-mix(in srgb, var(--blue) 40%, var(--line));
   background: var(--bg);
   color: var(--text);
-  font-size: 14px;
+  font-size: 14.5px;
   line-height: 1.55;
   overflow-wrap: anywhere;
 }

@@ -155,8 +155,19 @@ export function Tour({
           </em>
         </div>
         <h3>{cur.title}</h3>
-        <div className="tour-body">{cur.body}</div>
-        {note && <div className="tour-note">{note}</div>}
+        {/* [WH-CHANGE v0.9.71 | UX | 2026-07-17 | CHG-20260717-106]
+            Reason: 안내창이 같은 말을 네 번 했다 — 나레이션이 "화면 안내를 따라
+              엔터를 눌러 보세요"라고 말하고, 제목이 "위에서부터 차례로 Enter",
+              본문이 그걸 또 풀어 쓰고, 그 아래 note가 **이 자막을 어떻게 고칠지**
+              구체적으로 보여준다. 어르신 검수자에겐 지시가 하나여야 한다
+              (사용자: "빨간 박스 친 부분만 보이게 해서 최대한 간편하게").
+              note가 있으면 그게 지금 할 일 → 본문 산문은 감춘다.
+            Related: CHANGELOG CHG-20260717-106. */}
+        {note ? (
+          <div className="tour-note">{note}</div>
+        ) : (
+          <div className="tour-body">{cur.body}</div>
+        )}
         {target && !rect && cur.missingHint && (
           <div className="tour-missing">{cur.missingHint}</div>
         )}
