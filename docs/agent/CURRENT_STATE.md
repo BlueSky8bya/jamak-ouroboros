@@ -4,7 +4,7 @@ Last Updated: 2026-07-17 (v0.9.80 — **ADR-0014 조합키 분리: Alt=이동 / 
 
 ## 지금 대기 중인 것 (다음 세션 우선)
 
-1. **연습2 재렌더** (ADR-0014, 사용자 승인 완료) — 대본·키캡·배속 줄은 이미 고쳐 커밋됨(`연습2-재생다루기.md` L5·L7·L9·L12, `visuals.ts`, `Practice.tsx` SpeedVisual). 남은 순서: `tools/tutorial-video` 렌더 → 사용자가 유튜브 업로드 → 새 `video_id`로 playback 코스 재바인딩 → **렌더 산출 `out/practice-2/timing.json` 기준으로 `TUTORIAL_CHECKPOINTS.playback` 갱신**(대사 길이가 "컨트롤"→"알트"로 줄고 L12에 문장이 늘어 기존 값 무효). 렌더 스틸에서 **SpeedVisual 손가락이 0.75× 위에 오는지 확인**(v0.9.81에서 x=300→150으로 옮김, 미검증).
+1. **연습2 업로드 → 재바인딩** ⬅️ **사용자 차례** (ADR-0014). 렌더 완료(v0.9.82): `tools/tutorial-video/out/practice-2.mp4` (153.5s, 19MB). 체크포인트·대본·키캡·배속 줄 전부 반영·커밋됨. 남은 순서: **사용자가 유튜브 업로드 → 새 `video_id` 전달 → playback 코스 재바인딩**(`scratchpad/rebind6.py` 방식: 옛 클론 삭제 → 옛 기준 unbind → 새 영상 bind). ⚠️ 그 전까지 `TUTORIAL_CHECKPOINTS.playback`은 유튜브의 옛 영상과 최대 0.5초 어긋남(대사 내용은 v0.9.80부터 이미 어긋난 상태 — 승인된 전제).
 2. **사용자 실기 확인 2건** (ADR-0014 NOT VERIFIED) — ① 진짜 크롬에서 `Alt+←`가 뒤로가기로 새는지(내장 브라우저가 Alt+← back을 구현 안 해 대조 실험 불가) ② 편집칸 안 `Ctrl+←/→` 낱말 점프 실동작(CDP가 네이티브 편집 커맨드 못 만듦).
 3. 관찰 기록: `tourEvent`/`tourRemain` 같은 틱 **이중 발화**(로그 실측, 현재 무해 — 연쇄 스텝에서 이중 진행 위험 소지, 감시).
 
