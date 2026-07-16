@@ -3041,7 +3041,19 @@ export function Editor({
     focusedIdRef.current = seg.id;
     setFocusedId(seg.id);
     seekTo(seg.start);
-    window.setTimeout(() => rowsRef.current.get(seg.id)?.focus(), 0);
+    // [WH-CHANGE v0.9.93 | FIX | 2026-07-17 | CHG-20260717-134]
+    // Reason: 포커스만 옮기고 **화면으로 끌어오지 않았다**. 타이밍 코스에서
+    //   스포트라이트는 영상 밑 `.timing-bar`를 비추는데, 그 바가 편집하는 셀은
+    //   목록 저 위에 있어 보이지 않는다 — 사용자가 무엇을 고치는지 모르는 채
+    //   Alt+[ 를 누르게 된다(사용자 지적). 포커스가 곧 편집 대상이므로 항상
+    //   눈에 보여야 한다. 행이 아직 렌더 전일 수 있어 focus()와 같은 틱에 둔다.
+    // Related: CHANGELOG CHG-20260717-134.
+    window.setTimeout(() => {
+      rowsRef.current.get(seg.id)?.focus();
+      document
+        .querySelector(`.row[data-segid="${seg.id}"]`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 0);
   }
 
 
