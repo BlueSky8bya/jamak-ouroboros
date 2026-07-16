@@ -98,9 +98,105 @@ def _apply_pairs(text: str, pairs: list[tuple[str, str]]) -> tuple[str, int]:
     return text, replacements
 
 
-def absorb_job(video_id: str) -> dict:
+#: 학습 단계 — 웹 UI가 이 순서로 호출하면 phase="all" 과 같은 결과.
+ABSORB_PHASES = ("extract", "repair", "propagate")
+
+_ABSORB_KEYS = (
+    "reviewed_segments",
+    "new_pairs",
+    "bumped",
+    "repaired",
+    "applied",
+    "propagated_segments",
+    "propagated_replacements",
+    "propagation_pairs",
+)
+
+
+def _collect_pairs(session, job, *, write: bool) -> tuple[dict, int, int, int, int]:
+    """Diff reviewed segments into (wrong, right) -> first idx.
+
+    write=False makes this read-only (no Correction rows, no counts) so the
+    propagate phase can recompute the same pair set without re-learning it.
+    """
+    total_segments = len(
+        session.exec(
+            select(Segment.id).where(Segment.job_id == job.id, Segment.lang == "ko")
+        ).all()
+    )
+    segs = session.exec(
+        select(Segment)
+        .where(
+            Segment.job_id == job.id,
+            Segment.lang == "ko",
+            Segment.reviewed == True,  # noqa: E712
+        )
+        .order_by(Segment.idx)
+    ).all()
+
+    scoped_pairs: dict[tuple[str, str], int] = {}
+    new_pairs = 0
+    bumped = 0
+    for seg in segs:
+        machine = seg.text_llm or seg.text_whisper
+        final = seg.text_final
+        if not final.strip() or final.strip() == machine.strip():
+            continue
+        for wrong, right, context in extract_pairs(machine, final):
+            key = (wrong, right)
+            if key not in scoped_pairs or seg.idx < scoped_pairs[key]:
+                scoped_pairs[key] = seg.idx
+            if not write:
+                continue
+            existing = session.exec(
+                select(Correction).where(
+                    Correction.wrong == wrong, Correction.right == right
+                )
+            ).first()
+            if existing:
+                # bump once per job so re-absorbing the same review
+                # doesn't inflate counts
+                if existing.source_job_id != job.id:
+                    existing.count += 1
+                    existing.source_job_id = job.id
+                    session.add(existing)
+                    bumped += 1
+            else:
+                session.add(
+                    Correction(
+                        wrong=wrong,
+                        right=right,
+                        context=context,
+                        source_job_id=job.id,
+                        count=1,
+                    )
+                )
+                new_pairs += 1
+    return scoped_pairs, new_pairs, bumped, len(segs), total_segments
+
+
+# [WH-CHANGE v0.9.53 | FEAT | 2026-07-16 | CHG-20260716-076]
+# Reason: 학습이 단일 요청이라 웹은 "학습 중..."밖에 못 띄웠고, 사용자가 진행
+#   중인지 멈춘 건지 구분 못 했다. 세 단계를 따로 호출할 수 있게 열어 UI가
+#   단계별 진행률을 보여주게 한다. propagate는 extract를 read-only로 다시
+#   계산해 pairs를 얻으므로 클라이언트가 단계 사이 상태를 들고 다닐 필요가 없다
+#   (그래야 클라이언트가 학습 내용을 조작할 수 없다).
+# Related: CHANGELOG v0.9.53
+def absorb_job(video_id: str, phase: str = "all") -> dict:
     """Absorb all reviewed segments of a job. Idempotent per run:
-    only segments reviewed and with a non-empty final text contribute."""
+    only segments reviewed and with a non-empty final text contribute.
+
+    phase="all" (기본, CLI 경로)은 예전과 동일하게 세 단계를 한 번에 돈다.
+    "extract" | "repair" | "propagate" 를 순서대로 호출해도 결과는 같다.
+    """
+    if phase != "all" and phase not in ABSORB_PHASES:
+        raise ValueError(f"unknown absorb phase: {phase}")
+
+    result: dict[str, int] = dict.fromkeys(_ABSORB_KEYS, 0)
+    do_extract = phase in ("all", "extract")
+    do_repair = phase in ("all", "repair")
+    do_propagate = phase in ("all", "propagate")
+
     scoped_pairs: dict[tuple[str, str], int] = {}
     with get_session() as session:
         job = session.exec(select(Job).where(Job.video_id == video_id)).first()
@@ -109,97 +205,42 @@ def absorb_job(video_id: str) -> dict:
         # 연습용 영상 (tutorial sandbox, ADR-0009 후속): its edits are drills,
         # not review — absorbing them would pollute corrections/glossary.
         if job.practice:
-            return {
-                "reviewed_segments": 0,
-                "new_pairs": 0,
-                "bumped": 0,
-                "applied": 0,
-                "propagated_segments": 0,
-                "propagated_replacements": 0,
-                "propagation_pairs": 0,
-            }
-        total_segments = len(
-            session.exec(
-                select(Segment.id).where(
-                    Segment.job_id == job.id, Segment.lang == "ko"
-                )
-            ).all()
-        )
-        segs = session.exec(
-            select(Segment)
-            .where(
-                Segment.job_id == job.id,
-                Segment.lang == "ko",
-                Segment.reviewed == True,  # noqa: E712
+            return result
+
+        # propagate needs the same pair set; recompute it read-only.
+        if do_extract or do_propagate:
+            scoped_pairs, new_pairs, bumped, n_reviewed, total_segments = _collect_pairs(
+                session, job, write=do_extract
             )
-            .order_by(Segment.idx)
-        ).all()
-
-        new_pairs = 0
-        bumped = 0
-        for seg in segs:
-            machine = seg.text_llm or seg.text_whisper
-            final = seg.text_final
-            if not final.strip() or final.strip() == machine.strip():
-                continue
-            for wrong, right, context in extract_pairs(machine, final):
-                key = (wrong, right)
-                if key not in scoped_pairs or seg.idx < scoped_pairs[key]:
-                    scoped_pairs[key] = seg.idx
-                existing = session.exec(
-                    select(Correction).where(
-                        Correction.wrong == wrong, Correction.right == right
-                    )
-                ).first()
-                if existing:
-                    # bump once per job so re-absorbing the same review
-                    # doesn't inflate counts
-                    if existing.source_job_id != job.id:
-                        existing.count += 1
-                        existing.source_job_id = job.id
-                        session.add(existing)
-                        bumped += 1
-                else:
-                    session.add(
-                        Correction(
-                            wrong=wrong,
-                            right=right,
-                            context=context,
-                            source_job_id=job.id,
-                            count=1,
-                        )
-                    )
-                    new_pairs += 1
-
-        n_reviewed = len(segs)
-        if n_reviewed:
-            job.status = "done" if n_reviewed >= total_segments else "reviewing"
-            job.updated_at = utcnow()
-            session.add(job)
-        session.commit()
+            if do_extract:
+                result["reviewed_segments"] = n_reviewed
+                result["new_pairs"] = new_pairs
+                result["bumped"] = bumped
+                if n_reviewed:
+                    job.status = "done" if n_reviewed >= total_segments else "reviewing"
+                    job.updated_at = utcnow()
+                    session.add(job)
+                session.commit()
 
     # Clean up any older over-propagation from contextual reference pairs
     # before applying newly confirmed safe pairs.
-    repair = repair_unsafe_reference_rewrites(video_id)
+    if do_repair:
+        result["repaired"] = repair_unsafe_reference_rewrites(video_id)["segments"]
 
     # Apply what the reviewer just confirmed to later unreviewed subtitles in
     # this same video. This is deliberately zero-API: it removes repeated
     # typing fatigue without spending Claude calls during review.
-    propagation = apply_learned_to_unreviewed(
-        video_id,
-        [(wrong, right, idx) for (wrong, right), idx in scoped_pairs.items()],
-    )
+    if do_propagate:
+        propagation = apply_learned_to_unreviewed(
+            video_id,
+            [(wrong, right, idx) for (wrong, right), idx in scoped_pairs.items()],
+        )
+        result["applied"] = propagation["segments"]
+        result["propagated_segments"] = propagation["segments"]
+        result["propagated_replacements"] = propagation["replacements"]
+        result["propagation_pairs"] = propagation["pairs"]
 
-    return {
-        "reviewed_segments": n_reviewed,
-        "new_pairs": new_pairs,
-        "bumped": bumped,
-        "repaired": repair["segments"],
-        "applied": propagation["segments"],
-        "propagated_segments": propagation["segments"],
-        "propagated_replacements": propagation["replacements"],
-        "propagation_pairs": propagation["pairs"],
-    }
+    return result
 
 
 def repair_unsafe_reference_rewrites(video_id: str) -> dict[str, int]:

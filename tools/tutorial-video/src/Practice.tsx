@@ -67,8 +67,8 @@ function KeyCap({ label, t }: { label: string; t: number }) {
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
-        minWidth: 200,
-        height: 190,
+        minWidth: 224,
+        height: 224,
         padding: "0 48px",
         borderRadius: 32,
         background: `linear-gradient(180deg, rgba(255,255,255,${0.16 - p * 0.06}), rgba(255,255,255,0.05))`,
@@ -76,7 +76,7 @@ function KeyCap({ label, t }: { label: string; t: number }) {
         boxShadow: p > 0.3 ? `0 4px 0 rgba(0,0,0,0.5), 0 0 60px ${BLUE}66` : "0 14px 0 rgba(0,0,0,0.5)",
         transform: `translateY(${p * 12}px)`,
         color: INK,
-        fontSize: 88,
+        fontSize: 96,
         fontWeight: 800,
       }}
     >
@@ -137,12 +137,12 @@ function ButtonVisual({ label, t }: { label: string; t: number }) {
     <div style={{ position: "relative", display: "inline-block" }}>
       <div
         style={{
-          padding: "44px 84px",
-          borderRadius: 36,
+          padding: "50px 90px",
+          borderRadius: 38,
           border: `4px solid ${p > 0.3 ? BLUE : LINE}`,
           background: p > 0.3 ? `${BLUE}33` : SURFACE,
           color: INK,
-          fontSize: 88,
+          fontSize: 96,
           fontWeight: 800,
           transform: `scale(${1 - p * 0.05})`,
           boxShadow: p > 0.3 ? `0 0 80px ${BLUE}55` : "none",
@@ -168,12 +168,12 @@ function CheckVisual({ label, on, t }: { label: string; on: boolean; t: number }
           display: "flex",
           alignItems: "center",
           gap: 30,
-          padding: "38px 66px",
-          borderRadius: 32,
+          padding: "42px 70px",
+          borderRadius: 34,
           border: `4px solid ${LINE}`,
           background: SURFACE,
           color: INK,
-          fontSize: 80,
+          fontSize: 88,
           fontWeight: 700,
           whiteSpace: "nowrap",
         }}
@@ -212,13 +212,13 @@ function TapRowVisual({ t }: { t: number }) {
     <div style={{ position: "relative" }}>
       <div
         style={{
-          width: 1080,
-          padding: "44px 52px",
+          width: 1180,
+          padding: "50px 58px",
           borderRadius: 30,
           border: `4px solid ${editing ? BLUE : LINE}`,
           background: editing ? `${BLUE}1f` : SURFACE,
           color: INK,
-          fontSize: 68,
+          fontSize: 76,
           textAlign: "left",
         }}
       >
@@ -406,8 +406,8 @@ function MiniMap({ zone, t }: { zone: Zone; t: number }) {
     <div
       style={{
         position: "relative",
-        width: 570,
-        height: 336,
+        width: 620,
+        height: 366,
         borderRadius: 22,
         border: `4px solid ${LINE}`,
         background: "rgba(0,0,0,0.3)",
@@ -512,8 +512,11 @@ export const Practice: React.FC<PracticeProps> = ({ n, title, timing }) => {
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        justifyContent: "space-between",
-        padding: "44px 60px",
+        // 하단 상시 안내를 없앴다 (사용자 요청) → 남은 세로 공간을 중앙 무대가
+        // 전부 먹게. 0.19배에서는 픽셀 한 줄이 아깝다.
+        justifyContent: "flex-start",
+        gap: 24,
+        padding: "40px 60px 52px",
         boxSizing: "border-box",
       }}
     >
@@ -565,7 +568,8 @@ export const Practice: React.FC<PracticeProps> = ({ n, title, timing }) => {
           gap: 70,
           transform: `scale(${0.9 + entrance * 0.1})`,
           opacity: visuals ? entrance : 1,
-          minHeight: 640,
+          flex: 1, // 하단 안내 자리까지 무대가 차지
+          width: "100%",
         }}
       >
         {visuals ? (
@@ -580,8 +584,8 @@ export const Practice: React.FC<PracticeProps> = ({ n, title, timing }) => {
         ) : (
           <div
             style={{
-              width: 460,
-              height: 460,
+              width: 560,
+              height: 560,
               borderRadius: "50%",
               background: speaking
                 ? "radial-gradient(circle, #6ea8ff 0%, #3b6fd4 70%)"
@@ -591,7 +595,7 @@ export const Practice: React.FC<PracticeProps> = ({ n, title, timing }) => {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 210,
+              fontSize: 260,
             }}
           >
             {icon}
@@ -599,18 +603,8 @@ export const Practice: React.FC<PracticeProps> = ({ n, title, timing }) => {
         )}
       </div>
 
-      {/* bottom: 고정 안내 (발화 문장은 절대 표시하지 않음) */}
-      <div
-        style={{
-          fontSize: 54,
-          fontWeight: 700,
-          background: "rgba(0,0,0,0.35)",
-          borderRadius: 26,
-          padding: "22px 52px",
-        }}
-      >
-        👂 듣고, 화면에 뜨는 대로 해보세요
-      </div>
+      {/* 하단 상시 안내는 제거 — 한 번 읽고 마는 문구가 매 프레임 자리를
+          먹었다 (사용자 요청 2026-07-16). 발화 문장은 여전히 표시하지 않는다. */}
     </div>
   );
 };

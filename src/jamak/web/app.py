@@ -2676,12 +2676,18 @@ def set_timing_done(video_id: str, body: TimingDoneBody, lang: str = "ko") -> di
 
 
 @app.post("/api/jobs/{video_id}/absorb")
-def absorb(video_id: str) -> dict:
-    """Ouroboros feedback: pull reviewed diffs into the corrections DB."""
-    from ..feedback import absorb_job
+def absorb(video_id: str, phase: str = "all") -> dict:
+    """Ouroboros feedback: pull reviewed diffs into the corrections DB.
 
+    phase: "all" (한 번에) 또는 extract → repair → propagate 를 순서대로.
+    쪼개 부르면 UI가 단계별 진행률을 보여줄 수 있다 (CHG-20260716-076).
+    """
+    from ..feedback import ABSORB_PHASES, absorb_job
+
+    if phase != "all" and phase not in ABSORB_PHASES:
+        raise HTTPException(400, f"unknown phase: {phase}")
     try:
-        return absorb_job(video_id)
+        return absorb_job(video_id, phase=phase)
     except ValueError as e:
         raise HTTPException(404, str(e))
 

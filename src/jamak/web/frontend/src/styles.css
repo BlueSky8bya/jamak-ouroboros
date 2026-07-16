@@ -3602,7 +3602,19 @@ kbd {
 .review-diff del { color: #ff8686; text-decoration: line-through; }
 .review-diff ins { color: #63d67e; text-decoration: none; font-weight: 700; }
 .d-arrow { margin: 0 7px; color: var(--faint); }
-.review-card.skip .review-diff { opacity: 0.45; }
+/* '안 바꿈' 줄 — 바뀌는 게 없으니 원래 자막을 그대로, 초록/화살표 없이 */
+.d-keep { color: var(--muted); }
+.d-kept {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--faint);
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.review-card.skip .review-diff { opacity: 0.7; }
 /* [✓ 적용 / 안 바꿈] 세그먼트 토글 */
 .review-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
 .rt-btn {
@@ -4444,6 +4456,33 @@ kbd {
   white-space: nowrap;
 }
 .tools .tool:disabled { opacity: 0.55; cursor: default; }
+/* 도구 진행률 — "도는 중인지 멈춘 건지" (학습: 단계 이름 + 바) */
+.tool-prog {
+  margin: 8px 0 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--blue-soft);
+  border: 1px solid color-mix(in srgb, var(--blue) 40%, transparent);
+  color: var(--blue-ink);
+  font-size: 13px;
+  font-weight: 800;
+}
+.tp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tp-pct { font-variant-numeric: tabular-nums; }
+.tp-bar {
+  margin-top: 7px;
+  height: 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--blue) 18%, transparent);
+  overflow: hidden;
+}
+.tp-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--blue);
+  transition: width var(--dur-fast, 0.15s) var(--ease, ease);
+}
+
 /* 도구 결과 배너 — 도구 줄 바로 아래, 눈에 띄게 (하단 상태줄로는 부족했음) */
 .tool-msg {
   margin: 8px 0 0;

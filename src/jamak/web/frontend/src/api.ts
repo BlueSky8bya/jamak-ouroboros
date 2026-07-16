@@ -580,16 +580,28 @@ export async function updateTranslation(
   return r.json();
 }
 
-export async function absorbFeedback(videoId: string): Promise<{
+export type AbsorbPhase = "all" | "extract" | "repair" | "propagate";
+
+export interface AbsorbResult {
   reviewed_segments: number;
   new_pairs: number;
   bumped: number;
+  repaired: number;
   applied: number;
   propagated_segments: number;
   propagated_replacements: number;
   propagation_pairs: number;
-}> {
-  const r = await fetch(`/api/jobs/${videoId}/absorb`, { method: "POST" });
+}
+
+/** phase를 나눠 부르면 UI가 단계별 진행률을 보여줄 수 있다. 전부 더한 결과는
+ *  phase="all" 한 번과 같다 (서버가 단계별로 같은 일을 나눠 할 뿐). */
+export async function absorbFeedback(
+  videoId: string,
+  phase: AbsorbPhase = "all",
+): Promise<AbsorbResult> {
+  const r = await fetch(`/api/jobs/${videoId}/absorb?phase=${phase}`, {
+    method: "POST",
+  });
   if (!r.ok) throw new Error(`absorb: ${r.status}`);
   return r.json();
 }

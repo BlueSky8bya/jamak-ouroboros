@@ -28,7 +28,7 @@ import {
   tightenTiming,
   updateSegment,
 } from "./api";
-import type { QcReport, SpellSuggestion, WordTime } from "./api";
+import type { AbsorbResult, QcReport, SpellSuggestion, WordTime } from "./api";
 import { Dropdown } from "./Dropdown";
 import { ThemeToggle } from "./theme";
 import { useConfirm } from "./confirm";
@@ -1863,6 +1863,12 @@ export function Editor({
   // 도구 줄 피드백: 어떤 도구가 돌고 있는지(버튼 스피너·전체 비활성) +
   // 결과 배너(도구 줄 바로 아래, 눈에 띄게) — "눌렀는데 변화가 안 보임" 금지
   const [toolBusy, setToolBusy] = useState<string | null>(null);
+  // 📚 학습 단계 진행률 (extract → repair → propagate). null = 학습 중 아님.
+  const [absorbProg, setAbsorbProg] = useState<{
+    done: number;
+    total: number;
+    label: string;
+  } | null>(null);
   const [hanjaProg, setHanjaProg] = useState<{ done: number; total: number } | null>(null);
   // 한자/맞춤법 모달 안 미니 유튜브 재생 시작 초 (null = 아직 ▶ 안 누름)
   const [previewSec, setPreviewSec] = useState<number | null>(null);
@@ -3588,12 +3594,43 @@ export function Editor({
     }
   }
 
+  // [WH-CHANGE v0.9.53 | UX | 2026-07-16 | CHG-20260716-076]
+  // Reason: 한 번의 긴 요청이라 "학습 중..."만 떠서 진행 중인지 멈춘 건지
+  //   분간이 안 됐다(사용자 지적). 서버가 단계를 나눠 받으므로 셋을 차례로
+  //   부르며 단계 이름 + 진행 바를 보여준다.
+  const ABSORB_STEPS = [
+    { phase: "extract" as const, label: "고친 내용 배우는 중" },
+    { phase: "repair" as const, label: "잘못 번진 곳 되돌리는 중" },
+    { phase: "propagate" as const, label: "뒤쪽 자막에 반영하는 중" },
+  ];
+
   async function runAbsorb() {
     tourEvent("absorb");
     setToolBusy("absorb");
     await flushAll();
     try {
-      const r = await absorbFeedback(videoId);
+      const r: AbsorbResult = {
+        reviewed_segments: 0,
+        new_pairs: 0,
+        bumped: 0,
+        repaired: 0,
+        applied: 0,
+        propagated_segments: 0,
+        propagated_replacements: 0,
+        propagation_pairs: 0,
+      };
+      for (let i = 0; i < ABSORB_STEPS.length; i++) {
+        const step = ABSORB_STEPS[i];
+        setAbsorbProg({ done: i, total: ABSORB_STEPS.length, label: step.label });
+        const part = await absorbFeedback(videoId, step.phase);
+        // 각 단계는 자기 몫만 채워 돌려주므로 그대로 합치면 phase="all"과 같다
+        for (const k of Object.keys(r) as (keyof AbsorbResult)[]) r[k] += part[k];
+      }
+      setAbsorbProg({
+        done: ABSORB_STEPS.length,
+        total: ABSORB_STEPS.length,
+        label: "마무리",
+      });
       await refreshSegments();
       setToolMsg(
         r.new_pairs || r.bumped || r.propagated_segments
@@ -3611,6 +3648,7 @@ export function Editor({
       setError(String(e));
     } finally {
       setToolBusy(null);
+      setAbsorbProg(null);
     }
   }
 
@@ -3670,9 +3708,15 @@ export function Editor({
   // 검수 카드 (한자·맞춤법 공용). 체크박스 없이 [✓ 적용 / 안 바꿈] 토글로.
   // diff(빨강 삭제·초록 추가)로 뭐가 바뀌는지 보여주고, 큰 칸에서 그 자리서 고침.
   function reviewRow(s: SpellSuggestion) {
-    const cur = previewEdits[s.segment_id] ?? s.after;
+    const edited = previewEdits[s.segment_id] ?? s.after;
     const skip = previewSkip.has(s.segment_id);
-    const d = tokenDiff(s.before, cur); // 원래 vs 지금(편집 반영) 라이브 diff
+    // [WH-CHANGE v0.9.53 | FIX | 2026-07-16 | CHG-20260716-075]
+    // Reason: '안 바꿈'인데도 카드가 AI 제안(after)을 초록으로 보여줘, 적용에서
+    //   빠지는데도 바뀔 것처럼 읽혔다(사용자 지적). 카드는 "이 줄에 실제로 남을
+    //   텍스트"를 보여야 한다 → 안 바꿈이면 원래 자막.
+    // Related: CHANGELOG v0.9.53
+    const eff = skip ? s.before : edited;
+    const d = tokenDiff(s.before, eff); // 원래 vs 실제로 남을 텍스트
     const setSkip = (v: boolean) =>
       setPreviewSkip((p) => {
         const n = new Set(p);
@@ -3711,14 +3755,24 @@ export function Editor({
           </div>
         </div>
         <div className="review-diff" aria-hidden>
-          <span className="d-before">{d.del}</span>
-          <span className="d-arrow">→</span>
-          <span className="d-after">{d.ins}</span>
+          {skip ? (
+            // 안 바꿈 = 바뀌는 게 없다. 화살표·초록을 띄우면 바뀔 것처럼 읽힌다.
+            <>
+              <span className="d-keep">{s.before}</span>
+              <span className="d-kept">그대로 둠</span>
+            </>
+          ) : (
+            <>
+              <span className="d-before">{d.del}</span>
+              <span className="d-arrow">→</span>
+              <span className="d-after">{d.ins}</span>
+            </>
+          )}
         </div>
         <textarea
           className="review-edit"
           rows={2}
-          value={cur}
+          value={eff}
           spellCheck={false}
           disabled={skip}
           onChange={(e) => {
@@ -4226,9 +4280,30 @@ export function Editor({
             title="이번에 고친 내용을 뒤쪽 미검수 자막에 반영하고 다음 실행에도 기억 (Alt+K)"
             onClick={() => void runAbsorb()}
           >
-            {toolBusy === "absorb" ? "⏳ 학습 중..." : "📚 학습"}
+            {toolBusy === "absorb"
+              ? `⏳ 학습 ${absorbProg ? `${absorbProg.done}/${absorbProg.total}` : "중..."}`
+              : "📚 학습"}
           </button>
         </div>
+        )}
+        {/* 학습 진행률 — "멈춘 건지 도는 건지" 한 눈에 (단계 이름 + 바) */}
+        {toolBusy === "absorb" && absorbProg && (
+          <div className="tool-prog" role="status" aria-live="polite">
+            <div className="tp-head">
+              <span>
+                📚 {absorbProg.label} ({absorbProg.done}/{absorbProg.total})
+              </span>
+              <span className="tp-pct">
+                {Math.round((absorbProg.done / absorbProg.total) * 100)}%
+              </span>
+            </div>
+            <div className="tp-bar">
+              <div
+                className="tp-fill"
+                style={{ width: `${(absorbProg.done / absorbProg.total) * 100}%` }}
+              />
+            </div>
+          </div>
         )}
         {toolMsg && (
           <div className="tool-msg" role="status" aria-live="polite">

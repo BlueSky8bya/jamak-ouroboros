@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/dropdown.tsx","./src/editor.tsx","./src/guide.tsx","./src/login.tsx","./src/tour.tsx","./src/translatereview.tsx","./src/api.ts","./src/main.tsx","./src/theme.tsx","./src/types.ts","./src/useplayer.ts"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/dropdown.tsx","./src/editor.tsx","./src/login.tsx","./src/tour.tsx","./src/translatereview.tsx","./src/api.ts","./src/confirm.tsx","./src/main.tsx","./src/theme.tsx","./src/tutorialsync.ts","./src/types.ts","./src/useplayer.ts"],"version":"5.9.3"}
