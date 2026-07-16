@@ -1,6 +1,7 @@
 # ADR-0009: 검수 모드 분리 (내용/타이밍) + 자동 타이밍 정리
 
-Status: Accepted
+Status: Accepted (부분 supersede — "자동 타이밍 정리"는 ADR-0012로 폐지, 2026-07-17.
+        나머지: 내용/타이밍 모드 분리 · review_flag · 흘려듣기 · 문제 큐는 유효)
 Date: 2026-07-13
 Decision Owners: User (방향·단순화 기준 확정) + Agent (세부 조합 위임받아 결정)
 

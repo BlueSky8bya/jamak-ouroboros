@@ -4285,7 +4285,15 @@ export function Editor({
               {toolBusy === "safe" ? "⏳ 확인 중..." : `✅ 안심 ${nSafe}개 확인`}
             </button>
           )}
-          {!textMode && (
+          {/* [WH-CHANGE v0.9.59 | FIX | 2026-07-17 | CHG-20260717-089]
+              Reason: 실측 결과 자동 정리가 셀의 66%(검수 끝난 영상은 98%)를
+                건드리는데, 그중 상당수는 근거가 없다 — 단어 텍스트를 버리고
+                시간 비례로 자르는 구조라 사람이 고칠수록 더 헤맨다. 사용자가
+                "잘 쓰지도 않는다"며 폐지 결정. 실검수에서 제거하고, 연습5
+                나레이션이 아직 이 버튼을 지시하므로 재렌더 전까지 practice
+                모드에만 남긴다 (안심 확인·복구 채우기와 같은 처리).
+              Related: ADR-0012, ACTIVE_PLAN(폐기), CHANGELOG CHG-20260717-089. */}
+          {practice && !textMode && (
             <button
               className="tool accent tool-auto"
               disabled={!!toolBusy}

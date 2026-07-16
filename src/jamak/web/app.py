@@ -2227,7 +2227,26 @@ def auto_timing(video_id: str, lang: str = "ko") -> dict:
     before-rows and created ids so the editor can push one undo step
     (restore-rows) — Alt+Z reverts the whole cleanup.
     """
+    # [WH-CHANGE v0.9.59 | FIX | 2026-07-17 | CHG-20260717-089]
+    # Reason: 자동 정리 폐지(ADR-0012). 프론트에서 버튼만 빼면 **캐시된 옛 탭**은
+    #   그대로 이 엔드포인트를 부를 수 있고(실제로 옛 번들이 도는 사례 관측),
+    #   그러면 검수 끝난 영상의 98%가 재작성된다. 서버에서 막는다. 연습(practice)
+    #   클론은 나레이션이 아직 이 버튼을 지시하므로 재렌더 전까지 허용 —
+    #   샌드박스라 실데이터에 영향 없음.
+    # Related: ADR-0012, CHANGELOG CHG-20260717-089.
     from ..pipeline.retime import plan_track
+
+    with get_session() as session:
+        guard_job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if guard_job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+        if not guard_job.practice:
+            raise HTTPException(
+                410,
+                "타이밍 자동 정리는 없어졌습니다 — 확실하지 않은 곳까지 건드려서 "
+                "쓰지 않기로 했어요. 화면을 새로고침(Ctrl+Shift+R) 해주세요. "
+                "타이밍은 ✂ 무음 다듬기와 Alt+[ · Alt+] · Alt+\\ 로 손봐주세요.",
+            )
 
     if lang == "ko":
         # learning is ko-source only; a forked translation track has no
