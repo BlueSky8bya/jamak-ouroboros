@@ -3543,6 +3543,22 @@ kbd {
 }
 .spell-arrow { color: var(--faint); }
 .spell-time { color: var(--faint); font-size: 0.8rem; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+/* 모달 안 미니 유튜브 — ▶ 누르면 그 자막 시점부터 재생 (한자/맞춤법 검수) */
+.modal-player {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 34vh;
+  margin: 8px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal-player-frame { width: 100%; height: 100%; border: 0; display: block; }
+.modal-player-hint { color: var(--faint); font-size: 0.85rem; text-align: center; padding: 0 14px; }
 /* 미리보기 재생 버튼(모달 행) — 그 자막 시점으로 영상 재생 */
 .cue-play {
   flex: 0 0 auto;

@@ -1864,6 +1864,8 @@ export function Editor({
   // 결과 배너(도구 줄 바로 아래, 눈에 띄게) — "눌렀는데 변화가 안 보임" 금지
   const [toolBusy, setToolBusy] = useState<string | null>(null);
   const [hanjaProg, setHanjaProg] = useState<{ done: number; total: number } | null>(null);
+  // 한자/맞춤법 모달 안 미니 유튜브 재생 시작 초 (null = 아직 ▶ 안 누름)
+  const [previewSec, setPreviewSec] = useState<number | null>(null);
   // 한자 병기 미리보기 — 맞춤법처럼 확인 후 체크한 것만 적용
   const [hanjaModal, setHanjaModal] = useState<{
     suggestions: SpellSuggestion[];
@@ -3466,6 +3468,7 @@ export function Editor({
     // 채웠는지 안 보이고, 잘못된 병기를 거를 수 없다는 피드백).
     setToolBusy("hanja");
     setHanjaProg(null);
+    setPreviewSec(null);
     await flushAll();
     try {
       const BATCH = 200;
@@ -3614,15 +3617,18 @@ export function Editor({
     if (target) focusSegment(target);
   }
 
-  // 미리보기 재생: 모달을 연 채 그 자막 시점으로 영상 이동+재생. 흑판에 쓴
-  // 한자인지·문맥상 맞는 동음이의어인지 들으며 판단 (사용자 요청).
+  // 미리보기 재생: 한자/맞춤법 모달 안의 작은 유튜브 영상을 그 자막 시점부터
+  // 재생. 모달이 뒤 영상을 가려서 소리만 들리던 문제 해결 — 화면도 보며 흑판
+  // 한자인지·문맥상 맞는 동음이의어인지 판단 (사용자 요청). 메인 플레이어는
+  // 멈춰 소리 겹침 방지.
   function previewCue(start: number) {
-    seekTo(Math.max(0, start - 0.4));
-    play();
+    pause();
+    setPreviewSec(Math.max(0, Math.floor(start - 0.4)));
   }
 
   // 도구 줄에서 맞춤법 검사 진입 — 내보내기 점검 모달과 분리된 전용 모달.
   function openSpellCheck() {
+    setPreviewSec(null);
     setQcModal({
       report: null,
       spell: null,
@@ -4660,6 +4666,22 @@ export function Editor({
               재생해요 — 흑판에 쓴 한자인지·동음이의 중 맞는지 들으며 확인하고, 아니면
               체크를 풀어주세요 (적용 후 ↶로 전체 되돌리기 가능)
             </p>
+            <div className="modal-player">
+              {previewSec === null ? (
+                <div className="modal-player-hint">
+                  ▶ 옆의 시각을 누르면 여기서 그 부분 영상이 재생돼요
+                </div>
+              ) : (
+                <iframe
+                  key={previewSec}
+                  className="modal-player-frame"
+                  src={`https://www.youtube.com/embed/${ytVideoId}?start=${previewSec}&autoplay=1&rel=0&modestbranding=1`}
+                  title="미리보기"
+                  allow="autoplay; encrypted-media"
+                  allowFullScreen
+                />
+              )}
+            </div>
             <div className="spell-list">
               {hanjaModal.suggestions.map((s) => {
                 const d = tokenDiff(s.before, s.after);
@@ -4749,8 +4771,25 @@ export function Editor({
                 <>
                   <p className="srt-summary">
                     맞춤법 제안 <strong>{qcModal.spell.length}곳</strong> — 체크한 것만
-                    적용됩니다 (적용 후 Alt+Z로 전체 되돌리기 가능)
+                    적용됩니다. <strong>▶ 시각</strong>을 누르면 여기서 그 부분 영상이
+                    재생돼요 (적용 후 Alt+Z로 전체 되돌리기 가능)
                   </p>
+                  <div className="modal-player">
+                    {previewSec === null ? (
+                      <div className="modal-player-hint">
+                        ▶ 옆의 시각을 누르면 여기서 그 부분 영상이 재생돼요
+                      </div>
+                    ) : (
+                      <iframe
+                        key={previewSec}
+                        className="modal-player-frame"
+                        src={`https://www.youtube.com/embed/${ytVideoId}?start=${previewSec}&autoplay=1&rel=0&modestbranding=1`}
+                        title="미리보기"
+                        allow="autoplay; encrypted-media"
+                        allowFullScreen
+                      />
+                    )}
+                  </div>
                   <div className="spell-list">
                     {qcModal.spell.map((s) => {
                       const d = tokenDiff(s.before, s.after);
