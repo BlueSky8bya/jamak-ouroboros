@@ -41,7 +41,10 @@ import {
 } from "./tutorialSync";
 import { TranslateReview } from "./TranslateReview";
 import type { Segment } from "./types";
-import { usePlayer } from "./usePlayer";
+import { useMiniPlayer, usePlayer } from "./usePlayer";
+
+/** 검수 모달 ▶ 재생 시 자막 시작보다 이만큼 앞에서 틀어준다 (말머리 놓치지 않게). */
+const PREVIEW_LEAD = 0.4;
 
 /** 단어 단위 diff — 바뀐 토큰만 <del>/<ins>로 표시 (전체 문장 취소선 대신,
  *  어디가 고쳐졌는지 바로 보이게 — 사용자 요청 2026-07-15). 공백 토큰을
@@ -2387,6 +2390,16 @@ export function Editor({
   const ytVideoId = videoId.split("~")[0];
   const { currentTime, playing, rate, setRate, seekTo, seekBy, play, pause, playPause } =
     usePlayer(ytVideoId, dragFreezeRef);
+  // 검수 모달 미니 영상 — IFrame API라 소수점 시각으로 정확히 seek
+  // (CHG-20260717-079. ytVideoId 선언 뒤에 와야 함)
+  const mini = useMiniPlayer(ytVideoId, !!hanjaModal || !!qcModal);
+  // ▶(previewTick 증가) 또는 플레이어 준비 완료 시 그 시점부터 재생.
+  // previewTick이 dep이라 같은 자막을 다시 눌러도 매번 다시 들린다.
+  useEffect(() => {
+    if (!mini.ready || previewSec === null) return;
+    mini.cueAt(Math.max(0, previewSec - PREVIEW_LEAD));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewTick, mini.ready]);
 
   // 체크포인트 감시: 나레이션이 지시를 마친 시각에 영상을 멈추고 말풍선을 연다
   // (usePlayer 아래 위치 필수 — currentTime/pause 사용)
@@ -3683,9 +3696,12 @@ export function Editor({
   // 한자인지·문맥상 맞는 동음이의어인지 판단 (사용자 요청). 메인 플레이어는
   // 멈춰 소리 겹침 방지.
   function previewCue(start: number) {
-    pause();
-    setPreviewSec(Math.max(0, Math.floor(start - 0.4)));
-    setPreviewTick((t) => t + 1); // 같은 시각이어도 리마운트 → 항상 다시 재생
+    pause(); // 뒤 메인 영상과 소리가 겹치지 않게
+    // 정확한 소수점 시각을 그대로 보관 — 재생은 위 effect가 seekTo로 처리.
+    // (예전엔 embed의 start= 파라미터가 정수 초라 Math.floor로 깎아 최대
+    //  1.4초 일찍 재생됐다 — CHG-20260717-079)
+    setPreviewSec(start);
+    setPreviewTick((t) => t + 1); // 같은 자막을 다시 눌러도 매번 다시 재생
   }
 
   // 도구 줄에서 맞춤법 검사 진입 — 내보내기 점검 모달과 분리된 전용 모달.
@@ -3703,6 +3719,42 @@ export function Editor({
       mode: "spell",
     });
     void runSpell();
+  }
+
+  // 미니 영상 + 조작 줄 (한자·맞춤법 모달 공용). div는 항상 두어야 API가 붙는다.
+  function reviewPlayer() {
+    return (
+      <>
+        <div className="modal-player">
+          <div id="yt-mini-player" className="modal-player-frame" />
+          {previewSec === null && (
+            <div className="modal-player-hint">
+              ▶ 를 누르면 여기서 그 부분 영상이 재생돼요
+            </div>
+          )}
+        </div>
+        <div className="modal-player-bar">
+          <button
+            type="button"
+            className="mp-btn"
+            disabled={!mini.ready}
+            onClick={() => mini.playPause()}
+          >
+            {mini.playing ? "⏸ 멈춤" : "▶ 재생"}
+          </button>
+          <button
+            type="button"
+            className="mp-btn"
+            disabled={!mini.ready || previewSec === null}
+            title="방금 그 자막 시점부터 다시"
+            onClick={() => setPreviewTick((t) => t + 1)}
+          >
+            ⏮ 다시 듣기
+          </button>
+          {previewSec !== null && <span className="mp-at">{fmt(previewSec)} 부터</span>}
+        </div>
+      </>
+    );
   }
 
   // 검수 카드 (한자·맞춤법 공용). 체크박스 없이 [✓ 적용 / 안 바꿈] 토글로.
@@ -4895,22 +4947,7 @@ export function Editor({
                     들으며 확인 → 칸에서 바로 고치세요. <strong>↺ 원래대로</strong>면 그 줄은
                     안 바뀌어요 (적용 후 Alt+Z로 되돌리기 가능)
                   </p>
-                  <div className="modal-player">
-                    {previewSec === null ? (
-                      <div className="modal-player-hint">
-                        ▶ 옆의 시각을 누르면 여기서 그 부분 영상이 재생돼요
-                      </div>
-                    ) : (
-                      <iframe
-                        key={previewTick}
-                        className="modal-player-frame"
-                        src={`https://www.youtube.com/embed/${ytVideoId}?start=${previewSec}&autoplay=1&rel=0&modestbranding=1`}
-                        title="미리보기"
-                        allow="autoplay; encrypted-media"
-                        allowFullScreen
-                      />
-                    )}
-                  </div>
+                  {reviewPlayer()}
                   <div className="spell-list">{qcModal.spell.map(reviewRow)}</div>
                   <div className="srt-actions">
                     <button className="srt-cancel" onClick={() => setQcModal(null)}>

@@ -116,6 +116,26 @@ def is_contextual_reference(text: str) -> bool:
     return candidate in _REFERENCE_STEMS
 
 
+# [WH-CHANGE v0.9.54 | FIX | 2026-07-17 | CHG-20260717-078]
+# Reason: 허경영 신인은 경상도(진주) 출신이라 '부족해가', '있어가' 같은 사투리
+#   연결어미가 발화 그대로다. 그런데 검수 중 누가 이를 표준어로 다듬으면
+#   우로보로스가 그걸 규칙으로 외워('약속을 해가' -> '약속해서') 다음 영상에
+#   계속 밀어넣는다 — 사용자 지적. 자막은 발화를 담는 것이므로 사투리를
+#   표준어로 바꾸는 방향의 쌍은 아예 학습/전파하지 않는다. 반대 방향(표준어
+#   STT -> 사투리 복원)은 사람이 발화를 되살린 것이므로 그대로 허용한다.
+# Related: CHANGELOG CHG-20260717-078.
+_DIALECT_TAIL = re.compile(r"(해가|아가|어가|가꼬|아이가|니더|임더|데이|맞나)$")
+
+
+def kills_dialect(wrong: str, right: str) -> bool:
+    """True when a pair standardizes a Gyeongsang dialect ending away."""
+    w = _compact(wrong)
+    r = _compact(right)
+    if not w or not r:
+        return False
+    return bool(_DIALECT_TAIL.search(w)) and not _DIALECT_TAIL.search(r)
+
+
 def is_safe_correction_pair(wrong: str, right: str) -> bool:
     """Whether a pair is safe to learn, pre-pass, or propagate globally."""
     wrong = clean_pair_text(wrong)
@@ -123,5 +143,7 @@ def is_safe_correction_pair(wrong: str, right: str) -> bool:
     if not wrong or not right or wrong == right:
         return False
     if is_contextual_reference(wrong) or is_contextual_reference(right):
+        return False
+    if kills_dialect(wrong, right):
         return False
     return True

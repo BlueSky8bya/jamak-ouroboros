@@ -7,6 +7,96 @@ declare global {
   }
 }
 
+/** Load the IFrame API once, then run `cb` (immediately if it's already up). */
+function whenApiReady(cb: () => void): void {
+  if (window.YT?.Player) {
+    cb();
+    return;
+  }
+  const prev = window.onYouTubeIframeAPIReady;
+  window.onYouTubeIframeAPIReady = () => {
+    prev?.();
+    cb();
+  };
+  if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+    const tag = document.createElement("script");
+    tag.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(tag);
+  }
+}
+
+// [WH-CHANGE v0.9.54 | FIX | 2026-07-17 | CHG-20260717-079]
+// Reason: 검수 모달의 미니 영상이 일반 embed(<iframe src=...?start=N>)라
+//   start 파라미터가 **정수 초만** 받는다 → 42:29.0 자막인데 42:28부터
+//   재생돼 "표시 시각과 실제가 안 맞는다"(사용자 지적). 게다가 매번
+//   리마운트해야 다시 재생돼 일시정지도 불가능했다. 메인 플레이어와 같은
+//   IFrame API로 바꿔 seekTo(소수점)로 정확히 그 시점을 잡고 재생/정지도
+//   직접 제어한다.
+// Related: CHANGELOG CHG-20260717-079.
+/** Mini player for the review modals — precise (float) seeking + real
+ *  play/pause. Created only while `enabled` (the modal is open), and
+ *  destroyed on close so it never plays behind the editor. */
+export function useMiniPlayer(videoId: string, enabled: boolean, elementId = "yt-mini-player") {
+  const playerRef = useRef<any>(null);
+  const [ready, setReady] = useState(false);
+  const [playing, setPlaying] = useState(false);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let disposed = false;
+    setReady(false);
+
+    whenApiReady(() => {
+      if (disposed || !document.getElementById(elementId)) return;
+      try {
+        playerRef.current = new window.YT.Player(elementId, {
+          videoId,
+          width: "100%",
+          height: "100%",
+          playerVars: { rel: 0, modestbranding: 1, disablekb: 1 },
+          events: {
+            onReady: () => setReady(true),
+            onStateChange: (e: any) => setPlaying(e.data === 1),
+            onError: () => setReady(false),
+          },
+        });
+      } catch (e) {
+        console.error("mini player init failed:", e);
+        playerRef.current = null;
+      }
+    });
+
+    return () => {
+      disposed = true;
+      setReady(false);
+      setPlaying(false);
+      playerRef.current?.destroy?.();
+      playerRef.current = null;
+    };
+  }, [videoId, enabled, elementId]);
+
+  const p = () => playerRef.current;
+  return {
+    ready,
+    playing,
+    /** seek to an exact (fractional) second and play from there */
+    cueAt: (t: number) => {
+      const player = p();
+      if (!player?.seekTo) return;
+      player.seekTo(Math.max(0, t), true);
+      player.playVideo?.();
+    },
+    play: () => p()?.playVideo?.(),
+    pause: () => p()?.pauseVideo?.(),
+    playPause: () => {
+      const player = p();
+      if (!player?.getPlayerState) return;
+      if (player.getPlayerState() === 1) player.pauseVideo();
+      else player.playVideo();
+    },
+  };
+}
+
 /** YouTube IFrame player bound to #yt-player; polls current time.
  *  `freezeRef` (optional): while true, the clock poll is skipped so the editor
  *  stops re-rendering — used during a timeline drag so the main thread stays
