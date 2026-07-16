@@ -1282,8 +1282,8 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     title: "재생·이동  (화살표는 언제나 이동만 — 안전)",
     items: [
       { keys: ["Tab"], label: "재생 / 일시정지", detail: "스페이스바는 글자 입력용" },
-      { keys: ["Ctrl+←", "Ctrl+→"], label: "3초 뒤로 / 앞으로", detail: "Shift+Tab도 3초 뒤로" },
-      { keys: ["Ctrl+Shift+←", "Ctrl+Shift+→"], label: "10초 뒤로 / 앞으로" },
+      { keys: ["Ctrl+←", "Ctrl+→"], label: "3초 뒤로 / 앞으로", detail: "편집 중에도 됩니다 · Shift+Tab도 3초 뒤로" },
+      { keys: ["Ctrl+Shift+←", "Ctrl+Shift+→"], label: "10초 뒤로 / 앞으로", detail: "편집 중에도 됩니다" },
       { keys: ["Ctrl+\\"], label: "이 자막 처음부터 다시 재생", detail: "편집 중에도 됩니다" },
       { keys: ["Alt+↑", "Alt+↓"], label: "이전 / 다음 자막" },
       {
@@ -1475,10 +1475,8 @@ const COURSES: TourCourse[] = [
         title: "3초 뒤로",
         body: (
           <>
-            <K c="Shift" />+<K c="Tab" /> 또는 <K c="Ctrl" />+<K c="←" />.
-            <br />
-            💡 글 상자에 커서가 있으면 화살표는 글자를 움직여요 — 빈 곳을 한 번
-            누른 뒤 쓰세요.
+            <K c="Shift" />+<K c="Tab" /> 또는 <K c="Ctrl" />+<K c="←" />. 글 쓰는
+            중에도 돼요.
           </>
         ),
         on: "seek-back",
@@ -3266,13 +3264,19 @@ export function Editor({
         return;
       }
       // seek: Ctrl+←/→ = ∓3s, Ctrl+Shift+←/→ = ∓10s. On Ctrl (not Alt) so it can
-      // never trigger Chrome's Alt+←/→ back/forward navigation. Skipped inside a
-      // text field so Ctrl+←/→ keeps its native word-jump while editing.
+      // never trigger Chrome's Alt+←/→ back/forward navigation.
+      // [WH-CHANGE v0.9.79 | UX | 2026-07-17 | CHG-20260717-119]
+      // Reason: 편집칸 안에서는 단어 점프를 지키려고 빠져 있었는데, 그 결과
+      //   "앞으로 3초"는 타이핑 중 대안이 없었다 — 마우스로 빈 곳을 누른 뒤에야
+      //   눌러야 했다(사용자). 이 사용자층에서 Ctrl+화살표 단어 점프는 안 쓰이고,
+      //   배운 키 하나가 어디서든 통하는 게 더 중요하다. 나레이션(연습2)도 우회
+      //   없이 "컨트롤과 오른쪽 화살표"라고만 가르친다. 편집칸 안에서도 탐색.
+      //   (글자 이동은 맨 화살표·Home/End가 그대로 담당.)
+      // Related: CHANGELOG CHG-20260717-119.
       if (
         (e.ctrlKey || e.metaKey) &&
         !e.altKey &&
-        (e.key === "ArrowLeft" || e.key === "ArrowRight") &&
-        !isTypingTarget(e.target)
+        (e.key === "ArrowLeft" || e.key === "ArrowRight")
       ) {
         e.preventDefault();
         const step = e.shiftKey ? 10 : 3;
