@@ -3631,6 +3631,9 @@ export function Editor({
         propagated_segments: 0,
         propagated_replacements: 0,
         propagation_pairs: 0,
+        hanja_new: 0,
+        hanja_promoted: 0,
+        hanja_ambiguous: 0,
       };
       for (let i = 0; i < ABSORB_STEPS.length; i++) {
         const step = ABSORB_STEPS[i];
@@ -3645,13 +3648,24 @@ export function Editor({
         label: "마무리",
       });
       await refreshSegments();
+      // 3층(ADR-0011): 손으로 단 한자 병기도 사전에 들어간다 — 그 결과를 같이 알림
+      const hanjaMsg = r.hanja_new
+        ? `, 손으로 단 한자 ${r.hanja_new}가지를 사전에 새로 넣었어요` +
+          (r.hanja_promoted
+            ? ` (${r.hanja_promoted}가지는 이제 漢 한자 채우기가 자동으로 채워요)`
+            : "")
+        : r.hanja_promoted
+          ? `, 한자 ${r.hanja_promoted}가지를 이제 漢 한자 채우기가 자동으로 채워요`
+          : "";
+      const learned = r.new_pairs || r.bumped || r.propagated_segments || r.hanja_new;
       setToolMsg(
-        r.new_pairs || r.bumped || r.propagated_segments
+        learned
           ? `📚 학습 완료 — 확인한 자막 ${r.reviewed_segments}개에서 고침 ${r.new_pairs}가지를 새로 배웠어요` +
               (r.bumped ? ` (${r.bumped}가지는 더 확실해짐)` : "") +
               (r.propagated_segments
                 ? `, 뒤쪽 자막 ${r.propagated_segments}개에 ${r.propagated_replacements}곳 바로 반영`
-                : "")
+                : "") +
+              hanjaMsg
           : practice
             ? "📚 연습용 영상이라 실제 학습은 하지 않아요 (버튼 위치 연습 성공!)"
             : `📚 학습 완료 — 확인한 자막 ${r.reviewed_segments}개, 새로 배울 고침은 없었어요 (이미 다 아는 내용)`,

@@ -101,6 +101,103 @@ def _apply_pairs(text: str, pairs: list[tuple[str, str]]) -> tuple[str, int]:
 #: 학습 단계 — 웹 UI가 이 순서로 호출하면 phase="all" 과 같은 결과.
 ABSORB_PHASES = ("extract", "repair", "propagate")
 
+# ── 3층(ADR-0011): 사람이 손으로 단 병기를 사전으로 흡수 ──────────────────
+# 다자어: "해탈(解脫)" — 한글 2자 이상 + 괄호 안이 한자만.
+_HANJA_MULTI = re.compile(r"(?<![가-힣])([가-힣]{2,10})\(([一-鿿]{1,10})\)")
+# 단일자: "얼굴 안(顔) 자" — 뜻 단어와 짝이어야 동음이 구분된다 (fill 규칙 A와 같은 꼴).
+_HANJA_GLYPH = re.compile(r"([가-힣]+) ([가-힣])\(([一-鿿])\) 자")
+
+#: 사람이 2개 이상의 다른 Job에서 같은 병기를 달면 흑판 특수어로 승격(자동 병기 대상).
+HANJA_PROMOTE_AT = 2
+
+
+def _scan_hanja_annotations(text: str) -> set[tuple[str, str, str]]:
+    """(gloss, reading, hanja) — 사람이 이 자막에 직접 달아 놓은 병기."""
+    found: set[tuple[str, str, str]] = set()
+    for m in _HANJA_GLYPH.finditer(text):
+        found.add((m.group(1), m.group(2), m.group(3)))
+    # 단일자 형태로 이미 잡은 자리는 다자어 규칙이 또 잡지 않게 지운 뒤 훑는다
+    rest = _HANJA_GLYPH.sub(" ", text)
+    for m in _HANJA_MULTI.finditer(rest):
+        found.add(("", m.group(1), m.group(2)))
+    return found
+
+
+def learn_hanja_annotations(session, job) -> dict[str, int]:
+    """Absorb hanja a human typed by hand into the HanjaTerm dictionary.
+
+    [WH-CHANGE v0.9.56 | FEAT | 2026-07-17 | CHG-20260717-083]
+    Reason: ADR-0011 3층. 검수자가 '해탈(解脫)'을 손으로 달아도 그 셀에서 끝나
+      다음 영상에서 또 손으로 달아야 했다(사용자 사례: 정각/열반/해탈/보리 중
+      열반만 자동 병기 — 나머지는 사전에 아예 없음). 사람이 단 병기를 사전에
+      등록해 2층(漢 채우기)이 갈수록 더 잡게 한다.
+    안전장치: 같은 읽기에 다른 한자가 등장하면(정각=正刻/正覺) **동음이의**로
+      보고 그 읽기의 모든 항목을 tier=common으로 내려 자동 병기에서 뺀다 —
+      한 번의 오등록이 전 영상을 오염시키는 것(광채 사고 계열)을 막는다.
+      새 항목은 common으로 시작하고, 서로 다른 Job 2개에서 확인되면 special로
+      승격한다(사람 손 2번 = 흑판 어휘라는 증거).
+    Related: ADR-0011, CHANGELOG CHG-20260717-083.
+    """
+    from .db import HanjaTerm
+
+    stats = {"hanja_new": 0, "hanja_promoted": 0, "hanja_ambiguous": 0}
+    segs = session.exec(
+        select(Segment).where(
+            Segment.job_id == job.id,
+            Segment.lang == "ko",
+            Segment.reviewed == True,  # noqa: E712
+        )
+    ).all()
+
+    seen: set[tuple[str, str, str]] = set()
+    for seg in segs:
+        seen |= _scan_hanja_annotations(seg.text_final or "")
+
+    for gloss, reading, hanja in sorted(seen):
+        rows = session.exec(
+            select(HanjaTerm).where(
+                HanjaTerm.reading == reading, HanjaTerm.gloss == gloss
+            )
+        ).all()
+        exact = next((r for r in rows if r.hanja == hanja), None)
+        others = [r for r in rows if r.hanja != hanja]
+
+        if others:
+            # 같은 읽기에 다른 한자 → 문맥으로만 갈리는 말. 자동 병기 금지.
+            stats["hanja_ambiguous"] += 1
+            for r in others:
+                if r.tier != "common":
+                    r.tier = "common"
+                    session.add(r)
+
+        if exact is None:
+            session.add(
+                HanjaTerm(
+                    reading=reading,
+                    gloss=gloss,
+                    hanja=hanja,
+                    count=1,
+                    tier="common",  # 승격은 다른 Job에서 한 번 더 확인될 때
+                    source_job_id=job.id,
+                )
+            )
+            stats["hanja_new"] += 1
+            continue
+
+        # 같은 항목: 다른 Job에서 또 확인된 경우에만 카운트 (재학습 부풀림 방지)
+        if exact.source_job_id != job.id:
+            exact.count += 1
+            exact.source_job_id = job.id
+            if (
+                not others
+                and exact.tier != "special"
+                and exact.count >= HANJA_PROMOTE_AT
+            ):
+                exact.tier = "special"
+                stats["hanja_promoted"] += 1
+            session.add(exact)
+    return stats
+
 _ABSORB_KEYS = (
     "reviewed_segments",
     "new_pairs",
@@ -110,6 +207,10 @@ _ABSORB_KEYS = (
     "propagated_segments",
     "propagated_replacements",
     "propagation_pairs",
+    # 3층(ADR-0011): 사람이 손으로 단 병기 흡수 결과
+    "hanja_new",
+    "hanja_promoted",
+    "hanja_ambiguous",
 )
 
 
@@ -216,6 +317,8 @@ def absorb_job(video_id: str, phase: str = "all") -> dict:
                 result["reviewed_segments"] = n_reviewed
                 result["new_pairs"] = new_pairs
                 result["bumped"] = bumped
+                # 3층(ADR-0011): 사람이 손으로 단 병기를 한자 사전으로 흡수
+                result.update(learn_hanja_annotations(session, job))
                 if n_reviewed:
                     job.status = "done" if n_reviewed >= total_segments else "reviewing"
                     job.updated_at = utcnow()

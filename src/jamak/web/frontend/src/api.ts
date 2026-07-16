@@ -591,6 +591,10 @@ export interface AbsorbResult {
   propagated_segments: number;
   propagated_replacements: number;
   propagation_pairs: number;
+  /** 3층(ADR-0011): 사람이 손으로 단 병기를 한자 사전으로 흡수한 결과 */
+  hanja_new: number;
+  hanja_promoted: number;
+  hanja_ambiguous: number;
 }
 
 /** phase를 나눠 부르면 UI가 단계별 진행률을 보여줄 수 있다. 전부 더한 결과는

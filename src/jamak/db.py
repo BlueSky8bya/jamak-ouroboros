@@ -226,6 +226,12 @@ class HanjaTerm(SQLModel, table=True):
     gloss: str = Field(default="")  # 단일자 구분용 뜻 단어 ('' = 다자어)
     hanja: str  # 채워 넣을 한자 (顔, 無常, 勇猛精進)
     count: int = 1  # 채굴 출처에서의 등장 횟수 (충돌 시 다수결 근거)
+    # [WH-CHANGE v0.9.56 | FEAT | 2026-07-17 | CHG-20260717-083]
+    # Reason: 3층(ADR-0011) — 사람이 손으로 단 병기를 학습 때 흡수한다. 같은
+    #   영상을 다시 학습해도 count가 부풀지 않게, 마지막으로 이 항목을 올린
+    #   Job을 기록해 Correction과 같은 "job당 1회" 규칙을 쓴다.
+    # Related: ADR-0011, CHANGELOG CHG-20260717-083.
+    source_job_id: Optional[int] = Field(default=None, foreign_key="job.id")
     # [WH-CHANGE v0.9.28 | FEAT | 2026-07-15 | CHG-20260715-050]
     # Reason: 흑판 특수어만 자동 병기하라는 요청 — 일반 한자어(불교·일본·정신)는
     #   사전에 보존하되(tier=common) 채우기 규칙 B에서 제외. 판정 근거는 검수
@@ -293,6 +299,11 @@ def _ensure_columns(engine) -> None:
             "lang": "VARCHAR DEFAULT 'ko'",
             "edited": f"BOOLEAN DEFAULT {bt}",
             "review_flag": "VARCHAR DEFAULT ''",
+        },
+        # 3층(ADR-0011): 사람이 단 병기를 job당 1회만 세려고 출처를 기록
+        "hanjaterm": {
+            "tier": "VARCHAR DEFAULT 'common'",
+            "source_job_id": "INTEGER",
         },
     }
     insp = inspect(engine)
