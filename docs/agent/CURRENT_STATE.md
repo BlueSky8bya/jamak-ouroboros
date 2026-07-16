@@ -1,6 +1,6 @@
 # Current State
 
-Last Updated: 2026-07-17 (v0.9.63 — 영상 밑 타이밍 편집 바(.timing-bar) 실브라우저 검증. 백궁=White Heaven 확정, STT 재인식 불필요 확정)
+Last Updated: 2026-07-17 (v0.9.64 — 타임라인 바·손잡이 동기화: smooth 전환에 width 누락 + 드래그 중 바 미추종 수정)
 
 ## 연습 영상 크기 제약 (2026-07-16 측정)
 영상은 에디터 왼쪽 열(`.left = minmax(390px,440px)`) 안에서 재생 → **표시 폭 ~362px = 캔버스 1920의 0.19배**.

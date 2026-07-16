@@ -1681,10 +1681,20 @@ img.broken { opacity: 0; }
    linearly interpolate each jump (duration >= the 250ms poll so it never
    finishes-and-waits = continuous motion). Only while playing; drag/pause have
    no transition so handles stay snappy. */
+/* [WH-CHANGE v0.9.64 | FIX | 2026-07-17 | CHG-20260717-097]
+   Reason: `left`만 전환하고 `width`를 빼먹어, 재생 중 창이 스크롤될 때 바의
+     왼쪽 끝은 280ms에 걸쳐 미끄러지는데 오른쪽 끝(= left + width)은 width가
+     즉시 바뀌어 초당 4번 튀었다. 끝 손잡이는 left라 미끄러지므로 **바의 오른쪽
+     끝과 끝 손잡이가 따로 놀고 바가 늘었다 줄었다** 한다 → 사용자 멀미 호소.
+     left와 width를 같은 곡선(280ms linear)으로 함께 전환하면 right = left+width도
+     선형이 되어 끝 손잡이의 궤적과 매 순간 일치한다.
+   Related: CHANGELOG CHG-20260717-097. */
 .strip-track.smooth .strip-seg,
 .strip-track.smooth .strip-handle,
 .strip-track.smooth .strip-marker {
-  transition: left 280ms linear;
+  transition:
+    left 280ms linear,
+    width 280ms linear;
 }
 
 .strip-handle {

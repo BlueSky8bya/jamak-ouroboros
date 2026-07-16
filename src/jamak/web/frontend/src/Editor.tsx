@@ -160,6 +160,15 @@ function TimingStrip({
     which: "start" | "end";
     el: HTMLElement;
     startX: number;
+    // [WH-CHANGE v0.9.64 | FIX | 2026-07-17 | CHG-20260717-097]
+    // Reason: 드래그 중 잡은 손잡이만 움직이고 파란 바(.strip-seg)는 React가
+    //   seg.start/end로 그려 **놓을 때까지 제자리**였다 → 손잡이와 바가 따로
+    //   놀다가 놓는 순간 툭 튄다(사용자: "따로 움직여 부조화·멀미").
+    //   바도 같은 포인터 이동을 따라가게 한다. 손잡이와 같은 transform 방식 —
+    //   React는 left/width를 소유하므로 그걸 건드리면 재렌더와 싸운다.
+    // Related: CHANGELOG CHG-20260717-097.
+    bar: HTMLElement | null;
+    barW: number; // 드래그 시작 시점의 바 픽셀 폭 (scaleX 기준값)
   } | null>(null);
   const markerRef = useRef<HTMLSpanElement>(null);
   const scrubRef = useRef(false); // dragging the playhead to seek (scrub)
@@ -216,6 +225,14 @@ function TimingStrip({
     if (!d || !w) return;
     const deltaPx = clientX - d.startX;
     d.el.style.transform = `translateX(${-8 + deltaPx}px)`;
+    // 바도 같은 만큼 따라간다 — 잡은 쪽 끝만 움직이고 반대쪽 끝은 고정이어야
+    // 하므로 반대쪽을 원점으로 scaleX. (start를 끌면 오른쪽 끝 고정, end를
+    // 끌면 왼쪽 끝 고정.) 0 이하로 뒤집히지 않게 하한을 둔다.
+    if (d.bar && d.barW > 1) {
+      const k = (d.which === "end" ? d.barW + deltaPx : d.barW - deltaPx) / d.barW;
+      d.bar.style.transformOrigin = d.which === "end" ? "left center" : "right center";
+      d.bar.style.transform = `scaleX(${Math.max(0.02, k)})`;
+    }
     const t = timeAtClientX(clientX);
     const lbl = labelRef.current;
     if (lbl) {
@@ -230,7 +247,16 @@ function TimingStrip({
     winRef.current = { start, span }; // freeze window for the whole drag
     const el = e.currentTarget as HTMLElement;
     el.classList.add("dragging");
-    dragRef.current = { segId: seg.id, which, el, startX: e.clientX };
+    // 같은 자막의 바 (형제 요소) — 드래그 내내 손잡이와 함께 움직인다
+    const bar = el.parentElement?.querySelector<HTMLElement>(".strip-seg") ?? null;
+    dragRef.current = {
+      segId: seg.id,
+      which,
+      el,
+      startX: e.clientX,
+      bar,
+      barW: bar?.getBoundingClientRect().width ?? 0,
+    };
     try {
       el.setPointerCapture(e.pointerId);
     } catch {
@@ -259,6 +285,12 @@ function TimingStrip({
     const t = timeAtClientX(e.clientX);
     d.el.classList.remove("dragging");
     d.el.style.transform = ""; // revert to the CSS centering; React re-renders left
+    if (d.bar) {
+      // 임시 변형을 걷어낸다 — onBoundaryDrag가 커밋하면 React가 새 left/width로
+      // 다시 그린다. 남겨두면 그 위에 겹쳐 바가 어긋난 채 굳는다.
+      d.bar.style.transform = "";
+      d.bar.style.transformOrigin = "";
+    }
     dragRef.current = null;
     winRef.current = null;
     setDragging(false);

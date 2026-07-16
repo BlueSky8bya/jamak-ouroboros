@@ -1,5 +1,13 @@
 # Agent Change Log
 
+## v0.9.64 — 2026-07-17 (타임라인: 바와 손잡이가 따로 놀던 문제)
+
+### CHG-20260717-097 — FIX — 파란 바와 시작/끝 손잡이가 함께 움직이게
+Change: 사용자 호소("초록 시작·끝 선과 그 사이 바가 따로 움직여 부조화·멀미"). 원인 **둘**.
+(1) **재생 중(주범)**: `.strip-track.smooth` 규칙이 `transition: left 280ms linear`로 **`width`를 빠뜨렸다**. 바는 `left`+`width`로 그려지므로 왼쪽 끝은 280ms에 걸쳐 미끄러지는데 **오른쪽 끝(= left+width)은 즉시 튄다** — 반면 끝 손잡이는 `left`라 미끄러진다. 같은 지점을 가리켜야 할 둘이 다르게 움직이고 바가 늘었다 줄었다 하는 게 초당 4번(폴링 주기) 반복됐다. → `left`와 `width`를 **같은 곡선**(280ms linear)으로 함께 전환. 그러면 right = left+width도 선형이라 끝 손잡이 궤적과 매 순간 일치한다.
+(2) **드래그 중**: 잡은 손잡이만 imperative `transform`으로 움직이고 바는 React가 `seg.start/end`로 그려 **놓을 때까지 제자리** → 놓는 순간 툭 튐. 바도 같은 포인터 이동을 따라가게 함 — 반대쪽 끝을 원점으로 `scaleX`(start를 끌면 오른쪽 끝 고정, end면 왼쪽 끝 고정). 손잡이와 같은 transform 방식이라 React 재렌더와 싸우지 않고, `endDrag`에서 transform/origin을 걷어내 커밋된 값으로 자연스럽게 인계.
+Validation: 로컬 데모 서버(스크래치 DB, 운영 무관)에서 **실측 A/B** — 옛 규칙을 주입해 재보니 바 `transition-property: "left"`(width 없음), 수정본은 `"left, width"` / `"0.28s, 0.28s"` / `"linear, linear"`로 끝 손잡이(`left 0.28s linear`)와 동일 곡선 확인. 프론트 빌드 클린. 체감(멀미 해소)은 사용자 확인 필요 (NOT VERIFIED). *rAF 샘플링은 백그라운드 탭에서 멈춰(document.hidden) 계산식 대신 CSS 계약을 직접 확인했다.*
+
 ## v0.9.63 — 2026-07-17 (영상 밑 타이밍 편집 바)
 
 ### CHG-20260717-095 — FEAT — 영상 바로 밑에서 타이밍 손보기 (.timing-bar)
