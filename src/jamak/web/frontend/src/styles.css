@@ -3964,7 +3964,14 @@ kbd {
 }
 .tour-btn:hover { border-color: var(--blue); color: var(--blue); }
 
-.tour { position: fixed; inset: 0; z-index: 200; pointer-events: none; }
+/* [WH-CHANGE v0.9.70 | FIX | 2026-07-17 | CHG-20260717-104]
+   Reason: `.tour`와 `.srt-modal-back`이 **둘 다 z-index 200**이었고 모달이 DOM에서
+     더 뒤(Editor 5199 vs Tour 5119)라 **모달이 이긴다** → 연습6 스텝 8(한자 모달
+     안에서 함정 거르기)의 말풍선이 모달 뒤에 숨어 안내가 통째로 안 보인다.
+     투어는 모든 것 위에 있어야 하므로 300으로 올린다 (컨테이너는 pointer-events:
+     none이라 클릭은 그대로 모달에 간다).
+   Related: 재설계계획 §7-C, CHANGELOG CHG-20260717-104. */
+.tour { position: fixed; inset: 0; z-index: 300; pointer-events: none; }
 .tour-dim {
   position: fixed;
   background: rgba(8, 12, 18, 0.62);

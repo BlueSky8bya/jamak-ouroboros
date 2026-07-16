@@ -2218,7 +2218,13 @@ export function Editor({
       const doneAt = stepCheckpoint({ course: next.course, step: next.step - 1 });
       if (wasLoop && doneAt !== null) seekTo(doneAt); // 나레이션 이어가기
       tourPausedRef.current = false;
-      play();
+      // [WH-CHANGE v0.9.70 | FIX | 2026-07-17 | CHG-20260717-104]
+      // Reason: 검수 모달이 열려 있는데 나레이션을 이어 틀면 모달 미니 영상과
+      //   소리가 겹친다 — 연습6 스텝 7(漢 채우기)이 정확히 이 상황: 버튼을 누른
+      //   순간 단계가 통과되고 모달이 열린다. 모달이 닫히면 그때 이어간다
+      //   (아래 effect가 재개를 맡는다).
+      // Related: 재설계계획 §7-C, CHANGELOG CHG-20260717-104.
+      if (!reviewModalRef.current) play();
     }
   }
   /** an instrumented action happened — advance if it's what the step waits for */
@@ -2580,6 +2586,31 @@ export function Editor({
     mini.cueAt(Math.max(0, previewSec - PREVIEW_LEAD));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewTick, mini.ready]);
+  // [WH-CHANGE v0.9.70 | FIX | 2026-07-17 | CHG-20260717-104]
+  // Reason: 검수 모달이 열린 채 본 영상이 재생되면 **모달 미니 영상과 소리가
+  //   겹쳐** 둘 다 안 들린다. 특히 연습6 스텝 7에서 漢 버튼을 누르면 투어가
+  //   단계를 통과시키며 나레이션을 이어 재생한다(afterTourAdvance의 play()) —
+  //   바로 그때 모달이 열려 있다. 모달이 열리는 순간 본 영상을 세운다.
+  //   (usePlayer 뒤에 있어야 pause를 쓸 수 있다 — 위 reviewModalRef effect는
+  //   qcModal 선언 직후라 여기서 별도 effect로 둔다.)
+  // Related: 재설계계획 §7-C, CHANGELOG CHG-20260717-104.
+  const reviewModalWasOpen = useRef(false);
+  useEffect(() => {
+    const open = !!hanjaModal || !!qcModal;
+    const justClosed = reviewModalWasOpen.current && !open;
+    reviewModalWasOpen.current = open;
+    if (open) {
+      pause();
+      return;
+    }
+    // 모달이 닫히면 막아 뒀던 나레이션을 이어간다 (afterTourAdvance의 play() 가드
+    // 짝). 투어 중이 아니거나, 체크포인트에서 일부러 멈춘 상태거나, 말풍선이 떠
+    // 행동을 기다리는 중이면 건드리지 않는다 — 그때는 정지가 맞다.
+    if (!justClosed || !tourRef.current) return;
+    if (tourPausedRef.current || tourGate) return;
+    play();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hanjaModal, qcModal]);
 
   // 체크포인트 감시: 나레이션이 지시를 마친 시각에 영상을 멈추고 말풍선을 연다
   // (usePlayer 아래 위치 필수 — currentTime/pause 사용)
