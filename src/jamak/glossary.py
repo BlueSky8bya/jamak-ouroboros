@@ -3,6 +3,8 @@ out of the DB and shape them for injection into whisper / Claude."""
 
 from __future__ import annotations
 
+import json
+
 from sqlmodel import select
 
 from .db import Correction, GlossaryTerm, HanjaTerm, get_session
@@ -112,6 +114,38 @@ def glossary_block(max_terms: int = 400) -> str:
         variants = f" (오인식 예: {t.variants})" if t.variants else ""
         cat = f" [{t.category}]" if t.category else ""
         lines.append(f"- {t.term}{cat}{variants}")
+    return "\n".join(lines)
+
+
+# [WH-CHANGE v0.9.61 | FEAT | 2026-07-17 | CHG-20260717-092]
+# Reason: ADR-0013 — 번역 프롬프트가 "표준 로마자 표기로 옮겨라"라고만 시켜서
+#   고유명사가 매번 흔들리고, 규칙대로 하면 오히려 틀린다(허경영 → 로마자
+#   표기법상 "Heo Gyeong-yeong"인데 실제 통용·공식은 "Huh Kyung-young").
+#   단체가 정해 쓰는 표기를 사전에서 뽑아 프롬프트에 못 박는다.
+# Related: ADR-0013, CHANGELOG CHG-20260717-092.
+def official_names_block(lang: str) -> str:
+    """이 언어의 공식 표기가 정해진 고유명사 목록 (번역 프롬프트 주입용).
+
+    빈 문자열이면 못 박을 표기가 없다는 뜻 — 프롬프트의 음역 규칙(2순위)이 맡는다.
+    """
+    lines: list[str] = []
+    with get_session() as session:
+        rows = session.exec(
+            select(GlossaryTerm).where(
+                GlossaryTerm.approved == True,  # noqa: E712
+                GlossaryTerm.official != "",
+            )
+        ).all()
+    for t in sorted(rows, key=lambda r: r.term):
+        try:
+            names = json.loads(t.official)
+        except (ValueError, TypeError):
+            continue  # 손상된 값은 조용히 무시 — 번역을 막을 이유는 없다
+        name = (names or {}).get(lang)
+        if not name:
+            continue
+        note = f"  ({t.note})" if t.note else ""
+        lines.append(f'- {t.term} → "{name}"{note}')
     return "\n".join(lines)
 
 

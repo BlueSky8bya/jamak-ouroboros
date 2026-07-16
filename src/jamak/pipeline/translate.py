@@ -15,6 +15,7 @@ from sqlmodel import or_, select
 
 from ..config import TRANSLATE_MODEL
 from ..db import Job, Segment, Translation, get_session
+from ..glossary import official_names_block
 
 # display order = rough global usage order (user-facing list)
 # English labels here are the translation TARGET names given to the model.
@@ -194,13 +195,28 @@ def _system_prompt(lang: str) -> str:
         "규칙:",
         "1. 문맥에 맞게 자연스럽게 번역한다. 직역보다 강연의 말맛과 의미 전달 우선.",
         "2. 자막이다 — 각 세그먼트는 화면 표시 시간에 맞춰 읽을 수 있어야 한다. 세그먼트마다 권장 글자수(≤N자)를 함께 주니 그 안에서 간결히 옮겨라. 넘칠 것 같으면 군더더기를 줄이고, 정 길면 짧은 두 줄로 나눠도 좋다 (내용 삭제는 금지). 권장 글자수가 매우 작으면(≤12자) 의미 핵심만 남긴 최단 표현을 택한다 (예: \"뭐라고?\"→\"What?\", \"혹시 아는가?\"→\"Know it?\"). 원문이 짧은데 대상 언어가 길어지는 경우 정중한 군말(please, happen to, do you 등)을 먼저 버린다.",
-        "3. 고유명사(허경영, 하늘궁 등)는 표준 로마자/현지 표기로 일관되게 옮기고,",
-        "   처음 등장 시 필요하면 짧은 의미 병기를 허용한다.",
+        # [WH-CHANGE v0.9.61 | FIX | 2026-07-17 | CHG-20260717-092]
+        # Reason: 옛 규칙("표준 로마자 표기로 옮겨라")은 오히려 틀린 표기를 만든다 —
+        #   로마자 표기법대로면 허경영은 "Heo Gyeong-yeong"인데 본인 단체·위키피디아·
+        #   코리아타임스/헤럴드는 전부 "Huh Kyung-young"을 쓴다. 게다가 단체는 용어마다
+        #   방식이 다르다: 하늘궁은 **번역**(Heaven Palace), 불로유는 **음역**(Boolloyu).
+        #   그래서 "규칙"이 아니라 **정해진 표기 목록**이 1순위여야 한다. ADR-0013.
+        # Related: ADR-0013, CHANGELOG CHG-20260717-092.
+        "3. **고유명사·교리 용어 표기는 아래 '공식 표기' 목록이 절대 우선이다.** 목록에 있으면 그대로 쓴다 (로마자 표기법을 다시 적용하지 말 것 — 목록이 이미 정답이다).",
+        "3-1. 목록에 **없는** 고유명사만 로마자 표기법으로 **음역**한다. 뜻으로 풀어 옮기지 않는다. 처음 등장할 때만 괄호로 짧은 설명을 1회 붙일 수 있다 (예: Baekgung (the White Palace ranks)).",
+        "3-2. **의역 금지**: 고유명사를 뜻풀이·숫자로 바꾸지 않는다. 예: 백궁 → \"100 Palaces\" (X), 불로유 → \"immortality milk\" (X), 하늘궁 → \"Sky Palace\" (X — 공식은 Heaven Palace).",
         "4. 성경/불교/유교 용어는 해당 언어권의 통용 표현을 쓴다 (예: 에스더 → Esther).",
         "5. 존댓말/구어 어투는 대상 언어의 자연스러운 강연체로.",
         "6. 모든 세그먼트를 translations에 포함한다. idx는 입력 그대로.",
         "7. 내용을 창작하거나 요약하지 않는다.",
     ]
+    official = official_names_block(lang)
+    if official:
+        parts += [
+            "",
+            "## 공식 표기 — 규칙 3 (이 표기 그대로 쓸 것. 다른 표기로 바꾸지 말 것)",
+            official,
+        ]
     examples = translation_examples(lang)
     if examples:
         parts += [

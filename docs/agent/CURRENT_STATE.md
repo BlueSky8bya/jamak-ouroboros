@@ -1,6 +1,6 @@
 # Current State
 
-Last Updated: 2026-07-17 (v0.9.60 — 맞춤법 모달 미니 플레이어 생성 버그 수정. 다음: 무음 다듬기 v2(0.5초+정렬+되돌리기), 고유명사 음역)
+Last Updated: 2026-07-17 (v0.9.61 — ADR-0013 고유명사 공식 표기(Huh Kyung-young·Heaven Palace·Boolloyu·White Heaven) DB+프롬프트. 다음: 무음 다듬기 v2)
 
 ## 연습 영상 크기 제약 (2026-07-16 측정)
 영상은 에디터 왼쪽 열(`.left = minmax(390px,440px)`) 안에서 재생 → **표시 폭 ~362px = 캔버스 1920의 0.19배**.

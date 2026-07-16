@@ -174,6 +174,14 @@ class GlossaryTerm(SQLModel, table=True):
     note: str = ""
     confidence: float = 1.0  # 1.0 = human-approved, <1.0 = auto-extracted candidate
     approved: bool = True
+    # [WH-CHANGE v0.9.61 | FEAT | 2026-07-17 | CHG-20260717-092]
+    # Reason: ADR-0013 — 번역이 고유명사를 매번 다르게 옮기는 문제. 로마자 표기법
+    #   기계 적용은 오히려 틀린다(허경영 → "Heo Gyeong-yeong"은 아무도 안 쓰고,
+    #   본인 단체·위키·주요 매체는 "Huh Kyung-young"). 단체가 이미 정해 쓰는
+    #   표기가 1순위이므로 **언어별 공식 표기**를 사전에 못 박아 프롬프트에 주입한다.
+    #   JSON 문자열 {"en": "Huh Kyung-young"} — 언어가 늘어도 스키마 안 바뀜.
+    # Related: ADR-0013, CHANGELOG CHG-20260717-092.
+    official: str = ""  # JSON: {lang: 공식 표기}. '' = 공식 표기 없음 → 음역 규칙
 
 
 class SttBlob(SQLModel, table=True):
@@ -304,6 +312,10 @@ def _ensure_columns(engine) -> None:
         "hanjaterm": {
             "tier": "VARCHAR DEFAULT 'common'",
             "source_job_id": "INTEGER",
+        },
+        # ADR-0013: 고유명사의 언어별 공식 표기 (JSON)
+        "glossaryterm": {
+            "official": "VARCHAR DEFAULT ''",
         },
     }
     insp = inspect(engine)
