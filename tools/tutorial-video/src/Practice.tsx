@@ -7,6 +7,16 @@
  *  중앙 무대에 띄운다. timing.json과 프레임 단위로 동기.
  */
 
+// [WH-CHANGE v0.9.52 | FIX | 2026-07-16 | CHG-20260716-074]
+// Reason: 이 영상은 에디터 왼쪽 열(.left = minmax(390px,440px), padding 14)
+//   안에서 재생된다 → 실제 표시 폭 ~362px. 캔버스 1920 대비 배율 0.19.
+//   기존 크기(fontSize 40 = 화면 7.6px, 진행 점 16px = 3px)는 판독 불가였다.
+//   판독 기준을 "화면 16px 이상"으로 잡아 캔버스 최소 본문 84px(=16/0.19)로
+//   전면 확대하고, 저배율에서 사라지는 요소(점 진행표시·상시 하단 안내)는
+//   진행 바 + 큰 숫자로 대체해 중앙 무대에 픽셀을 몰아줬다.
+// Related: docs/tutorial/재설계계획-2026-07.md §0
+const DISPLAY_SCALE = 362 / 1920; // ≈0.19 — 크기 판단 기준 (읽을 글씨 ≥84px)
+
 import { Audio, interpolate, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import { VISUALS, type Visual, type Zone } from "./visuals";
 
@@ -57,16 +67,16 @@ function KeyCap({ label, t }: { label: string; t: number }) {
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
-        minWidth: 96,
-        height: 96,
-        padding: "0 28px",
-        borderRadius: 18,
+        minWidth: 200,
+        height: 190,
+        padding: "0 48px",
+        borderRadius: 32,
         background: `linear-gradient(180deg, rgba(255,255,255,${0.16 - p * 0.06}), rgba(255,255,255,0.05))`,
-        border: `2px solid ${LINE}`,
-        boxShadow: p > 0.3 ? `0 2px 0 rgba(0,0,0,0.5), 0 0 34px ${BLUE}66` : "0 8px 0 rgba(0,0,0,0.5)",
-        transform: `translateY(${p * 7}px)`,
+        border: `4px solid ${LINE}`,
+        boxShadow: p > 0.3 ? `0 4px 0 rgba(0,0,0,0.5), 0 0 60px ${BLUE}66` : "0 14px 0 rgba(0,0,0,0.5)",
+        transform: `translateY(${p * 12}px)`,
         color: INK,
-        fontSize: 40,
+        fontSize: 88,
         fontWeight: 800,
       }}
     >
@@ -77,13 +87,13 @@ function KeyCap({ label, t }: { label: string; t: number }) {
 
 function KeysVisual({ rows, t }: { rows: string[][]; t: number }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 26 }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 30 }}>
       {rows.map((keys, ri) => (
-        <div key={ri} style={{ display: "flex", alignItems: "center", gap: 18 }}>
-          {ri > 0 && <span style={{ fontSize: 30, color: INK, opacity: 0.6, marginRight: 6 }}>또는</span>}
+        <div key={ri} style={{ display: "flex", alignItems: "center", gap: 22 }}>
+          {ri > 0 && <span style={{ fontSize: 56, color: INK, opacity: 0.6, marginRight: 10 }}>또는</span>}
           {keys.map((k, i) => (
-            <span key={i} style={{ display: "flex", alignItems: "center", gap: 18 }}>
-              {i > 0 && <span style={{ fontSize: 44, color: INK, opacity: 0.7 }}>+</span>}
+            <span key={i} style={{ display: "flex", alignItems: "center", gap: 22 }}>
+              {i > 0 && <span style={{ fontSize: 84, color: INK, opacity: 0.7 }}>+</span>}
               <KeyCap label={k} t={t + ri * 0.4} />
             </span>
           ))}
@@ -96,7 +106,7 @@ function KeysVisual({ rows, t }: { rows: string[][]; t: number }) {
 /** 탭 포인터: 대상 위로 들어와 콕 누르는 손가락 + 파문 링 */
 function TapPointer({ t, x = 0, y = 0 }: { t: number; x?: number; y?: number }) {
   const c = cycle(t);
-  const approach = interpolate(c, [0, 0.35, 0.45, 0.8, 1], [70, 8, 0, 8, 70]);
+  const approach = interpolate(c, [0, 0.35, 0.45, 0.8, 1], [140, 16, 0, 16, 140]);
   const ring = interpolate(c, [0.45, 0.85], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   return (
     <div style={{ position: "absolute", left: x, top: y, pointerEvents: "none" }}>
@@ -104,19 +114,19 @@ function TapPointer({ t, x = 0, y = 0 }: { t: number; x?: number; y?: number }) 
         <div
           style={{
             position: "absolute",
-            left: -14,
-            top: -14,
-            width: 28 + ring * 90,
-            height: 28 + ring * 90,
-            marginLeft: -(ring * 90) / 2,
-            marginTop: -(ring * 90) / 2,
+            left: -28,
+            top: -28,
+            width: 56 + ring * 180,
+            height: 56 + ring * 180,
+            marginLeft: -(ring * 180) / 2,
+            marginTop: -(ring * 180) / 2,
             borderRadius: "50%",
-            border: `3px solid ${BLUE}`,
+            border: `6px solid ${BLUE}`,
             opacity: 1 - ring,
           }}
         />
       )}
-      <div style={{ fontSize: 64, transform: `translate(${approach * 0.45}px, ${approach}px) rotate(-18deg)` }}>👆</div>
+      <div style={{ fontSize: 132, transform: `translate(${approach * 0.45}px, ${approach}px) rotate(-18deg)` }}>👆</div>
     </div>
   );
 }
@@ -127,21 +137,21 @@ function ButtonVisual({ label, t }: { label: string; t: number }) {
     <div style={{ position: "relative", display: "inline-block" }}>
       <div
         style={{
-          padding: "26px 54px",
-          borderRadius: 22,
-          border: `2px solid ${p > 0.3 ? BLUE : LINE}`,
+          padding: "44px 84px",
+          borderRadius: 36,
+          border: `4px solid ${p > 0.3 ? BLUE : LINE}`,
           background: p > 0.3 ? `${BLUE}33` : SURFACE,
           color: INK,
-          fontSize: 42,
+          fontSize: 88,
           fontWeight: 800,
           transform: `scale(${1 - p * 0.05})`,
-          boxShadow: p > 0.3 ? `0 0 44px ${BLUE}55` : "none",
+          boxShadow: p > 0.3 ? `0 0 80px ${BLUE}55` : "none",
           whiteSpace: "nowrap",
         }}
       >
         {label}
       </div>
-      <TapPointer t={t} x={0.62 * 300} y={40} />
+      <TapPointer t={t} x={300} y={80} />
     </div>
   );
 }
@@ -157,38 +167,38 @@ function CheckVisual({ label, on, t }: { label: string; on: boolean; t: number }
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 22,
-          padding: "24px 46px",
-          borderRadius: 20,
-          border: `2px solid ${LINE}`,
+          gap: 30,
+          padding: "38px 66px",
+          borderRadius: 32,
+          border: `4px solid ${LINE}`,
           background: SURFACE,
           color: INK,
-          fontSize: 40,
+          fontSize: 80,
           fontWeight: 700,
           whiteSpace: "nowrap",
         }}
       >
         <span
           style={{
-            width: 46,
-            height: 46,
-            borderRadius: 10,
-            border: `3px solid ${checked ? BLUE : LINE}`,
+            width: 84,
+            height: 84,
+            borderRadius: 16,
+            border: `6px solid ${checked ? BLUE : LINE}`,
             background: checked ? BLUE : "transparent",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             color: "#fff",
-            fontSize: 32,
+            fontSize: 62,
             fontWeight: 900,
           }}
         >
           {checked ? "✓" : ""}
         </span>
         {label}
-        <span style={{ fontSize: 26, opacity: 0.65 }}>{on ? "켜세요" : "꺼두세요"}</span>
+        <span style={{ fontSize: 52, opacity: 0.7 }}>{on ? "켜세요" : "꺼두세요"}</span>
       </div>
-      <TapPointer t={t + 0.9} x={26} y={34} />
+      <TapPointer t={t + 0.9} x={44} y={70} />
     </div>
   );
 }
@@ -202,19 +212,19 @@ function TapRowVisual({ t }: { t: number }) {
     <div style={{ position: "relative" }}>
       <div
         style={{
-          width: 560,
-          padding: "26px 30px",
-          borderRadius: 18,
-          border: `2px solid ${editing ? BLUE : LINE}`,
+          width: 1080,
+          padding: "44px 52px",
+          borderRadius: 30,
+          border: `4px solid ${editing ? BLUE : LINE}`,
           background: editing ? `${BLUE}1f` : SURFACE,
           color: INK,
-          fontSize: 34,
+          fontSize: 68,
           textAlign: "left",
         }}
       >
-        자막 글을 누르면{editing && caret ? "▏" : ""} 고칠 수 있어요
+        자막 글을 누르면{editing && caret ? "▏" : ""} 고쳐요
       </div>
-      <TapPointer t={t} x={300} y={30} />
+      <TapPointer t={t} x={560} y={-16} />
     </div>
   );
 }
@@ -222,29 +232,29 @@ function TapRowVisual({ t }: { t: number }) {
 /** 긴 자막이 둘로 나뉘는 모션 */
 function SplitVisual({ t }: { t: number }) {
   const c = cycle(t, 2.6);
-  const gap = interpolate(c, [0.3, 0.75], [0, 44], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const gap = interpolate(c, [0.3, 0.75], [0, 90], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   const bar = (w: number, dx: number) => (
     <div
       style={{
         width: w,
-        height: 62,
-        borderRadius: 14,
+        height: 120,
+        borderRadius: 26,
         background: `${BLUE}44`,
-        border: `2px solid ${BLUE}`,
+        border: `4px solid ${BLUE}`,
         transform: `translateX(${dx}px)`,
       }}
     />
   );
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 20 }}>
       <div style={{ display: "flex", alignItems: "center" }}>
-        {bar(300, -gap / 2)}
+        {bar(460, -gap / 2)}
         <div style={{ width: 0, position: "relative" }}>
-          <span style={{ position: "absolute", left: -26, top: -54, fontSize: 46 }}>✂</span>
+          <span style={{ position: "absolute", left: -46, top: -104, fontSize: 92 }}>✂</span>
         </div>
-        {bar(300, gap / 2)}
+        {bar(460, gap / 2)}
       </div>
-      <span style={{ color: INK, opacity: 0.7, fontSize: 26 }}>커서 자리에서 둘로</span>
+      <span style={{ color: INK, opacity: 0.75, fontSize: 52 }}>커서 자리에서 둘로</span>
     </div>
   );
 }
@@ -252,26 +262,26 @@ function SplitVisual({ t }: { t: number }) {
 /** 토막 자막들이 하나로 합쳐지는 모션 */
 function MergeVisual({ t }: { t: number }) {
   const c = cycle(t, 2.6);
-  const together = interpolate(c, [0.3, 0.75], [36, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const together = interpolate(c, [0.3, 0.75], [72, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   const bar = (w: number, dx: number) => (
     <div
       style={{
         width: w,
-        height: 62,
-        borderRadius: 14,
+        height: 120,
+        borderRadius: 26,
         background: `${BLUE}44`,
-        border: `2px solid ${BLUE}`,
+        border: `4px solid ${BLUE}`,
         transform: `translateX(${dx}px)`,
       }}
     />
   );
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 20 }}>
       <div style={{ display: "flex", alignItems: "center" }}>
-        {bar(220, -together)}
-        {bar(220, together)}
+        {bar(360, -together)}
+        {bar(360, together)}
       </div>
-      <span style={{ color: INK, opacity: 0.7, fontSize: 26 }}>아래 자막과 하나로</span>
+      <span style={{ color: INK, opacity: 0.75, fontSize: 52 }}>아래 자막과 하나로</span>
     </div>
   );
 }
@@ -279,41 +289,41 @@ function MergeVisual({ t }: { t: number }) {
 /** 타임라인 손잡이 드래그 */
 function DragVisual({ t }: { t: number }) {
   const c = cycle(t, 3.0);
-  const dx = interpolate(c, [0.15, 0.6, 0.85], [0, 120, 120], {
+  const dx = interpolate(c, [0.15, 0.6, 0.85], [0, 240, 240], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
   return (
-    <div style={{ position: "relative", width: 640 }}>
-      <div style={{ height: 20, borderRadius: 10, background: "rgba(255,255,255,0.12)" }} />
+    <div style={{ position: "relative", width: 1180 }}>
+      <div style={{ height: 40, borderRadius: 20, background: "rgba(255,255,255,0.12)" }} />
       <div
         style={{
           position: "absolute",
-          top: -22,
-          left: 110,
-          width: 220 + dx,
-          height: 64,
-          borderRadius: 14,
+          top: -44,
+          left: 200,
+          width: 420 + dx,
+          height: 128,
+          borderRadius: 26,
           background: `${BLUE}3a`,
-          border: `2px solid ${BLUE}`,
+          border: `4px solid ${BLUE}`,
         }}
       />
       <div
         style={{
           position: "absolute",
-          top: -30,
-          left: 110 + 220 + dx - 8,
-          width: 16,
-          height: 80,
-          borderRadius: 8,
+          top: -60,
+          left: 200 + 420 + dx - 16,
+          width: 32,
+          height: 160,
+          borderRadius: 16,
           background: BLUE,
-          boxShadow: `0 0 24px ${BLUE}88`,
+          boxShadow: `0 0 44px ${BLUE}88`,
         }}
       />
-      <div style={{ position: "absolute", top: 8, left: 120 + 220 + dx, fontSize: 60, transform: "rotate(-18deg)" }}>
+      <div style={{ position: "absolute", top: 16, left: 220 + 420 + dx, fontSize: 124, transform: "rotate(-18deg)" }}>
         👆
       </div>
-      <div style={{ marginTop: 66, textAlign: "center", color: INK, opacity: 0.7, fontSize: 26 }}>
+      <div style={{ marginTop: 140, textAlign: "center", color: INK, opacity: 0.75, fontSize: 52 }}>
         밝은 손잡이를 좌우로
       </div>
     </div>
@@ -327,12 +337,12 @@ function TabsVisual({ t }: { t: number }) {
   const tab = (label: string, on: boolean) => (
     <div
       style={{
-        padding: "22px 44px",
-        borderRadius: 16,
-        border: `2px solid ${on ? BLUE : LINE}`,
+        padding: "36px 66px",
+        borderRadius: 28,
+        border: `4px solid ${on ? BLUE : LINE}`,
         background: on ? `${BLUE}33` : SURFACE,
         color: INK,
-        fontSize: 36,
+        fontSize: 72,
         fontWeight: 800,
         whiteSpace: "nowrap",
       }}
@@ -341,10 +351,10 @@ function TabsVisual({ t }: { t: number }) {
     </div>
   );
   return (
-    <div style={{ position: "relative", display: "flex", gap: 16 }}>
-      {tab("① 내용 확인", !active)}
+    <div style={{ position: "relative", display: "flex", gap: 24 }}>
+      {tab("① 내용", !active)}
       {tab("② 타이밍", active)}
-      <TapPointer t={t} x={330} y={30} />
+      <TapPointer t={t} x={520} y={70} />
     </div>
   );
 }
@@ -356,12 +366,12 @@ function SpeedVisual({ t }: { t: number }) {
   const btn = (label: string, hot: boolean) => (
     <div
       style={{
-        padding: "20px 34px",
-        borderRadius: 14,
-        border: `2px solid ${hot && on ? BLUE : LINE}`,
+        padding: "32px 48px",
+        borderRadius: 24,
+        border: `4px solid ${hot && on ? BLUE : LINE}`,
         background: hot && on ? `${BLUE}33` : SURFACE,
         color: INK,
-        fontSize: 34,
+        fontSize: 68,
         fontWeight: 800,
       }}
     >
@@ -369,45 +379,46 @@ function SpeedVisual({ t }: { t: number }) {
     </div>
   );
   return (
-    <div style={{ position: "relative", display: "flex", gap: 14 }}>
+    <div style={{ position: "relative", display: "flex", gap: 20 }}>
       {btn("0.5×", false)}
       {btn("0.75×", true)}
       {btn("1×", false)}
       {btn("1.5×", false)}
-      <TapPointer t={t} x={168} y={26} />
+      <TapPointer t={t} x={300} y={60} />
     </div>
   );
 }
 
-/** 화면 어디인지 미니맵: 에디터 와이어프레임 + 해당 구역 글로우 */
+/** 화면 어디인지 미니맵: 에디터 와이어프레임 + 해당 구역 글로우.
+ *  0.19배로 줄어드니 블록을 크고 성기게 — 잔선은 저배율에서 회색 뭉개짐이 된다. */
 function MiniMap({ zone, t }: { zone: Zone; t: number }) {
   const glow = 0.55 + 0.45 * Math.sin(t * 5);
   const hi: Record<Zone, { x: number; y: number; w: number; h: number }> = {
-    "top-left": { x: 8, y: 6, w: 74, h: 22 },
-    "video-below": { x: 8, y: 92, w: 120, h: 24 },
-    "left-bottom": { x: 8, y: 128, w: 120, h: 26 },
-    "list-top": { x: 148, y: 6, w: 124, h: 26 },
-    list: { x: 148, y: 40, w: 124, h: 110 },
-    bottom: { x: 8, y: 120, w: 120, h: 18 },
+    "top-left": { x: 16, y: 14, w: 150, h: 46 },
+    "video-below": { x: 16, y: 190, w: 240, h: 50 },
+    "left-bottom": { x: 16, y: 262, w: 240, h: 54 },
+    "list-top": { x: 300, y: 14, w: 250, h: 54 },
+    list: { x: 300, y: 84, w: 250, h: 226 },
+    bottom: { x: 16, y: 246, w: 240, h: 38 },
   };
   const z = hi[zone];
   return (
     <div
       style={{
         position: "relative",
-        width: 280,
-        height: 164,
-        borderRadius: 14,
-        border: `2px solid ${LINE}`,
+        width: 570,
+        height: 336,
+        borderRadius: 22,
+        border: `4px solid ${LINE}`,
         background: "rgba(0,0,0,0.3)",
         flex: "0 0 auto",
       }}
     >
       {/* video */}
-      <div style={{ position: "absolute", left: 8, top: 32, width: 120, height: 56, borderRadius: 6, background: "rgba(255,255,255,0.14)" }} />
+      <div style={{ position: "absolute", left: 16, top: 66, width: 240, height: 112, borderRadius: 12, background: "rgba(255,255,255,0.14)" }} />
       {/* rows */}
       {[0, 1, 2, 3].map((i) => (
-        <div key={i} style={{ position: "absolute", left: 148, top: 38 + i * 30, width: 124, height: 22, borderRadius: 5, background: "rgba(255,255,255,0.1)" }} />
+        <div key={i} style={{ position: "absolute", left: 300, top: 78 + i * 62, width: 250, height: 44, borderRadius: 10, background: "rgba(255,255,255,0.1)" }} />
       ))}
       {/* highlight */}
       <div
@@ -417,14 +428,14 @@ function MiniMap({ zone, t }: { zone: Zone; t: number }) {
           top: z.y,
           width: z.w,
           height: z.h,
-          borderRadius: 7,
-          border: `3px solid ${BLUE}`,
-          boxShadow: `0 0 ${14 + glow * 16}px ${BLUE}`,
+          borderRadius: 12,
+          border: `7px solid ${BLUE}`,
+          boxShadow: `0 0 ${28 + glow * 34}px ${BLUE}`,
           opacity: 0.65 + glow * 0.35,
         }}
       />
-      <div style={{ position: "absolute", bottom: -34, width: "100%", textAlign: "center", color: INK, opacity: 0.65, fontSize: 20 }}>
-        화면에서 이 자리예요
+      <div style={{ position: "absolute", bottom: -64, width: "100%", textAlign: "center", color: INK, opacity: 0.75, fontSize: 46 }}>
+        화면에서 이 자리
       </div>
     </div>
   );
@@ -488,6 +499,7 @@ export const Practice: React.FC<PracticeProps> = ({ n, title, timing }) => {
   // 말하기 펄스 (시각 큐 없을 때 중앙, 있을 때는 상단 배지 옆 미니 점)
   const phase = Math.sin(t * 2 * Math.PI * 1.6);
   const icon = speaking ? STYLE_ICON[speaking.style] ?? "🔊" : "🤫";
+  const progress = spoken.length ? Math.min(doneCount, spoken.length) / spoken.length : 0;
 
   return (
     <div
@@ -501,72 +513,64 @@ export const Practice: React.FC<PracticeProps> = ({ n, title, timing }) => {
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "space-between",
-        padding: "52px 80px",
+        padding: "44px 60px",
         boxSizing: "border-box",
       }}
     >
       <Audio src={staticFile(`practice-${n}/audio.wav`)} />
 
-      {/* top: 배지 + 진행 점 + 말하기 표시 */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 22 }}>
+      {/* top: 배지 + 진행 바 (점 17개는 0.19배에서 3px = 안 보임 → 바 + 큰 숫자) */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 18 }}>
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 20,
-            fontSize: 48,
-            fontWeight: 700,
+            gap: 24,
+            fontSize: 62,
+            fontWeight: 800,
             background: "rgba(255,255,255,0.08)",
-            border: "2px solid rgba(255,255,255,0.25)",
+            border: "3px solid rgba(255,255,255,0.25)",
             borderRadius: 999,
-            padding: "14px 48px",
+            padding: "16px 56px",
           }}
         >
           <span
             style={{
-              width: 22,
-              height: 22,
-              borderRadius: 11,
+              width: 34,
+              height: 34,
+              borderRadius: 17,
               background: speaking ? BLUE : "rgba(255,255,255,0.2)",
               transform: speaking ? `scale(${1 + 0.25 * phase})` : "none",
             }}
           />
           연습 {n} · {title}
-          <span style={{ fontSize: 40 }}>{icon}</span>
+          <span style={{ fontSize: 56 }}>{icon}</span>
         </div>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          {spoken.map((c, idx) => (
-            <div
-              key={c.i}
-              style={{
-                width: 16,
-                height: 16,
-                borderRadius: 8,
-                background: idx < doneCount ? BLUE : "rgba(255,255,255,0.18)",
-              }}
-            />
-          ))}
-          <span style={{ fontSize: 30, marginLeft: 14, opacity: 0.85 }}>
+        <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
+          <div style={{ width: 620, height: 18, borderRadius: 9, background: "rgba(255,255,255,0.18)", overflow: "hidden" }}>
+            <div style={{ width: `${progress * 100}%`, height: "100%", background: BLUE }} />
+          </div>
+          <span style={{ fontSize: 52, fontWeight: 800, opacity: 0.9 }}>
             {Math.min(doneCount, spoken.length)} / {spoken.length}
           </span>
         </div>
       </div>
 
-      {/* center stage: 시각 큐 or 말하기 오브 */}
+      {/* center stage: 시각 큐 or 말하기 오브 — 화면 픽셀 대부분을 여기에 */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          gap: 60,
+          gap: 70,
           transform: `scale(${0.9 + entrance * 0.1})`,
           opacity: visuals ? entrance : 1,
-          minHeight: 360,
+          minHeight: 640,
         }}
       >
         {visuals ? (
           <>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 44 }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 56 }}>
               {visuals.map((v, i) => (
                 <VisualBlock key={i} v={v} t={vt} />
               ))}
@@ -576,18 +580,18 @@ export const Practice: React.FC<PracticeProps> = ({ n, title, timing }) => {
         ) : (
           <div
             style={{
-              width: 250,
-              height: 250,
+              width: 460,
+              height: 460,
               borderRadius: "50%",
               background: speaking
                 ? "radial-gradient(circle, #6ea8ff 0%, #3b6fd4 70%)"
                 : "radial-gradient(circle, #3a4a6a 0%, #2b3a58 70%)",
               transform: `scale(${speaking ? 1 + 0.1 * phase : 1})`,
-              boxShadow: `0 0 ${speaking ? 44 : 8}px ${speaking ? "#6ea8ffaa" : "#00000055"}`,
+              boxShadow: `0 0 ${speaking ? 90 : 16}px ${speaking ? "#6ea8ffaa" : "#00000055"}`,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 110,
+              fontSize: 210,
             }}
           >
             {icon}
@@ -598,13 +602,14 @@ export const Practice: React.FC<PracticeProps> = ({ n, title, timing }) => {
       {/* bottom: 고정 안내 (발화 문장은 절대 표시하지 않음) */}
       <div
         style={{
-          fontSize: 40,
+          fontSize: 54,
+          fontWeight: 700,
           background: "rgba(0,0,0,0.35)",
-          borderRadius: 20,
-          padding: "20px 44px",
+          borderRadius: 26,
+          padding: "22px 52px",
         }}
       >
-        👂 귀로 듣고, 화면에 뜨는 대로 직접 해보세요
+        👂 듣고, 화면에 뜨는 대로 해보세요
       </div>
     </div>
   );
