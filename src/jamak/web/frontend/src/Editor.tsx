@@ -1886,8 +1886,10 @@ export function Editor({
   // Tab 등이 영상을 재생시키던 문제). onKey는 1회 등록이라 ref로 읽는다.
   // (갱신 effect는 qcModal 선언 뒤에 있음)
   const reviewModalRef = useRef(false);
-  // 모달 미니 영상이 들어앉을 자리 (YT.Player가 이 안의 노드를 iframe으로 치환)
-  const miniHostRef = useRef<HTMLDivElement | null>(null);
+  // 모달 미니 영상이 들어앉을 자리. ref가 아니라 **state**로 잡는다 — 맞춤법
+  // 모달은 "검사 중..." 화면을 먼저 띄우고 결과가 온 뒤에야 이 자리를 렌더하므로,
+  // 자리가 붙는 순간이 훅의 재실행 신호가 되어야 한다 (CHG-20260717-091).
+  const [miniHost, setMiniHost] = useState<HTMLDivElement | null>(null);
   // 한자 병기 미리보기 — 맞춤법처럼 확인 후 체크한 것만 적용
   const [hanjaModal, setHanjaModal] = useState<{
     suggestions: SpellSuggestion[];
@@ -2394,7 +2396,7 @@ export function Editor({
     usePlayer(ytVideoId, dragFreezeRef);
   // 검수 모달 미니 영상 — IFrame API라 소수점 시각으로 정확히 seek
   // (CHG-20260717-079. ytVideoId 선언 뒤에 와야 함)
-  const mini = useMiniPlayer(ytVideoId, !!hanjaModal || !!qcModal, miniHostRef);
+  const mini = useMiniPlayer(ytVideoId, !!hanjaModal || !!qcModal, miniHost);
   // ▶(previewTick 증가) 또는 플레이어 준비 완료 시 그 시점부터 재생.
   // previewTick이 dep이라 같은 자막을 다시 눌러도 매번 다시 들린다.
   useEffect(() => {
@@ -3743,7 +3745,7 @@ export function Editor({
       <>
         <div className="modal-player">
           {/* 안이 비어 있어야 한다 — 플레이어 iframe은 훅이 직접 넣고 뺀다 */}
-          <div ref={miniHostRef} className="modal-player-frame" />
+          <div ref={setMiniHost} className="modal-player-frame" />
           {previewSec === null && (
             <div className="modal-player-hint">
               ▶ 를 누르면 여기서 그 부분 영상이 재생돼요

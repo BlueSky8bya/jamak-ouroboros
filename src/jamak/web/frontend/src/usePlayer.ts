@@ -36,10 +36,18 @@ function whenApiReady(cb: () => void): void {
 /** Mini player for the review modals — precise (float) seeking + real
  *  play/pause. Created only while `enabled` (the modal is open), and
  *  destroyed on close so it never plays behind the editor. */
+// [WH-CHANGE v0.9.60 | FIX | 2026-07-17 | CHG-20260717-091]
+// Reason: ref로 host를 받으니 **자리가 생기기 전에** 생성 신호가 울리는 모달에서
+//   플레이어가 영영 안 만들어졌다 (맞춤법 모달: qcModal을 먼저 켜고 "검사 중..."을
+//   띄운 뒤 결과가 와야 플레이어 자리가 렌더됨 → 그때 effect는 이미 host=null로
+//   반환했고 deps가 안 바뀌어 재시도 없음 → 검은 칸 + 버튼 비활성. 한자 모달은
+//   제안을 받은 뒤 모달을 켜서 우연히 동작했다). host를 **state로 받아** 자리가
+//   붙는 순간이 곧 deps 변화가 되게 한다.
+// Related: CHANGELOG CHG-20260717-091.
 export function useMiniPlayer(
   videoId: string,
   enabled: boolean,
-  hostRef: RefObject<HTMLDivElement | null>,
+  host: HTMLDivElement | null,
 ) {
   const playerRef = useRef<any>(null);
   const [ready, setReady] = useState(false);
@@ -50,12 +58,13 @@ export function useMiniPlayer(
     let disposed = false;
     setReady(false);
 
+    // 자리가 아직 없으면 만들지 않는다. host가 deps에 있으므로, 자리가 붙는
+    // 순간 이 effect가 다시 돌아 그때 만든다 (맞춤법 모달처럼 늦게 렌더되는 경우).
+    if (!host) return;
     // YT.Player는 대상 엘리먼트를 iframe으로 **치환**한다. 그래서 React가
     // 소유한 노드를 넘기면 언마운트 때 React가 이미 사라진 노드를 지우려다
     // 터진다(removeChild NotFoundError). React가 모르는 자식을 직접 만들어
     // 넘기고, 정리는 wrapper를 비우는 것으로 한다.
-    const host = hostRef.current;
-    if (!host) return;
     const mount = document.createElement("div");
     mount.style.width = "100%";
     mount.style.height = "100%";
@@ -90,7 +99,7 @@ export function useMiniPlayer(
       // destroy()가 남긴 잔해까지 정리 — 우리가 만든 자식이라 React는 모른다
       host.replaceChildren();
     };
-  }, [videoId, enabled, hostRef]);
+  }, [videoId, enabled, host]);
 
   const p = () => playerRef.current;
   return {
