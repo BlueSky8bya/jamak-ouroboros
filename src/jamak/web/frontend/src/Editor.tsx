@@ -191,7 +191,17 @@ function TimingStrip({
     // otherwise anchor on the cue you're editing so it stays put
     const focusCenter = focused ? (focused.start + focused.end) / 2 : currentTime;
     const outside = currentTime < focusCenter - 8 || currentTime > focusCenter + 8;
-    let center = playing || outside ? currentTime : focusCenter;
+    // [WH-CHANGE v0.9.65 | FIX | 2026-07-17 | CHG-20260717-098]
+    // Reason: Tab으로 멈추는 순간 앵커가 currentTime → focusCenter로 **바뀌어**
+    //   창이 자막 중앙으로 툭 밀렸다(사용자: "관성처럼 살짝 밀렸다가 돌아와").
+    //   재생헤드가 편집 중 자막 안(±2초)에 있으면 — Tab으로 멈출 때 거의 항상
+    //   그렇다 — 계속 currentTime을 앵커로 써서 정지해도 아무것도 안 움직이게
+    //   한다. 멀리 있는 자막을 고를 때만 그 자막으로 창을 옮긴다(기존 의도 유지).
+    // Related: CHANGELOG CHG-20260717-098.
+    const nearFocus = focused
+      ? currentTime >= focused.start - 2 && currentTime <= focused.end + 2
+      : true;
+    let center = playing || outside || nearFocus ? currentTime : focusCenter;
     // don't scroll off into empty space past the last cue / across a long gap —
     // keep the nearest-behind cue on screen so its edges stay grabbable
     if (nearestBehind && (playing || outside)) center = Math.min(center, nearestBehind.end + 5);
@@ -333,9 +343,16 @@ function TimingStrip({
       {/* `smooth`: while the video plays the window scrolls to follow the
           playhead, but currentTime only ticks 4×/sec — a CSS transition
           interpolates each 250ms jump into continuous motion. OFF while dragging
-          (the handle must track the pointer, not glide) or paused. */}
+          (the handle must track the pointer, not glide).
+          [WH-CHANGE v0.9.65 | FIX | 2026-07-17 | CHG-20260717-098]
+          Reason: 예전엔 정지 시에도 껐는데, 그러면 **재생 중이던 전환이 중간에
+            취소**되면서 요소가 목표값으로 튄다(창은 250ms에 21px쯤 흐르므로 그만큼
+            확 밀린다) — 사용자가 본 "관성처럼 살짝 밀림". 정지해도 전환을 남겨
+            두면 날아가던 애니메이션이 제 속도로 착지한다. 정지 상태에선
+            currentTime이 안 변해 추가 움직임도 없다.
+          Related: CHANGELOG CHG-20260717-098. */}
       <div
-        className={"strip-track" + (playing && !dragging ? " smooth" : "")}
+        className={"strip-track" + (!dragging ? " smooth" : "")}
         ref={trackRef}
         onPointerMove={moveDrag}
         onPointerUp={endDrag}
@@ -4276,6 +4293,72 @@ export function Editor({
             {focusedSeg ? (
               <>
                 <span className="tb-no">#{segmentNo(segments, focusedSeg.id)}</span>
+                {/* [WH-CHANGE v0.9.65 | FEAT | 2026-07-17 | CHG-20260717-099]
+                    Reason: 미세조정이 어렵다는 피드백. 자막 편집기 표준(Aegisub·
+                      Subtitle Edit·YouTube Studio)은 **숫자 입력 + ◀▶ 넛지 +
+                      드래그 핸들** 세 벌을 함께 준다. 우리 셀 안엔 이미 그게 다
+                      있었는데(0.1초 넛지 + TimeField) **오른쪽 셀에만** 있어서
+                      영상 밑에선 못 썼다 — 편집 바의 존재 이유가 그건데.
+                      같은 컴포넌트·같은 핸들러(timeChange)를 그대로 가져온다.
+                    Related: CHANGELOG CHG-20260717-099. */}
+                <span className="tb-group">
+                  <span className="tb-label">시작</span>
+                  <button
+                    className="nudge-btn"
+                    title="시작 0.1초 앞으로"
+                    onClick={() =>
+                      timeChange(focusedSeg, "start", Math.max(0, focusedSeg.start - 0.1))
+                    }
+                  >
+                    ◀
+                  </button>
+                  <TimeField
+                    value={focusedSeg.start}
+                    title="시작 시간"
+                    onCommit={(v) => timeChange(focusedSeg, "start", v)}
+                  />
+                  <button
+                    className="nudge-btn"
+                    title="시작 0.1초 뒤로"
+                    onClick={() =>
+                      timeChange(
+                        focusedSeg,
+                        "start",
+                        Math.min(focusedSeg.end - 0.1, focusedSeg.start + 0.1),
+                      )
+                    }
+                  >
+                    ▶
+                  </button>
+                </span>
+                <span className="tb-group">
+                  <span className="tb-label">끝</span>
+                  <button
+                    className="nudge-btn"
+                    title="끝 0.1초 앞으로"
+                    onClick={() =>
+                      timeChange(
+                        focusedSeg,
+                        "end",
+                        Math.max(focusedSeg.start + 0.1, focusedSeg.end - 0.1),
+                      )
+                    }
+                  >
+                    ◀
+                  </button>
+                  <TimeField
+                    value={focusedSeg.end}
+                    title="끝 시간"
+                    onCommit={(v) => timeChange(focusedSeg, "end", v)}
+                  />
+                  <button
+                    className="nudge-btn"
+                    title="끝 0.1초 뒤로"
+                    onClick={() => timeChange(focusedSeg, "end", focusedSeg.end + 0.1)}
+                  >
+                    ▶
+                  </button>
+                </span>
                 <button
                   className="tb-btn"
                   title="지금 영상 시간을 이 자막의 시작으로 (Alt+[)"
@@ -4302,9 +4385,6 @@ export function Editor({
                     ⤢ 발화 맞춤
                   </button>
                 )}
-                <span className="tb-at">
-                  {fmt(focusedSeg.start)} → {fmt(focusedSeg.end)}
-                </span>
               </>
             ) : (
               <span className="tb-hint">자막을 하나 누르면 여기서 시간을 맞출 수 있어요</span>

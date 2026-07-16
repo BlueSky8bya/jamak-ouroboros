@@ -4533,12 +4533,21 @@ kbd {
 }
 .tb-btn:hover { border-color: var(--blue); color: var(--blue); }
 .tb-btn.tb-snap { border-color: color-mix(in srgb, var(--blue) 45%, var(--line)); color: var(--blue); }
-.tb-at {
-  margin-left: auto;
+/* 시작/끝 미세조정 묶음 — 셀 안과 같은 ◀ [숫자] ▶ (자막 편집기 표준) */
+.tb-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.tb-label {
+  margin-right: 2px;
   color: var(--faint);
-  font-size: 0.8rem;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  font-size: 0.76rem;
+  font-weight: 800;
 }
 .tb-hint { color: var(--faint); font-size: 0.82rem; }
 
