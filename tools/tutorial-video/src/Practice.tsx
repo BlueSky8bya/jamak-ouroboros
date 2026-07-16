@@ -380,11 +380,12 @@ function SpeedVisual({ t }: { t: number }) {
   );
   return (
     <div style={{ position: "relative", display: "flex", gap: 20 }}>
-      {btn("0.5×", false)}
       {btn("0.75×", true)}
       {btn("1×", false)}
+      {btn("1.25×", false)}
       {btn("1.5×", false)}
-      <TapPointer t={t} x={300} y={60} />
+      {/* 0.75×가 첫 버튼이 되면서 손가락도 왼쪽으로 (구 x=300은 0.5× 다음 자리) */}
+      <TapPointer t={t} x={150} y={60} />
     </div>
   );
 }

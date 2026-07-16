@@ -4286,7 +4286,13 @@ export function Editor({
             3초 ⟳
           </button>
           <div className="pc-speed" title="재생 속도 — 느리게 하면 타이밍·발음 검수가 쉬워요">
-            {[0.5, 0.75, 1, 1.5].map((r) => (
+            {/* [WH-CHANGE v0.9.81 | UX | 2026-07-17 | CHG-20260717-121]
+                Reason: 0.5×는 안 쓰인다(사용자) — 강연 속도에선 0.75로 충분하고,
+                  대신 쉬운 구간을 빨리 훑을 1.25가 없었다. 개수(4)는 유지해
+                  버튼 줄 레이아웃은 그대로. rate는 저장 안 하고 매 세션 1×로
+                  시작하므로(usePlayer) 남아 있는 0.5 설정이 되살아날 일은 없다.
+                Related: CHANGELOG CHG-20260717-121. */}
+            {[0.75, 1, 1.25, 1.5].map((r) => (
               <button
                 key={r}
                 type="button"
