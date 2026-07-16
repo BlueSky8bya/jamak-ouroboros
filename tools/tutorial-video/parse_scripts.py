@@ -14,7 +14,12 @@ from pathlib import Path
 SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "docs" / "tutorial" / "scripts"
 STYLES = {"보통", "빠르게", "느리게", "웅얼", "침묵"}
 # PLAN.md §2.2: total spoken-line count contract. Update together with scripts.
-EXPECTED_TOTAL = 79
+# [WH-CHANGE v0.9.67 | FEAT | 2026-07-17 | CHG-20260717-101]
+# Reason: 연습3·5·6 대본 재설계 (안심 확인·✨ 자동 정리·복구·맞춤법 대사 제거,
+#   연습6은 실전 캡스톤으로 전면 교체) → 79 → 94. 이 가드가 대본만 고치고
+#   계약을 안 고치는 실수를 잡아 준다(의도대로 작동함).
+# Related: ADR-0012, docs/tutorial/재설계계획-2026-07.md, CHANGELOG CHG-20260717-101.
+EXPECTED_TOTAL = 94  # 연습1:17 · 2:13 · 3:16 · 4:11 · 5:14 · 6:23
 
 
 @dataclass
