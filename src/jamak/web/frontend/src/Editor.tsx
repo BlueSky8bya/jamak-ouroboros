@@ -1871,6 +1871,12 @@ export function Editor({
   const [previewEdits, setPreviewEdits] = useState<Record<number, string>>({});
   // '안 바꿈'으로 명시적으로 끈 줄 (이 줄은 적용 안 함). 나머지는 적용.
   const [previewSkip, setPreviewSkip] = useState<Set<number>>(new Set());
+  // ▶ 누를 때마다 미니 영상 iframe을 리마운트해 같은 시각도 다시 재생되게 하는 카운터
+  const [previewTick, setPreviewTick] = useState(0);
+  // 검수 모달(한자/맞춤법/점검)이 열려 있으면 전역 단축키를 막는다 (모달 뒤에서
+  // Tab 등이 영상을 재생시키던 문제). onKey는 1회 등록이라 ref로 읽는다.
+  // (갱신 effect는 qcModal 선언 뒤에 있음)
+  const reviewModalRef = useRef(false);
   // 한자 병기 미리보기 — 맞춤법처럼 확인 후 체크한 것만 적용
   const [hanjaModal, setHanjaModal] = useState<{
     suggestions: SpellSuggestion[];
@@ -2316,6 +2322,10 @@ export function Editor({
     spellHold?: Set<number>; // 🙉 애매 — 적용 후 다시 듣기로 표시할 행
     mode?: "spell"; // 있으면 맞춤법 전용 모달
   }>(null);
+  // 검수 모달이 열리면 전역 단축키 차단 플래그를 올린다 (onKey가 ref로 읽음)
+  useEffect(() => {
+    reviewModalRef.current = !!hanjaModal || !!qcModal;
+  }, [hanjaModal, qcModal]);
   const [showKeys, setShowKeys] = useState(true);
   const [focusedId, setFocusedId] = useState<number | null>(null);
   // 오타 지목 단계(open-row)의 자동 통과: 직전 흐름 확인의 "확인+다음"이 이미
@@ -2947,6 +2957,9 @@ export function Editor({
     }
     function onKey(e: KeyboardEvent) {
       if ((e as any).isComposing) return;
+      // 검수 모달이 떠 있으면 전역 단축키 무시 — 뒤 영상이 Tab 등으로 재생되던 문제.
+      // (모달 안 편집칸 타이핑은 네이티브로 그대로 동작)
+      if (reviewModalRef.current) return;
       if (isCellUndoShortcut(e)) {
         e.preventDefault();
         void H.current.undoLast();
@@ -3634,6 +3647,7 @@ export function Editor({
   function previewCue(start: number) {
     pause();
     setPreviewSec(Math.max(0, Math.floor(start - 0.4)));
+    setPreviewTick((t) => t + 1); // 같은 시각이어도 리마운트 → 항상 다시 재생
   }
 
   // 도구 줄에서 맞춤법 검사 진입 — 내보내기 점검 모달과 분리된 전용 모달.
@@ -4733,7 +4747,7 @@ export function Editor({
                 </div>
               ) : (
                 <iframe
-                  key={previewSec}
+                  key={previewTick}
                   className="modal-player-frame"
                   src={`https://www.youtube.com/embed/${ytVideoId}?start=${previewSec}&autoplay=1&rel=0&modestbranding=1`}
                   title="미리보기"
@@ -4813,7 +4827,7 @@ export function Editor({
                       </div>
                     ) : (
                       <iframe
-                        key={previewSec}
+                        key={previewTick}
                         className="modal-player-frame"
                         src={`https://www.youtube.com/embed/${ytVideoId}?start=${previewSec}&autoplay=1&rel=0&modestbranding=1`}
                         title="미리보기"
