@@ -1869,6 +1869,8 @@ export function Editor({
   // 모달에서 사람이 직접 고친 결과 텍스트 (segment_id → 최종 텍스트). 들으면서
   // AI 제안을 원하는 대로 수정. 없으면 AI 제안(after) 그대로 적용.
   const [previewEdits, setPreviewEdits] = useState<Record<number, string>>({});
+  // '안 바꿈'으로 명시적으로 끈 줄 (이 줄은 적용 안 함). 나머지는 적용.
+  const [previewSkip, setPreviewSkip] = useState<Set<number>>(new Set());
   // 한자 병기 미리보기 — 맞춤법처럼 확인 후 체크한 것만 적용
   const [hanjaModal, setHanjaModal] = useState<{
     suggestions: SpellSuggestion[];
@@ -3473,6 +3475,7 @@ export function Editor({
     setHanjaProg(null);
     setPreviewSec(null);
     setPreviewEdits({});
+    setPreviewSkip(new Set());
     await flushAll();
     try {
       const BATCH = 200;
@@ -3510,7 +3513,7 @@ export function Editor({
     // 고친(원래와 다른) 줄만 적용 — 체크박스 없이. 사람이 직접 고쳤으면 그 텍스트.
     const finalOf = (c: SpellSuggestion) =>
       (previewEdits[c.segment_id] ?? c.after).trim() || c.after;
-    const chosen = changedSuggestions(m.suggestions);
+    const chosen = appliedSuggestions(m.suggestions);
     setHanjaModal(null);
     if (!chosen.length) return;
     const before = segmentsRef.current.filter((s) =>
@@ -3637,6 +3640,7 @@ export function Editor({
   function openSpellCheck() {
     setPreviewSec(null);
     setPreviewEdits({});
+    setPreviewSkip(new Set());
     setQcModal({
       report: null,
       spell: null,
@@ -3649,13 +3653,21 @@ export function Editor({
     void runSpell();
   }
 
-  // 검수 카드 (한자·맞춤법 공용). 체크박스/애매함 없이 — 그 자리서 고치면 적용,
-  // '↺ 원래대로'면 스킵. 원래 자막(참고) + 큰 편집칸 + ▶ 재생 (사용자 재설계).
+  // 검수 카드 (한자·맞춤법 공용). 체크박스 없이 [✓ 적용 / 안 바꿈] 토글로.
+  // diff(빨강 삭제·초록 추가)로 뭐가 바뀌는지 보여주고, 큰 칸에서 그 자리서 고침.
   function reviewRow(s: SpellSuggestion) {
     const cur = previewEdits[s.segment_id] ?? s.after;
-    const changed = cur.trim() !== s.before.trim();
+    const skip = previewSkip.has(s.segment_id);
+    const d = tokenDiff(s.before, cur); // 원래 vs 지금(편집 반영) 라이브 diff
+    const setSkip = (v: boolean) =>
+      setPreviewSkip((p) => {
+        const n = new Set(p);
+        if (v) n.add(s.segment_id);
+        else n.delete(s.segment_id);
+        return n;
+      });
     return (
-      <div key={s.segment_id} className={"review-card" + (changed ? " on" : "")}>
+      <div key={s.segment_id} className={"review-card" + (skip ? " skip" : " on")}>
         <div className="review-head">
           <button
             type="button"
@@ -3665,37 +3677,47 @@ export function Editor({
           >
             ▶ {fmt(s.start)}
           </button>
-          <span className="review-flag">
-            {changed ? "고침 → 적용됨" : "원래대로 (적용 안 함)"}
-          </span>
-          <button
-            type="button"
-            className="review-revert"
-            title="AI 제안 무시하고 원래 자막 그대로 — 이 줄은 안 바뀜"
-            onClick={() =>
-              setPreviewEdits((p) => ({ ...p, [s.segment_id]: s.before }))
-            }
-          >
-            ↺ 원래대로
-          </button>
+          <span className="review-spacer" />
+          <div className="review-toggle" role="group">
+            <button
+              type="button"
+              className={"rt-btn rt-apply" + (skip ? "" : " on")}
+              onClick={() => setSkip(false)}
+            >
+              ✓ 적용
+            </button>
+            <button
+              type="button"
+              className={"rt-btn rt-skip" + (skip ? " on" : "")}
+              title="이 줄은 원래 자막 그대로 두기"
+              onClick={() => setSkip(true)}
+            >
+              안 바꿈
+            </button>
+          </div>
         </div>
-        <div className="review-orig">원래: {s.before}</div>
+        <div className="review-diff" aria-hidden>
+          <span className="d-before">{d.del}</span>
+          <span className="d-arrow">→</span>
+          <span className="d-after">{d.ins}</span>
+        </div>
         <textarea
           className="review-edit"
           rows={2}
           value={cur}
           spellCheck={false}
-          onChange={(e) =>
-            setPreviewEdits((p) => ({ ...p, [s.segment_id]: e.target.value }))
-          }
+          disabled={skip}
+          onChange={(e) => {
+            setPreviewEdits((p) => ({ ...p, [s.segment_id]: e.target.value }));
+            setSkip(false); // 직접 고치면 자동 적용
+          }}
         />
       </div>
     );
   }
-  function changedSuggestions(list: SpellSuggestion[]) {
-    return list.filter(
-      (s) => (previewEdits[s.segment_id] ?? s.after).trim() !== s.before.trim(),
-    );
+  // 적용 대상 = '안 바꿈' 안 누른 줄 (기본 전부 적용, 토글로 뺌)
+  function appliedSuggestions(list: SpellSuggestion[]) {
+    return list.filter((s) => !previewSkip.has(s.segment_id));
   }
 
   async function runSpell() {
@@ -3748,7 +3770,7 @@ export function Editor({
     // 고친(원래와 다른) 줄만 적용 — 체크박스/애매함 없이.
     const finalOf = (c: SpellSuggestion) =>
       (previewEdits[c.segment_id] ?? c.after).trim() || c.after;
-    const chosen = changedSuggestions(m.spell);
+    const chosen = appliedSuggestions(m.spell);
     if (!chosen.length) {
       setQcModal(null);
       return;
@@ -4727,10 +4749,10 @@ export function Editor({
               </button>
               <button
                 className="srt-apply"
-                disabled={changedSuggestions(hanjaModal.suggestions).length === 0}
+                disabled={appliedSuggestions(hanjaModal.suggestions).length === 0}
                 onClick={() => applyHanja()}
               >
-                {changedSuggestions(hanjaModal.suggestions).length}곳 적용
+                {appliedSuggestions(hanjaModal.suggestions).length}곳 적용
               </button>
             </div>
           </div>
@@ -4807,10 +4829,10 @@ export function Editor({
                     </button>
                     <button
                       className="srt-apply"
-                      disabled={changedSuggestions(qcModal.spell).length === 0}
+                      disabled={appliedSuggestions(qcModal.spell).length === 0}
                       onClick={() => applySpell()}
                     >
-                      {changedSuggestions(qcModal.spell).length}곳 적용
+                      {appliedSuggestions(qcModal.spell).length}곳 적용
                     </button>
                   </div>
                 </>

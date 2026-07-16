@@ -3593,6 +3593,25 @@ kbd {
   font-family: inherit;
 }
 .review-edit:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.review-edit:disabled { opacity: 0.5; border-color: var(--line); cursor: not-allowed; }
+.review-spacer { flex: 1; }
+/* 라이브 diff — 빨강 삭제 · 초록 추가 (바뀌는 부분만) */
+.review-diff {
+  font-size: 0.9rem; line-height: 1.5; word-break: break-word; color: var(--faint);
+}
+.review-diff del { color: #ff8686; text-decoration: line-through; }
+.review-diff ins { color: #63d67e; text-decoration: none; font-weight: 700; }
+.d-arrow { margin: 0 7px; color: var(--faint); }
+.review-card.skip .review-diff { opacity: 0.45; }
+/* [✓ 적용 / 안 바꿈] 세그먼트 토글 */
+.review-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.rt-btn {
+  padding: 5px 14px; border: 0; background: var(--surface); color: var(--muted);
+  font-size: 0.85rem; font-weight: 600; cursor: pointer;
+}
+.rt-btn + .rt-btn { border-left: 1px solid var(--line); }
+.rt-apply.on { background: var(--teal); color: #06231d; }
+.rt-skip.on { background: #6b3030; color: #ffdede; }
 .spell-row:hover { background: var(--surface-strong); }
 .spell-row input { width: 16px; height: 16px; accent-color: var(--blue); flex: 0 0 auto; }
 .spell-diff { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
