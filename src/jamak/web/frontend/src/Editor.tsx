@@ -2298,7 +2298,8 @@ export function Editor({
     setTour(next);
     afterTourAdvance(next);
   }
-  // 내보내기 전 점검 모달 (QC + 선택적 AI 맞춤법). null = closed.
+  // 내보내기 전 점검 모달 (QC) / 맞춤법 검사 모달. null = closed.
+  // mode "spell" = 도구 줄에서 연 맞춤법 전용(내보내기 점검과 분리). 기본은 QC.
   const [qcModal, setQcModal] = useState<null | {
     report: QcReport | null; // null while loading
     spell: SpellSuggestion[] | null; // null = not run yet
@@ -2306,6 +2307,7 @@ export function Editor({
     spellProg?: { done: number; total: number } | null; // 배치 진행률
     accepted: Set<number>; // segment_ids the reviewer kept checked
     spellHold?: Set<number>; // 🙉 애매 — 적용 후 다시 듣기로 표시할 행
+    mode?: "spell"; // 있으면 맞춤법 전용 모달
   }>(null);
   const [showKeys, setShowKeys] = useState(true);
   const [focusedId, setFocusedId] = useState<number | null>(null);
@@ -3612,6 +3614,27 @@ export function Editor({
     if (target) focusSegment(target);
   }
 
+  // 미리보기 재생: 모달을 연 채 그 자막 시점으로 영상 이동+재생. 흑판에 쓴
+  // 한자인지·문맥상 맞는 동음이의어인지 들으며 판단 (사용자 요청).
+  function previewCue(start: number) {
+    seekTo(Math.max(0, start - 0.4));
+    play();
+  }
+
+  // 도구 줄에서 맞춤법 검사 진입 — 내보내기 점검 모달과 분리된 전용 모달.
+  function openSpellCheck() {
+    setQcModal({
+      report: null,
+      spell: null,
+      spellBusy: true,
+      spellProg: null,
+      accepted: new Set<number>(),
+      spellHold: new Set<number>(),
+      mode: "spell",
+    });
+    void runSpell();
+  }
+
   async function runSpell() {
     // 배치 루프: 미캐시 줄을 160개씩 처리하며 진행률 표시 (긴 영상 타임아웃
     // 방지 + "어디까지 됐는지" — 사용자 요청). 각 응답은 지금까지 아는 제안
@@ -4091,6 +4114,18 @@ export function Editor({
                 ? `⏳ 채우는 중 ${Math.round((hanjaProg.done / Math.max(1, hanjaProg.total)) * 100)}% (${hanjaProg.done}/${hanjaProg.total})`
                 : "⏳ 채우는 중..."
               : "漢 한자 채우기"}
+          </button>
+          <button
+            className="tool tool-spell"
+            disabled={!!toolBusy || !!qcModal?.spellBusy}
+            title="AI가 맞춤법·띄어쓰기 오타를 찾아 제안합니다. 제안만 하고, 적용은 직접 골라요 (API 사용)"
+            onClick={() => openSpellCheck()}
+          >
+            {qcModal?.spellBusy
+              ? qcModal.spellProg
+                ? `⏳ 맞춤법 ${Math.round((qcModal.spellProg.done / Math.max(1, qcModal.spellProg.total)) * 100)}%`
+                : "⏳ 맞춤법 검사 중..."
+              : "✏️ 맞춤법 검사"}
           </button>
           <button
             className="tool tool-absorb"
@@ -4611,8 +4646,9 @@ export function Editor({
             <h3>漢 한자 채우기 — 미리보기</h3>
             <p className="srt-summary">
               채울 곳 <strong>{hanjaModal.suggestions.length}곳</strong>을 찾았어요 —
-              체크한 것만 적용됩니다. 잘못 찾은 곳은 체크를 풀어주세요 (적용 후 ↶로
-              전체 되돌리기 가능)
+              체크한 것만 적용됩니다. <strong>▶ 시각</strong>을 누르면 영상이 그 부분을
+              재생해요 — 흑판에 쓴 한자인지·동음이의 중 맞는지 들으며 확인하고, 아니면
+              체크를 풀어주세요 (적용 후 ↶로 전체 되돌리기 가능)
             </p>
             <div className="spell-list">
               {hanjaModal.suggestions.map((s) => {
@@ -4638,7 +4674,18 @@ export function Editor({
                         <span className="spell-arrow">→</span>
                         <span className="spell-after">{d.ins}</span>
                       </span>
-                      <span className="spell-time">{fmt(s.start)}</span>
+                      <button
+                        type="button"
+                        className="cue-play"
+                        title="이 자막 시점으로 영상 재생 — 흑판에 쓴 한자인지·문맥에 맞는지 들으며 확인"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          previewCue(s.start);
+                        }}
+                      >
+                        ▶ {fmt(s.start)}
+                      </button>
                     </label>
                   </div>
                 );
@@ -4668,8 +4715,14 @@ export function Editor({
           }}
         >
           <div className="srt-modal qc-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>📋 내보내기 전 점검</h3>
-            {!qcModal.report ? (
+            <h3>{qcModal.mode === "spell" ? "✏️ AI 맞춤법 검사" : "📋 내보내기 전 점검"}</h3>
+            {qcModal.mode === "spell" && qcModal.spell === null ? (
+              <p className="srt-summary">
+                {qcModal.spellProg
+                  ? `맞춤법 검사 중... ${Math.round((qcModal.spellProg.done / Math.max(1, qcModal.spellProg.total)) * 100)}% (${qcModal.spellProg.done}/${qcModal.spellProg.total})`
+                  : "맞춤법 검사 준비 중..."}
+              </p>
+            ) : qcModal.mode !== "spell" && !qcModal.report ? (
               <p className="srt-summary">점검하는 중...</p>
             ) : qcModal.spell !== null ? (
               // ---- 맞춤법 결과: diff checklist, 선택 적용 ----
@@ -4679,15 +4732,6 @@ export function Editor({
                   <div className="srt-actions">
                     <button className="srt-cancel" onClick={() => setQcModal(null)}>
                       닫기
-                    </button>
-                    <button
-                      className="srt-apply"
-                      onClick={() => {
-                        setQcModal(null);
-                        void doExport();
-                      }}
-                    >
-                      자막 받기 (.srt)
                     </button>
                   </div>
                 </>
@@ -4722,7 +4766,18 @@ export function Editor({
                               <span className="spell-arrow">→</span>
                               <span className="spell-after">{d.ins}</span>
                             </span>
-                            <span className="spell-time">{fmt(s.start)}</span>
+                            <button
+                        type="button"
+                        className="cue-play"
+                        title="이 자막 시점으로 영상 재생 — 흑판에 쓴 한자인지·문맥에 맞는지 들으며 확인"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          previewCue(s.start);
+                        }}
+                      >
+                        ▶ {fmt(s.start)}
+                      </button>
                           </label>
                           <button
                             type="button"
@@ -4758,7 +4813,7 @@ export function Editor({
                   </div>
                 </>
               )
-            ) : (
+            ) : qcModal.report ? (
               // ---- QC 요약 ----
               <>
                 {qcModal.report.issues === 0 && qcModal.report.unreviewed === 0 ? (
@@ -4800,20 +4855,6 @@ export function Editor({
                   <button className="srt-cancel" onClick={() => setQcModal(null)}>
                     닫기
                   </button>
-                  {isKo && (
-                    <button
-                      className="qc-spell"
-                      disabled={qcModal.spellBusy}
-                      title="AI가 맞춤법·띄어쓰기 오타를 찾아 제안합니다. 제안만 하고, 적용은 직접 고릅니다."
-                      onClick={() => void runSpell()}
-                    >
-                      {qcModal.spellBusy
-                        ? qcModal.spellProg
-                          ? `검사 중 ${Math.round((qcModal.spellProg.done / Math.max(1, qcModal.spellProg.total)) * 100)}% (${qcModal.spellProg.done}/${qcModal.spellProg.total})`
-                          : "검사 시작하는 중..."
-                        : "✏️ 맞춤법 검사 (AI)"}
-                    </button>
-                  )}
                   <button
                     className="srt-apply"
                     onClick={() => {
@@ -4825,7 +4866,7 @@ export function Editor({
                   </button>
                 </div>
               </>
-            )}
+            ) : null}
           </div>
         </div>
       )}

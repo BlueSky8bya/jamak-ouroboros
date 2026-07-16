@@ -3543,6 +3543,20 @@ kbd {
 }
 .spell-arrow { color: var(--faint); }
 .spell-time { color: var(--faint); font-size: 0.8rem; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+/* 미리보기 재생 버튼(모달 행) — 그 자막 시점으로 영상 재생 */
+.cue-play {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cue-play:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 .spell-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; cursor: pointer; }
 .spell-hold {
   flex: none;
