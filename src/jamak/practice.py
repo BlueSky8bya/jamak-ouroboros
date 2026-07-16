@@ -35,9 +35,8 @@ COURSE_TEXT_DEFECTS: dict[str, list[tuple[str, str, int]]] = {
         ("축지법", "축제법", 1),
         ("공중부양", "공중부용", 1),
     ],
-    "fast": [
-        ("뭉치", "몽치", 2),
-    ],
+    # fast(찾기·바꾸기)는 아래 전용 분기에서 처리한다 — 단순 치환으로는 STT가
+    # 제각각 낸 이름 변종을 하나로 모을 수 없다 (CHG-20260717-129).
 }
 
 
@@ -66,6 +65,32 @@ def inject_course_defects(session: Session, job: Job, course: str) -> int:
                 s.text_final = ""
                 session.add(s)
                 touched += 1
+                changed += 1
+
+    if course == "fast":
+        # [WH-CHANGE v0.9.88 | FIX | 2026-07-17 | CHG-20260717-129]
+        # Reason: 사용자 지적 — "몽치 → 뭉치가 4개가 아니라 2개만 적용돼". 찾기·
+        #   바꾸기 드릴은 **같은 이름이 자막마다 똑같이 잘못 적혀 있어야** 한 번의
+        #   바꾸기로 전부 고쳐지고, 나레이션(L12)도 "한 번에 다 바뀝니다"라고
+        #   약속한다. 그런데 STT는 제각각이었다 — 뭉치(정확)·뭥치(자연 오인식)가
+        #   섞였고 옛 주입은 `max_rows=2`로 묶여 2행만 몽치가 됐다. 그래서 바꾼
+        #   뒤에도 이름이 남아 약속이 깨졌다.
+        #   강아지 이야기 4줄(대본 L8~L11)의 이름 변종을 전부 `몽치`로 통일한다.
+        #   기능을 설명하는 L12("만약 뭉치라는 이름이…")는 건드리지 않는다 —
+        #   지시문의 이름까지 틀리면 무엇을 무엇으로 바꿔야 하는지 알 수가 없다.
+        #   UI 드릴 재료 보정이지 학습 데이터가 아니다 (practice 전용).
+        # Related: CHANGELOG CHG-20260717-129.
+        name_re = re.compile(r"뭉치|뭥치|뭉티|뭉지|뭉찌")
+        for s in segs:
+            src = s.text_llm or s.text_whisper or ""
+            if "만약" in src:
+                continue  # 기능 설명 줄 — 이름을 올바르게 둔다
+            new = name_re.sub("몽치", src)
+            if new != src:
+                s.text_llm = new
+                s.text_final = ""
+                s.reviewed = False
+                session.add(s)
                 changed += 1
 
     if course == "basic":
