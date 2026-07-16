@@ -68,6 +68,36 @@ def inject_course_defects(session: Session, job: Job, course: str) -> int:
                 touched += 1
                 changed += 1
 
+    if course == "basic":
+        # [WH-CHANGE v0.9.73 | FIX | 2026-07-17 | CHG-20260717-110]
+        # Reason: Whisper가 나레이션 L8 "잘 하셨습니다."의 첫 글자를 **앞 대사(L7)
+        #   꼬리에 잘못 찍어** 한 단어가 3초 떨어진 두 셀로 갈렸다 —
+        #   #13 "잘"(66.6~67.6, L7 구간 안) + #14 "하셨습니다"(70.6~71.3, L8 자리).
+        #   연습1은 첫 튜토리얼이고 투어가 셀 텍스트를 나레이션과 대조하는 단계라,
+        #   "잘"만 있는 셀은 "지금 → 실제 말" 안내를 무의미하게 만든다(사용자 지적).
+        #   앞 조각을 지우고 본체에 붙여 한 셀로 되돌린다. 시각은 본체 것을 쓴다 —
+        #   앞 조각의 start를 살리면 자막이 L7 발화 위에 뜬다.
+        #   UI 드릴 재료 보정이지 학습 데이터가 아니다 (practice 전용, structure 선례).
+        # Related: CHANGELOG CHG-20260717-110.
+        for a, b in zip(segs, segs[1:]):
+            ta = (a.text_llm or a.text_whisper or "").strip()
+            tb = (b.text_llm or b.text_whisper or "").strip()
+            if ta == "잘" and tb.startswith("하셨습니다"):
+                b.text_llm = f"잘 {tb}"
+                b.text_final = ""
+                b.reviewed = False
+                session.add(b)
+                session.delete(a)
+                session.flush()
+                for i, x in enumerate(
+                    sorted((s for s in segs if s is not a), key=lambda s: s.start)
+                ):
+                    if x.idx != i:
+                        x.idx = i
+                        session.add(x)
+                changed += 1
+                break
+
     if course == "structure":
         # [WH-CHANGE v0.9.13 | FIX | 2026-07-15 | CHG-20260715-037]
         # Reason: 나누기 드릴은 "너무 긴 자막" 하나가 있어야 성립하는데 STT가
