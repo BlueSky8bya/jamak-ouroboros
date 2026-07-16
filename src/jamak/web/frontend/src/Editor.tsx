@@ -1580,14 +1580,32 @@ const COURSES: TourCourse[] = [
         loopRow: true,
       },
       {
-        target: ".findbar",
-        title: "🔎 찾기·바꾸기",
+        // [WH-CHANGE v0.9.87 | FIX | 2026-07-17 | CHG-20260717-127]
+        // Reason: 한 단계가 "열기"만으로 통과해, 나레이션이 약속한 "한 번에 다
+        //   바뀝니다"를 정작 겪어보지 못했다. 열기 → 실제 바꾸기 **연쇄 2단계**로
+        //   나눈다(같은 체크포인트 81.9 두 번 = 대사 한 줄에 동작 둘, 연습1·6의
+        //   기존 관례). 대본 L12가 "열면"과 "다 바뀝니다"를 모두 말하므로 재렌더
+        //   없이 대본과 오히려 더 맞는다.
+        // Related: CHANGELOG CHG-20260717-127.
+        target: ".find-toggle",
+        title: "🔎 찾기·바꾸기 열기",
         body: (
           <>
-            <K c="Alt" />+<K c="B" /> — 같은 잘못이 100번 나와도 한 번에 다 바꿔요.
+            <K c="Alt" />+<K c="B" />.
           </>
         ),
         on: "find",
+      },
+      {
+        target: ".findbar",
+        title: "몽치 → 뭉치, 한 번에",
+        body: (
+          <>
+            찾을 내용 <b>몽치</b>, 바꿀 내용 <b>뭉치</b> → <b>모두 바꾸기</b>.
+          </>
+        ),
+        missingHint: "🔎 찾기·바꾸기를 먼저 여세요.",
+        on: "replace",
       },
       {
         target: ".pc-toggle-pause",
@@ -3616,6 +3634,15 @@ export function Editor({
       const r = await replaceText(videoId, findText, replText, true, lang);
       await refreshSegments();
       setFindMatches(null);
+      // [WH-CHANGE v0.9.87 | FIX | 2026-07-17 | CHG-20260717-127]
+      // Reason: 찾기·바꾸기 단계가 **창을 여는 것만으로** 통과했다(사용자 지적:
+      //   "바꾸기 버튼 누르지도 않았는데 혼자 진행"). 나레이션은 "찾기 바꾸기를
+      //   열면 한 번에 다 바뀝니다"라고 **바뀐 결말을 약속**하는데 정작 아무것도
+      //   안 바뀐 채 넘어갔다 — 앱이 대본을 못 지킨 것이다. 연습3은 "뭉치" 4회 +
+      //   `몽치` 결함까지 심어 둔 찾기·바꾸기 리드 코스인데 창 여는 법만 가르쳤다.
+      //   실제로 바뀌었을 때만(matches > 0) 통과시킨다 — 빈 검색·헛치기는 안 센다.
+      // Related: CHANGELOG CHG-20260717-127.
+      if (r.matches) tourEvent("replace");
       setStatusMsg(
         r.matches
           ? `"${findText}" → "${replText || "(삭제)"}" · 자막 ${r.segments}개에서 ${r.matches}곳 바꿨습니다`
