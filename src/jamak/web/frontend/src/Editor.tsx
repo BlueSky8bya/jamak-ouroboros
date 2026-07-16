@@ -1866,6 +1866,9 @@ export function Editor({
   const [hanjaProg, setHanjaProg] = useState<{ done: number; total: number } | null>(null);
   // 한자/맞춤법 모달 안 미니 유튜브 재생 시작 초 (null = 아직 ▶ 안 누름)
   const [previewSec, setPreviewSec] = useState<number | null>(null);
+  // 모달에서 사람이 직접 고친 결과 텍스트 (segment_id → 최종 텍스트). 들으면서
+  // AI 제안을 원하는 대로 수정. 없으면 AI 제안(after) 그대로 적용.
+  const [previewEdits, setPreviewEdits] = useState<Record<number, string>>({});
   // 한자 병기 미리보기 — 맞춤법처럼 확인 후 체크한 것만 적용
   const [hanjaModal, setHanjaModal] = useState<{
     suggestions: SpellSuggestion[];
@@ -3469,6 +3472,7 @@ export function Editor({
     setToolBusy("hanja");
     setHanjaProg(null);
     setPreviewSec(null);
+    setPreviewEdits({});
     await flushAll();
     try {
       const BATCH = 200;
@@ -3504,6 +3508,9 @@ export function Editor({
     const m = hanjaModal;
     if (!m) return;
     const chosen = m.suggestions.filter((s) => m.accepted.has(s.segment_id));
+    // 사람이 직접 고쳤으면 그 텍스트, 아니면 제안 그대로
+    const finalOf = (c: SpellSuggestion) =>
+      (previewEdits[c.segment_id] ?? c.after).trim() || c.after;
     setHanjaModal(null);
     if (!chosen.length) return;
     const before = segmentsRef.current.filter((s) =>
@@ -3513,13 +3520,13 @@ export function Editor({
     applyRows(
       chosen.map((c) => {
         const old = before.find((s) => s.id === c.segment_id)!;
-        return { ...old, text_final: c.after };
+        return { ...old, text_final: finalOf(c) };
       }),
     );
     for (const c of chosen) {
       void queueSave(c.segment_id, async () => {
         try {
-          const updated = await updateSegment(c.segment_id, { text_final: c.after });
+          const updated = await updateSegment(c.segment_id, { text_final: finalOf(c) });
           applyRows([updated]);
         } catch (e) {
           setError(String(e));
@@ -3629,6 +3636,7 @@ export function Editor({
   // 도구 줄에서 맞춤법 검사 진입 — 내보내기 점검 모달과 분리된 전용 모달.
   function openSpellCheck() {
     setPreviewSec(null);
+    setPreviewEdits({});
     setQcModal({
       report: null,
       spell: null,
@@ -3711,6 +3719,9 @@ export function Editor({
         setStatusMsg(`🙉 애매한 ${held.length}곳을 다시 듣기로 표시했어요`);
       return;
     }
+    // 사람이 직접 고쳤으면 그 텍스트, 아니면 제안 그대로
+    const finalOf = (c: SpellSuggestion) =>
+      (previewEdits[c.segment_id] ?? c.after).trim() || c.after;
     const before = segmentsRef.current.filter((s) =>
       chosen.some((c) => c.segment_id === s.id),
     );
@@ -3719,13 +3730,13 @@ export function Editor({
     applyRows(
       chosen.map((c) => {
         const old = before.find((s) => s.id === c.segment_id)!;
-        return { ...old, text_final: c.after };
+        return { ...old, text_final: finalOf(c) };
       }),
     );
     for (const c of chosen) {
       void queueSave(c.segment_id, async () => {
         try {
-          const updated = await updateSegment(c.segment_id, { text_final: c.after });
+          const updated = await updateSegment(c.segment_id, { text_final: finalOf(c) });
           applyRows([updated]);
         } catch (e) {
           setError(String(e));
@@ -4653,10 +4664,8 @@ export function Editor({
       {/* 漢 한자 병기 미리보기 — 맞춤법과 같은 확인·선택 적용 흐름 */}
       {hanjaModal && (
         <div
-          className="srt-modal-back"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setHanjaModal(null);
-          }}
+          className="srt-modal-back locked"
+          /* 검수 중 실수로 닫히지 않게 바깥 클릭 무시 — 취소/적용 버튼으로만 닫음 */
         >
           <div className="srt-modal qc-modal" onClick={(e) => e.stopPropagation()}>
             <h3>漢 한자 채우기 — 미리보기</h3>
@@ -4685,40 +4694,45 @@ export function Editor({
             <div className="spell-list">
               {hanjaModal.suggestions.map((s) => {
                 const d = tokenDiff(s.before, s.after);
+                void d;
                 return (
                   <div key={s.segment_id} className="spell-row">
-                    <label className="spell-main">
-                      <input
-                        type="checkbox"
-                        checked={hanjaModal.accepted.has(s.segment_id)}
-                        onChange={(e) =>
-                          setHanjaModal((m) => {
-                            if (!m) return m;
-                            const next = new Set(m.accepted);
-                            if (e.target.checked) next.add(s.segment_id);
-                            else next.delete(s.segment_id);
-                            return { ...m, accepted: next };
-                          })
-                        }
-                      />
-                      <span className="spell-diff">
-                        <span className="spell-before">{d.del}</span>
-                        <span className="spell-arrow">→</span>
-                        <span className="spell-after">{d.ins}</span>
-                      </span>
-                      <button
-                        type="button"
-                        className="cue-play"
-                        title="이 자막 시점으로 영상 재생 — 흑판에 쓴 한자인지·문맥에 맞는지 들으며 확인"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          previewCue(s.start);
-                        }}
-                      >
-                        ▶ {fmt(s.start)}
-                      </button>
-                    </label>
+                    <input
+                      type="checkbox"
+                      className="spell-check"
+                      checked={hanjaModal.accepted.has(s.segment_id)}
+                      onChange={(e) =>
+                        setHanjaModal((m) => {
+                          if (!m) return m;
+                          const next = new Set(m.accepted);
+                          if (e.target.checked) next.add(s.segment_id);
+                          else next.delete(s.segment_id);
+                          return { ...m, accepted: next };
+                        })
+                      }
+                    />
+                    <span className="spell-orig" title="원래 자막">{s.before}</span>
+                    <span className="spell-arrow">→</span>
+                    <input
+                      className="spell-edit"
+                      value={previewEdits[s.segment_id] ?? s.after}
+                      title="들으면서 원하는 대로 고치세요"
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setPreviewEdits((p) => ({ ...p, [s.segment_id]: v }));
+                        setHanjaModal((m) =>
+                          m ? { ...m, accepted: new Set(m.accepted).add(s.segment_id) } : m,
+                        );
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="cue-play"
+                      title="이 자막 시점으로 영상 재생 — 흑판에 쓴 한자인지·문맥에 맞는지 들으며 확인"
+                      onClick={() => previewCue(s.start)}
+                    >
+                      ▶ {fmt(s.start)}
+                    </button>
                   </div>
                 );
               })}
@@ -4741,9 +4755,16 @@ export function Editor({
       {/* 내보내기 전 점검 (QC + AI 맞춤법) — reuses the .srt modal styling */}
       {qcModal && (
         <div
-          className="srt-modal-back"
+          className={"srt-modal-back" + (qcModal.mode === "spell" ? " locked" : "")}
+          /* 맞춤법 모드는 검수 중 실수 방지 위해 바깥 클릭 무시. 내보내기 점검은
+             기존대로 바깥 클릭으로 닫힘(단, 검사 중엔 잠금). */
           onMouseDown={(e) => {
-            if (e.target === e.currentTarget && !qcModal.spellBusy) setQcModal(null);
+            if (
+              qcModal.mode !== "spell" &&
+              e.target === e.currentTarget &&
+              !qcModal.spellBusy
+            )
+              setQcModal(null);
           }}
         >
           <div className="srt-modal qc-modal" onClick={(e) => e.stopPropagation()}>
@@ -4792,42 +4813,45 @@ export function Editor({
                   </div>
                   <div className="spell-list">
                     {qcModal.spell.map((s) => {
-                      const d = tokenDiff(s.before, s.after);
                       const held = qcModal.spellHold?.has(s.segment_id) ?? false;
                       return (
                         <div key={s.segment_id} className="spell-row">
-                          <label className="spell-main">
-                            <input
-                              type="checkbox"
-                              checked={qcModal.accepted.has(s.segment_id)}
-                              onChange={(e) =>
-                                setQcModal((m) => {
-                                  if (!m) return m;
-                                  const next = new Set(m.accepted);
-                                  if (e.target.checked) next.add(s.segment_id);
-                                  else next.delete(s.segment_id);
-                                  return { ...m, accepted: next };
-                                })
-                              }
-                            />
-                            <span className="spell-diff">
-                              <span className="spell-before">{d.del}</span>
-                              <span className="spell-arrow">→</span>
-                              <span className="spell-after">{d.ins}</span>
-                            </span>
-                            <button
-                        type="button"
-                        className="cue-play"
-                        title="이 자막 시점으로 영상 재생 — 흑판에 쓴 한자인지·문맥에 맞는지 들으며 확인"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          previewCue(s.start);
-                        }}
-                      >
-                        ▶ {fmt(s.start)}
-                      </button>
-                          </label>
+                          <input
+                            type="checkbox"
+                            className="spell-check"
+                            checked={qcModal.accepted.has(s.segment_id)}
+                            onChange={(e) =>
+                              setQcModal((m) => {
+                                if (!m) return m;
+                                const next = new Set(m.accepted);
+                                if (e.target.checked) next.add(s.segment_id);
+                                else next.delete(s.segment_id);
+                                return { ...m, accepted: next };
+                              })
+                            }
+                          />
+                          <span className="spell-orig" title="원래 자막">{s.before}</span>
+                          <span className="spell-arrow">→</span>
+                          <input
+                            className="spell-edit"
+                            value={previewEdits[s.segment_id] ?? s.after}
+                            title="들으면서 원하는 대로 고치세요"
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setPreviewEdits((p) => ({ ...p, [s.segment_id]: v }));
+                              setQcModal((m) =>
+                                m ? { ...m, accepted: new Set(m.accepted).add(s.segment_id) } : m,
+                              );
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="cue-play"
+                            title="이 자막 시점으로 영상 재생 — 흑판에 쓴 한자인지·문맥에 맞는지 들으며 확인"
+                            onClick={() => previewCue(s.start)}
+                          >
+                            ▶ {fmt(s.start)}
+                          </button>
                           <button
                             type="button"
                             className={"spell-hold" + (held ? " on" : "")}
