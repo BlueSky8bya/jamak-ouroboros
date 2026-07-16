@@ -1,6 +1,6 @@
 # Current State
 
-Last Updated: 2026-07-16 (v0.9.44 — 맞춤법 도구 버튼화 + 한자/맞춤법 미리보기 ▶ 영상 재생 연동)
+Last Updated: 2026-07-16 (v0.9.45 — 안심 확인·복구 채우기 연습 전용으로 격리(실검수 숨김))
 Project Version: 0.9.25
 
 ## Recent Additions (2026-07-15 — v0.9.5~0.9.18, 파일럿 반복)

@@ -4065,7 +4065,11 @@ export function Editor({
         {/* secondary tools — Korean-source only (whisper/YouTube based) */}
         {isKo && (
         <div className="tools">
-          {nSafe > 0 && (
+          {/* 안심 확인·복구 채우기는 연습 투어 교보재로만 노출. 실제 검수에선 숨김
+              — 안심 배지가 띄어쓰기 오류를 못 거르고(신뢰도↓), 복구는 파이프라인
+              crosscheck가 이미 자동 처리(prompt-echo 탐지+유튜브 채움)해 중복.
+              (2026-07-16, 사용자 요청) */}
+          {practice && nSafe > 0 && (
             <button
               className="tool accent tool-safe"
               disabled={!!toolBusy}
@@ -4095,14 +4099,16 @@ export function Editor({
               {toolBusy === "tighten" ? "⏳ 다듬는 중..." : "✂ 무음 다듬기"}
             </button>
           )}
-          <button
-            className="tool tool-repair"
-            disabled={!!toolBusy}
-            title="음성인식이 놓치거나 잘못 뱉은 구간을 유튜브 자막으로 복구·보충 (API 사용 안 함) (Alt+G)"
-            onClick={() => void runRepair()}
-          >
-            {toolBusy === "repair" ? "⏳ 복구 중..." : "🛠 복구·채우기"}
-          </button>
+          {practice && (
+            <button
+              className="tool tool-repair"
+              disabled={!!toolBusy}
+              title="음성인식이 놓치거나 잘못 뱉은 구간을 유튜브 자막으로 복구·보충 (API 사용 안 함) (Alt+G)"
+              onClick={() => void runRepair()}
+            >
+              {toolBusy === "repair" ? "⏳ 복구 중..." : "🛠 복구·채우기"}
+            </button>
+          )}
           <button
             className="tool tool-hanja"
             disabled={!!toolBusy}
