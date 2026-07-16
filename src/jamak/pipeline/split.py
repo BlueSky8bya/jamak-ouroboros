@@ -92,6 +92,33 @@ def _mid_word(words: list[Word], i: int) -> bool:
     return not words[i + 1].word[:1].isspace()
 
 
+# [WH-CHANGE v0.9.86 | FIX | 2026-07-17 | CHG-20260717-126]
+# Reason: 사용자 보고 — 연습3에 "제" / "제 강아지 이름은 몽치입니다" 두 셀이 겹쳤다.
+#   CHG-125의 형제다: whisper가 "제"(41.10~42.14) 뒤에 **0.77초 뜸**을 찍었고
+#   SILENCE_SPLIT(0.7)이 그걸 문장 경계로 보고 잘라 **"제" 한 글자 셀**을 만들었다
+#   → LLM이 뜻 없는 조각을 문맥으로 복원("제 강아지 이름은…") → 앞 셀과 중복.
+#   이번엔 어절 **경계**라 `_mid_word`로는 못 막고, clamp도 "제"가 1글자라
+#   단음절 오탐 방지 가드에 걸려 통과했다. 뿌리는 그 셀이 생긴 것 자체다.
+#   "제… 강아지"는 말하다 뜸들인 것이지 문장이 끝난 게 아니다 — 그 구분은 이미
+#   **문장이 끝났다는 신호**(_SENT_END: 문장부호 또는 종결어미)가 해준다.
+#   판정 근거를 실측으로 골랐다 — 갭 크기는 못 가른다(0.77초에 '안녕하세요'(완결)와
+#   '제'(조각)가 공존), 글자 수도 못 가른다('그런데'(조각) vs '아이고'(완결) 동률).
+#   반면 종결 신호는 '안녕하세요'(요)·'하셨습니다'(다)·'어.'·'음...'을 살리고
+#   '제'·'그런데'·'빈'·'다른'만 걸러낸다. 연습6 군소리 드릴도 부호로 끝나 안전.
+# Related: CHANGELOG CHG-20260717-126.
+def _too_thin(cur: list[Word]) -> bool:
+    """자막이 될 수 없을 만큼 얇은 조각인가 — 문장이 안 끝난 한 낱말.
+
+    낱말 하나에 종결 신호도 없다면 문장 중간이다("제… 강아지"). 거기서 끊으면
+    뜻을 잃은 조각이 남고, 교정 단계가 그걸 문맥으로 되살리려다 이웃과 중복을
+    만든다(사용자가 본 "제 / 제 강아지 이름은…").
+    """
+    if len(cur) != 1:
+        return False
+    t = _text_of(cur)
+    return bool(t) and not _SENT_END.search(t)
+
+
 def _is_boundary(words: list[Word], i: int) -> bool:
     """Is position i (end of words[i]) a natural cut point?"""
     if _mid_word(words, i):
@@ -121,7 +148,7 @@ def _split_words(words: list[Word], soft_chars: int, max_chars: int) -> list[lis
         # hard cut at a real silence: the speaker paused, so this subtitle ends
         # here and the quiet stretch that follows stays subtitle-free
         next_gap = words[i + 1].start - w.end if i + 1 < len(words) else 0.0
-        if next_gap >= SILENCE_SPLIT and cur:
+        if next_gap >= SILENCE_SPLIT and cur and not _too_thin(cur):
             pieces.append(cur)
             cur = []
             continue
