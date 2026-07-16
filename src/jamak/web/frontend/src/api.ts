@@ -479,9 +479,16 @@ export async function runSpellcheck(
   return r.json();
 }
 
-export async function tightenTiming(
-  videoId: string,
-): Promise<{ tightened: number; total: number }> {
+/** 무음 다듬기 v2 — before/segments로 한 번의 undo 지원 (CHG-20260717-094) */
+export async function tightenTiming(videoId: string): Promise<{
+  tightened: number;
+  total: number;
+  /** 근거(셀 텍스트 ↔ 들린 말 일치도)가 부족해 건드리지 않은 셀 수 */
+  skipped_weak: number;
+  /** 되돌리기용 원래 행 전체 (restore-rows가 모든 필드를 덮어쓰므로 부분 행 금지) */
+  before: Segment[];
+  segments: Segment[];
+}> {
   const r = await fetch(`/api/jobs/${videoId}/tighten`, { method: "POST" });
   if (!r.ok) throw new Error((await r.json()).detail ?? `tighten: ${r.status}`);
   return r.json();

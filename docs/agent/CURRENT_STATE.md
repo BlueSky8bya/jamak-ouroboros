@@ -1,6 +1,6 @@
 # Current State
 
-Last Updated: 2026-07-17 (v0.9.61 — ADR-0013 고유명사 공식 표기(Huh Kyung-young·Heaven Palace·Boolloyu·White Heaven) DB+프롬프트. 다음: 무음 다듬기 v2)
+Last Updated: 2026-07-17 (v0.9.62 — 무음 다듬기 v2: 정렬 게이트+임계 0.5초+되돌리기, 실측 42%→17%)
 
 ## 연습 영상 크기 제약 (2026-07-16 측정)
 영상은 에디터 왼쪽 열(`.left = minmax(390px,440px)`) 안에서 재생 → **표시 폭 ~362px = 캔버스 1920의 0.19배**.

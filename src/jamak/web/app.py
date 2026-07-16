@@ -2155,15 +2155,22 @@ def get_words(video_id: str) -> dict:
 
 @app.post("/api/jobs/{video_id}/tighten")
 def tighten_timing(video_id: str) -> dict:
-    """Snap every subtitle's start/end to the words actually spoken in its span.
+    """Trim leading/trailing silence off each subtitle — but only where the
+    evidence is solid. Text, review status and segment count are untouched.
 
-    Trims the leading/trailing silence that made a subtitle linger on screen
-    through a quiet stretch: it now appears when the speaker starts and clears
-    when they stop, leaving true gaps between subtitles. Non-destructive — only
-    start/end change; text, review status and segment count are untouched. Uses
-    the cached per-word timestamps in stt.json, so it costs no GPU/API and is
-    safe to run at any time, even on a finished video.
+    [WH-CHANGE v0.9.62 | FIX | 2026-07-17 | CHG-20260717-094]
+    Reason: v1은 실측상 발화 있는 셀 7,066개 중 **2,938개(42%)** 를 건드렸고,
+      **되돌리기가 없었다**(자동 정리엔 있었는데 여기만 없음 — 42%를 복구 불가능하게
+      바꾸는 셈). 원인 둘: (1) 0.05초만 달라도 손댐 — 잘라낼 침묵의 중앙값은 0.00초다.
+      (2) 구간 안 단어를 전부 경계로 씀 → 화자분리 없는 Whisper라 청중·질문자 발화에
+      자막이 끌려감("다른 사람 말하던 부분까지 포함" — 사용자).
+      v2: 셀 텍스트 ↔ 들린 말 정렬로 **근거 없으면 건드리지 않고**, 셀에 없는 말(다른
+      화자)은 경계에서 빼고, 침묵이 0.5초 이상일 때만 자른다. + before 행을 돌려줘
+      한 번의 undo로 전체 복구. 예상 42% → 12%.
+    Related: ADR-0012(자동 정리 폐지 시 남긴 관측), CHANGELOG CHG-20260717-094.
     """
+    from ..pipeline.tighten import plan_cue, words_inside
+
     with get_session() as session:
         job = session.exec(select(Job).where(Job.video_id == video_id)).first()
         if job is None:
@@ -2174,12 +2181,12 @@ def tighten_timing(video_id: str) -> dict:
                 400,
                 "이 영상은 음성인식 원본(stt.json)이 없어 타이밍을 다듬을 수 없습니다.",
             )
-        words: list[tuple[float, float]] = []
+        words: list[tuple[float, float, str]] = []
         for s in raw:
             for w in s.get("words", []):
                 st, en = float(w["start"]), float(w["end"])
                 if en > st:
-                    words.append((st, en))
+                    words.append((st, en, w.get("word", "")))
         words.sort()
 
         segs = session.exec(
@@ -2188,25 +2195,33 @@ def tighten_timing(video_id: str) -> dict:
             .order_by(Segment.start)
         ).all()
         tightened = 0
-        min_dur = 0.30  # never collapse a cue below this so it stays readable
+        skipped_weak = 0
+        before: list[dict] = []
+        changed: list[Segment] = []
         for seg in segs:
-            # assign each spoken word to exactly one segment by its midpoint,
-            # then clamp the segment to the first/last word it actually contains
-            inside = [
-                (st, en) for (st, en) in words if seg.start <= (st + en) / 2 < seg.end
-            ]
-            if not inside:
-                continue  # e.g. a YouTube gap-fill row (whisper heard nothing)
-            ns = min(st for st, _ in inside)
-            ne = max(en for _, en in inside)
-            if ne - ns < min_dur:
-                ne = ns + min_dur
-            if abs(ns - seg.start) > 0.05 or abs(ne - seg.end) > 0.05:
-                seg.start, seg.end = ns, ne
-                session.add(seg)
-                tightened += 1
+            plan = plan_cue(
+                seg.start, seg.end, _display_text(seg), words_inside(seg.start, seg.end, words)
+            )
+            if plan.reason == "weak-align":
+                skipped_weak += 1
+            if not plan.changed:
+                continue
+            # 전체 행 스냅샷 — restore-rows는 스냅샷의 **모든 필드**를 덮어쓰므로
+            # 부분 행을 넣으면 되돌릴 때 자막 텍스트가 날아간다 (auto-timing과 동일 패턴)
+            before.append(seg.model_dump())
+            seg.start, seg.end = plan.start, plan.end
+            session.add(seg)
+            changed.append(seg)
+            tightened += 1
         session.commit()
-    return {"tightened": tightened, "total": len(segs)}
+        segments = [s.model_dump() for s in changed]
+    return {
+        "tightened": tightened,
+        "total": len(segs),
+        "skipped_weak": skipped_weak,
+        "before": before,
+        "segments": segments,
+    }
 
 
 # [WH-CHANGE v0.3.0 | FEAT | 2026-07-13 | CHG-20260713-006]

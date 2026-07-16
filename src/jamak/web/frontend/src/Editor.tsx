@@ -3581,11 +3581,31 @@ export function Editor({
     await flushAll();
     try {
       const r = await tightenTiming(videoId);
+      // [WH-CHANGE v0.9.62 | FIX | 2026-07-17 | CHG-20260717-094]
+      // Reason: 되돌리기가 없어 다듬은 결과를 복구할 방법이 없었다 (자동 정리엔
+      //   있었는데 여기만 빠져 있었음). 자동 정리와 같은 restore-rows 한 스텝으로.
+      // Related: CHANGELOG CHG-20260717-094.
+      if (r.before.length) {
+        pushEntry({
+          label: "무음 다듬기",
+          kind: "op",
+          segId: null,
+          focusedId: focusedIdRef.current,
+          upsert: r.before,
+          deleteIds: [],
+        });
+      }
       await refreshSegments();
       setToolMsg(
         r.tightened
-          ? `✂ ${r.tightened}개 자막을 실제 발화 구간에 맞춰 다듬었어요 — 침묵 구간엔 자막이 사라집니다`
-          : "✂ 이미 발화 구간에 맞게 다듬어져 있어요",
+          ? `✂ ${r.tightened}개 자막을 실제 발화 구간에 맞춰 다듬었어요 — 침묵 구간엔 자막이 사라집니다 (↶로 되돌리기 가능)` +
+              (r.skipped_weak
+                ? `. ${r.skipped_weak}개는 들린 말과 자막이 많이 달라 그대로 뒀어요`
+                : "")
+          : `✂ 이미 발화 구간에 맞게 다듬어져 있어요` +
+              (r.skipped_weak
+                ? ` (${r.skipped_weak}개는 들린 말과 자막이 많이 달라 건드리지 않았어요)`
+                : ""),
       );
     } catch (e) {
       if (await maybeRecoverClone(e)) return;
