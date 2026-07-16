@@ -212,6 +212,34 @@ def _contig_sublist(short: list[str], long: list[str]) -> bool:
     return any(long[i : i + n] == short for i in range(len(long) - n + 1))
 
 
+# [WH-CHANGE v0.9.78 | FIX | 2026-07-17 | CHG-20260717-117]
+# Reason: 이웃 흡수 가드의 포함 판정이 단어열 **정확** 일치뿐이라, LLM이 같은
+#   문장을 두 행에서 미묘하게 다르게 정규화하면(연습2 실측: "다음주"↔"다음 주",
+#   "3시"↔"3시에") 중복을 통째 놓쳤다 — 같은 문장이 두 셀에 두 번 뜸(사용자
+#   보고). 정확 일치가 실패하면 문자 단위 유사도 창(부분 일치 ≥0.85)으로
+#   한 번 더 본다. 진짜 반복 발화는 기존 base_text 겹침 검사가 계속 걸러낸다.
+# Related: CHANGELOG CHG-20260717-117.
+_FUZZY_CONTAIN = 0.85
+
+
+def _fuzzy_contains(short: str, long: str) -> bool:
+    """`short`(정규화 문자열)가 `long` 안에 거의 그대로(≥_FUZZY_CONTAIN) 들어
+    있는가 — 조사·띄어쓰기 정도의 변형을 허용하는 부분 일치."""
+    from difflib import SequenceMatcher
+
+    n = len(short)
+    if not n or n > len(long):
+        return False
+    if short in long:
+        return True
+    best = 0.0
+    for i in range(len(long) - n + 1):
+        r = SequenceMatcher(None, short, long[i : i + n]).ratio()
+        if r > best:
+            best = r
+    return best >= _FUZZY_CONTAIN
+
+
 def clamp_neighbor_extensions(
     ordered: list[dict], results: dict[int, tuple[str, bool]]
 ) -> int:
@@ -246,10 +274,12 @@ def clamp_neighbor_extensions(
             if len(wa_words) <= len(wb_words)
             else (wb_words, wa_words)
         )
-        if not _contig_sublist(short_w, long_w):
-            continue
         if len("".join(short_w)) < 2:
             continue  # 단음절(네·아·그) 우연 일치 방지
+        if not _contig_sublist(short_w, long_w) and not _fuzzy_contains(
+            "".join(short_w), "".join(long_w)
+        ):
+            continue
         wa, wb = _normalize_ko(a["base_text"]), _normalize_ko(b["base_text"])
         if wa and wb and (wa in wb or wb in wa):
             continue  # the speaker really repeated it — leave alone

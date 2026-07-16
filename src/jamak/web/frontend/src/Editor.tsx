@@ -578,20 +578,40 @@ function WordMap({
    carry a wavy red underline inline (no separate warning line to cross-
    reference), and clicking any word replays from that word. Clicking empty
    space switches the row into the normal textarea for editing. */
+/** 클릭 지점 → text 안의 글자 인덱스. ReadText의 텍스트 노드가 원문 문자열과
+ *  1:1이라(공백 토큰 = 텍스트 노드, 단어 = span 안 텍스트 노드) 앞선 텍스트
+ *  노드 길이 합 + 노드 내 오프셋이 곧 커서 위치다. */
+function caretIndexAt(container: HTMLElement, x: number, y: number): number | undefined {
+  const doc = document as Document & {
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+  };
+  const pos = doc.caretPositionFromPoint?.(x, y);
+  const range = !pos && document.caretRangeFromPoint ? document.caretRangeFromPoint(x, y) : null;
+  const node = pos ? pos.offsetNode : range?.startContainer;
+  const off = pos ? pos.offset : (range?.startOffset ?? 0);
+  if (!node || !container.contains(node)) return undefined;
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let idx = 0;
+  let n: Node | null;
+  while ((n = walker.nextNode())) {
+    if (n === node) return idx + off;
+    idx += (n.textContent || "").length;
+  }
+  return undefined;
+}
+
 function ReadText({
   seg,
   text,
   words,
   currentTime,
-  onWordPlay,
   onEdit,
 }: {
   seg: Segment;
   text: string;
   words: WordTime[];
   currentTime: number;
-  onWordPlay: (t: number) => void;
-  onEdit: () => void;
+  onEdit: (caret?: number) => void;
 }) {
   const inside = useMemo(
     () =>
@@ -623,25 +643,21 @@ function ReadText({
     activeOrd =
       wordTokens > 1 ? Math.round((k / Math.max(1, M - 1)) * (wordTokens - 1)) : 0;
   }
-  const timeFor = (ord: number) => {
-    if (M > 0) {
-      const k = Math.min(
-        M - 1,
-        Math.round((ord / Math.max(1, wordTokens - 1)) * (M - 1)),
-      );
-      return inside[k].start;
-    }
-    // no recognized speech here (e.g. a gap-fill row) — char-ratio fallback
-    const span = Math.max(0, seg.end - seg.start - 0.2);
-    return seg.start + (wordTokens > 1 ? (ord / (wordTokens - 1)) * span : 0);
-  };
-
   let ord = -1;
   return (
     <div
       className="read-text"
-      title="단어를 누르면 그 부분부터 다시 들려요 · 빈 곳을 누르면 고치기"
-      onClick={onEdit}
+      title="누르면 그 자리부터 바로 고칠 수 있어요"
+      // [WH-CHANGE v0.9.78 | UX | 2026-07-17 | CHG-20260717-118]
+      // Reason: 단어 클릭 = 그 단어부터 재청취였는데, 고치러 온 사람의 클릭을
+      //   가로채 재생부터 했다 — "하려는 자막 수정이 안 되고 부가적인 게
+      //   우선되면 스트레스"(사용자). 클릭 = 편집이 유일한 의미가 되고, 커서는
+      //   정확히 누른 글자 사이로 들어간다. 다시 듣기는 행 왼쪽 ▶.
+      // Related: CHANGELOG CHG-20260717-118.
+      onClick={(e) => {
+        if (text.trim() === "") return onEdit();
+        onEdit(caretIndexAt(e.currentTarget, e.clientX, e.clientY));
+      }}
     >
       {tokens.map((tok, i) => {
         if (tok.trim() === "") return tok;
@@ -654,10 +670,6 @@ function ReadText({
             key={i}
             className={"rt-w" + (o === activeOrd ? " on" : "") + (sus ? " sus" : "")}
             title={sus ? "기계들이 서로 다르게 들은 단어 — 확인해 보세요" : undefined}
-            onClick={(e) => {
-              e.stopPropagation();
-              onWordPlay(timeFor(o));
-            }}
           >
             {tok}
           </span>
@@ -854,9 +866,20 @@ function Row({
 
   // 내용 모드: the textarea only exists while this row is focused (ReadText
   // otherwise), so grab the caret as soon as the swap renders — the parent's
-  // setTimeout(0) focus can fire before the textarea is in the DOM
+  // setTimeout(0) focus can fire before the textarea is in the DOM.
+  // ReadText 클릭에서 넘어온 글자 위치가 있으면 커서를 정확히 거기에 둔다.
+  const pendingCaretRef = useRef<number | null>(null);
   useEffect(() => {
-    if (focused && textMode) taRef.current?.focus({ preventScroll: true });
+    if (focused && textMode) {
+      const ta = taRef.current;
+      ta?.focus({ preventScroll: true });
+      const c = pendingCaretRef.current;
+      if (ta && c !== null) {
+        const i = Math.min(c, ta.value.length);
+        ta.setSelectionRange(i, i);
+        pendingCaretRef.current = null;
+      }
+    }
   }, [focused, textMode]);
 
   // show the reference panel whenever a machine source actually differs from
@@ -1032,8 +1055,10 @@ function Row({
           text={text}
           words={words}
           currentTime={currentTime}
-          onWordPlay={onPlayFrom}
-          onEdit={() => onOpenRow(seg)}
+          onEdit={(caret) => {
+            pendingCaretRef.current = caret ?? null;
+            onOpenRow(seg);
+          }}
         />
       ) : (
       <textarea
