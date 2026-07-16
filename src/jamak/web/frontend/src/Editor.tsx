@@ -173,6 +173,24 @@ function TimingStrip({
   const markerRef = useRef<HTMLSpanElement>(null);
   const scrubRef = useRef(false); // dragging the playhead to seek (scrub)
   const [dragging, setDragging] = useState(false); // only to freeze the window
+  // [WH-CHANGE v0.9.66 | FIX | 2026-07-17 | CHG-20260717-100]
+  // Reason: v0.9.65에서 정지 시 튐을 막으려고 전환을 상시 켰더니, **넛지·드래그
+  //   커밋 같은 사용자 편집까지 0.28초 미끄러졌다** — 자막 타이밍은 0.0n초 싸움인데
+  //   미세조정 도구가 늦게 따라오면 실격이다(사용자 지적). 전환의 목적은 원래
+  //   "재생 중 250ms 폴링 점프"만 부드럽게 하는 것이지 편집을 느리게 하는 게
+  //   아니다. → 재생 중 + **정지 직후 착지하는 0.3초 동안만** 켜고, 그 뒤 편집은
+  //   즉답. 예쁨(정지 시 부드러운 착지)과 즉답(편집)을 둘 다 지킨다.
+  // Related: CHANGELOG CHG-20260717-100.
+  const [settling, setSettling] = useState(false);
+  const wasPlaying = useRef(playing);
+  useEffect(() => {
+    const justStopped = wasPlaying.current && !playing;
+    wasPlaying.current = playing;
+    if (!justStopped) return;
+    setSettling(true); // 날아가던 전환만 제 속도로 착지시킨다
+    const t = setTimeout(() => setSettling(false), 300); // 280ms 전환 + 여유
+    return () => clearTimeout(t);
+  }, [playing]);
 
   const focused = segments.find((s) => s.id === focusedId);
   // when the playhead sits in a gap or the tail past the last cue there is no
@@ -340,19 +358,14 @@ function TimingStrip({
 
   return (
     <div className="timing-strip">
-      {/* `smooth`: while the video plays the window scrolls to follow the
-          playhead, but currentTime only ticks 4×/sec — a CSS transition
-          interpolates each 250ms jump into continuous motion. OFF while dragging
-          (the handle must track the pointer, not glide).
-          [WH-CHANGE v0.9.65 | FIX | 2026-07-17 | CHG-20260717-098]
-          Reason: 예전엔 정지 시에도 껐는데, 그러면 **재생 중이던 전환이 중간에
-            취소**되면서 요소가 목표값으로 튄다(창은 250ms에 21px쯤 흐르므로 그만큼
-            확 밀린다) — 사용자가 본 "관성처럼 살짝 밀림". 정지해도 전환을 남겨
-            두면 날아가던 애니메이션이 제 속도로 착지한다. 정지 상태에선
-            currentTime이 안 변해 추가 움직임도 없다.
-          Related: CHANGELOG CHG-20260717-098. */}
+      {/* `smooth`: 전환의 목적은 **오직** 재생 중 250ms 폴링 점프를 이어 붙이는
+          것이다. 드래그 중엔 끈다(손잡이가 포인터를 따라야지 미끄러지면 안 됨).
+          정지하면 곧바로 끄되, **착지하는 0.3초(settling)만 남긴다** — 그래야
+          날아가던 전환이 취소되며 튀지(v0.9.64 이전) 않고, 그 뒤 넛지·드래그
+          커밋 같은 편집은 **즉답**한다(v0.9.65의 상시 켜기가 만든 0.28초 지연 제거).
+          Related: CHANGELOG CHG-20260717-098, CHG-20260717-100. */}
       <div
-        className={"strip-track" + (!dragging ? " smooth" : "")}
+        className={"strip-track" + ((playing || settling) && !dragging ? " smooth" : "")}
         ref={trackRef}
         onPointerMove={moveDrag}
         onPointerUp={endDrag}
