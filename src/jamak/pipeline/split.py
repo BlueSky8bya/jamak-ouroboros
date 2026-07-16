@@ -71,8 +71,31 @@ def _text_of(words: list[Word]) -> str:
     return "".join(w.word for w in words).strip()
 
 
+# [WH-CHANGE v0.9.85 | FIX | 2026-07-17 | CHG-20260717-125]
+# Reason: 사용자 보고 — 연습2에 "0.75를" / ".75를 누르고 들으면…" 두 셀이 겹쳐
+#   나왔다. 뿌리는 교정도 에코도 아니고 **여기**였다: whisper가 한 어절 "0.75를"을
+#   두 토큰 `0`(65.63~66.79) + `.75를`(67.53~68.23)으로 쪼개면서 그 사이에 0.74초
+#   갭을 찍었고, SILENCE_SPLIT(0.7)이 그 갭을 침묵으로 보고 **어절 한가운데를
+#   잘랐다** → `"0"` 한 글자짜리 셀 탄생 → LLM이 문맥으로 "0.75를"이라 확장 →
+#   옆 셀의 ".75를…"과 텍스트 중복. 즉 중복은 마지막 증상일 뿐이었다.
+#   whisper 토큰은 새 어절일 때만 선행 공백을 갖는다(`_text_of`가 공백 없이
+#   join하는 것이 그 증거) — 이미 갖고 있던 정보를 안 쓰고 있었다.
+# Related: CHANGELOG CHG-20260717-125.
+def _mid_word(words: list[Word], i: int) -> bool:
+    """words[i] 다음이 같은 어절인가 — 원문에서 공백 없이 붙어 있나.
+
+    붙어 있으면 그 사이는 자를 수 없다: 아무리 갭이 길어도 한 낱말을 두
+    자막으로 쪼개는 것이고, 조각난 쪽은 뜻을 잃는다("0", ".75를").
+    """
+    if i + 1 >= len(words):
+        return False
+    return not words[i + 1].word[:1].isspace()
+
+
 def _is_boundary(words: list[Word], i: int) -> bool:
     """Is position i (end of words[i]) a natural cut point?"""
+    if _mid_word(words, i):
+        return False  # 어절 한가운데 — 구두점이든 갭이든 경계가 아니다
     w = words[i].word.strip()
     if w.endswith(("?", ".", "!", "…")):
         return True
@@ -89,6 +112,11 @@ def _split_words(words: list[Word], soft_chars: int, max_chars: int) -> list[lis
         text = _text_of(cur)
         dur = cur[-1].end - cur[0].start
         global_i = i  # index into full words list for boundary lookahead
+
+        # 어절 한가운데면 어떤 이유로도 자르지 않는다 (CHG-20260717-125). 침묵도
+        # 글자수 초과도 낱말을 쪼갤 근거는 못 된다 — 다음 어절 경계까지 미룬다.
+        if _mid_word(words, i):
+            continue
 
         # hard cut at a real silence: the speaker paused, so this subtitle ends
         # here and the quiet stretch that follows stays subtitle-free
