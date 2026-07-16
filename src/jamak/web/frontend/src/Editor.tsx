@@ -3187,6 +3187,37 @@ export function Editor({
     }
   }
 
+  // [WH-CHANGE v0.9.84 | FIX | 2026-07-17 | CHG-20260717-124]
+  // Reason: 사용자 보고 — 연습2에서 Alt+←/→가 크롬 뒤로/앞으로를 실행하고
+  //   Alt+Shift+←/→는 아무 반응이 없었다. 원인은 키 선택이 아니라 **포커스**다.
+  //   유튜브 영상을 한 번 클릭하면 포커스가 iframe으로 넘어가고, 그때부터 이
+  //   문서의 keydown 리스너에는 이벤트가 **한 건도 오지 않는다**(브라우저 실측:
+  //   BODY 포커스 1건 도달 / IFRAME 포커스 0건). 즉 Tab·Enter·Alt+Z까지 **모든**
+  //   단축키가 함께 죽어 있었고, Alt+화살표만 크롬이 가로채 "페이지 이탈"이라는
+  //   눈에 보이는 사고를 내서 이제야 드러난 것 — 원래부터 있던 더 큰 버그다.
+  //   임베드가 `disablekb: 1`이라 iframe 안의 포커스는 **순손실**이다(유튜브 자체
+  //   키보드도 꺼져 있어 거기 있을 이유가 없다). 포커스가 넘어가면 즉시 되찾는다.
+  //   `blur()`만 쓰고 `window.focus()`는 쓰지 않는다 — 포커스를 이 문서의 body로
+  //   되돌릴 뿐 창을 앞으로 끌어오지 않으므로, 사용자가 다른 앱에 가 있어도
+  //   방해가 없다(돌아오면 오히려 단축키가 살아 있는 상태). `document.hasFocus()`
+  //   가드를 처음엔 뒀다가 뺐다 — 창이 OS 포커스를 안 가진 동안 false가 되어
+  //   되찾기 자체를 막았고(실측), blur만 하는 이상 가드가 지킬 것이 없다.
+  // Related: ADR-0014, CHANGELOG CHG-20260717-124.
+  useEffect(() => {
+    function reclaimFocus() {
+      const el = document.activeElement as HTMLElement | null;
+      if (el && el.tagName === "IFRAME") el.blur();
+    }
+    window.addEventListener("blur", reclaimFocus);
+    // 백스톱: blur 이벤트를 놓치는 경로(플레이어가 늦게 포커스를 가져가는 등)가
+    // 있어도 1초 안에 회복된다 — querySelector 없이 activeElement만 보므로 싸다.
+    const t = window.setInterval(reclaimFocus, 1000);
+    return () => {
+      window.removeEventListener("blur", reclaimFocus);
+      window.clearInterval(t);
+    };
+  }, []);
+
   // ---- global keyboard workflow (Amara/YouTube Studio conventions)
   // Registered ONCE: every mutable value is read through a ref (currentTimeRef,
   // segmentsRef, H). The old version re-registered on every player tick.
