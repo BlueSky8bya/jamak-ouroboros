@@ -159,7 +159,7 @@ def _is_admin(request: Request) -> bool:
 
 def _require_admin(request: Request) -> None:
     if not _is_admin(request):
-        raise HTTPException(403, "관리자만 자막 생성(파이프라인)을 실행할 수 있습니다")
+        raise HTTPException(403, "관리자 전용 도구입니다")
 
 
 # API paths reachable without a session (so the SPA can show the login form)
@@ -2387,7 +2387,12 @@ def spellcheck(
 
 @app.post("/api/jobs/{video_id}/fill-hanja")
 def fill_hanja(
-    video_id: str, lang: str = "ko", batch: int = 0, offset: int = 0, dry: int = 0
+    request: Request,
+    video_id: str,
+    lang: str = "ko",
+    batch: int = 0,
+    offset: int = 0,
+    dry: int = 0,
 ) -> dict:
     """강조 한자어 병기 채우기 — "얼굴 안 자" → "얼굴 안(顔) 자".
 
@@ -2418,6 +2423,14 @@ def fill_hanja(
     import re as _re
 
     from ..db import HanjaTerm
+
+    # [WH-CHANGE v0.9.96 | SEC | 2026-07-17 | CHG-20260717-136]
+    # Reason: ADR-0016 — 漢 채우기가 관리자 전용이 된다. 병기는 정답이 있는
+    #   영역이라 문맥 발굴(ADR-0016 (b))과 후보 선택은 지식이 필요해 검수자
+    #   몫이 아니다(사용자 결정). 무-API여도 관리자 도구로 격상. 검수자는 관리자가
+    #   정리해 둔 병기를 결과로 볼 뿐 직접 채우지 않는다.
+    # Related: ADR-0016, CHANGELOG CHG-20260717-136.
+    _require_admin(request)
 
     with get_session() as session:
         job = session.exec(select(Job).where(Job.video_id == video_id)).first()

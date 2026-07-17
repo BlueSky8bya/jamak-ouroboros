@@ -4672,18 +4672,25 @@ export function Editor({
               {toolBusy === "tighten" ? "⏳ 다듬는 중..." : "✂ 무음 다듬기"}
             </button>
           )}
-          <button
-            className="tool tool-hanja"
-            disabled={!!toolBusy}
-            title="강조해서 풀어 말한 한자어에 한자를 병기 — '얼굴 안 자' → '얼굴 안(顔) 자'. 찾은 곳을 먼저 보여주고, 체크한 것만 적용합니다. 검수 완료 대본에서 만든 사전 기반, API 사용 안 함 (되돌리기 가능)"
-            onClick={() => void runFillHanja()}
-          >
-            {toolBusy === "hanja"
-              ? hanjaProg
-                ? `⏳ 채우는 중 ${Math.round((hanjaProg.done / Math.max(1, hanjaProg.total)) * 100)}% (${hanjaProg.done}/${hanjaProg.total})`
-                : "⏳ 채우는 중..."
-              : "漢 한자 채우기"}
-          </button>
+          {/* [WH-CHANGE v0.9.96 | SEC | 2026-07-17 | CHG-20260717-136]
+              Reason: ADR-0016 — 漢 채우기 관리자 전용. 병기는 정답이 있는 영역이라
+                문맥 발굴·후보 선택이 검수자 몫이 아니다(사용자 결정). 무-API여도
+                관리자 도구. 검수자에겐 버튼을 숨긴다(서버도 _require_admin으로 이중).
+              Related: ADR-0016, CHANGELOG CHG-20260717-136. */}
+          {isAdmin && (
+            <button
+              className="tool tool-hanja"
+              disabled={!!toolBusy}
+              title="강조해서 풀어 말한 한자어에 한자를 병기 — '얼굴 안 자' → '얼굴 안(顔) 자'. 찾은 곳을 먼저 보여주고, 체크한 것만 적용합니다 (관리자 전용, 되돌리기 가능)"
+              onClick={() => void runFillHanja()}
+            >
+              {toolBusy === "hanja"
+                ? hanjaProg
+                  ? `⏳ 채우는 중 ${Math.round((hanjaProg.done / Math.max(1, hanjaProg.total)) * 100)}% (${hanjaProg.done}/${hanjaProg.total})`
+                  : "⏳ 채우는 중..."
+                : "漢 한자 채우기"}
+            </button>
+          )}
           {/* 맞춤법 검사는 Claude API 사용 → 관리자 전용 (비용 통제, 사용자 정책
               2026-07-16: 검수자는 API 안 쓰는 도구만). 번역과 동일 정책. */}
           {isAdmin && (
