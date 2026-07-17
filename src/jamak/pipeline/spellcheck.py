@@ -124,8 +124,19 @@ def _domain_block(max_terms: int = 250) -> str:
     return "".join(parts)
 
 
+# 힌트 목록에 넣을 최소 등장 횟수. 자동 채굴은 1글자 낱말을 잘못 잘라 앞 문맥
+# 조각을 gloss로 오인한 쓰레기를 다수 만든다(gloss "한 미"·"자기 처"·"전부 사").
+# 이런 오검은 대부분 count=2(한 번 채굴)다. 진짜 강조어는 여러 번 병기돼 count가
+# 높다(貪99·心18·辰14·女10·王8·高6). 하한으로 걸러 프롬프트를 강조어로 좁힌다 —
+# gloss 형태로 완벽 분류가 불가능해(부사·대명사 무한 변형) count 신호가 더 견고.
+# count<하한의 진짜 강조어는 다음 검수에서 재채굴돼 count가 오르면 자동 포함된다
+# (우로보로스 — 손실이 아니라 지연). tier 강등(ADR-0016 청소)과 이중 방어.
+MIN_HINT_COUNT = 4
+
+
 def _emphasis_hanja_block(max_terms: int = 200) -> str:
-    """규칙 10 병기 후보 목록: `한자(뜻 음)` 줄들. gloss 있는 special 단일자만.
+    """규칙 10 병기 후보 목록: `한자(뜻 음)` 줄들. gloss 있는 special 단일자 중
+    count >= MIN_HINT_COUNT (자주 병기된 진짜 강조어)만.
 
     다자어는 fill_hanja가 단어 경계로 이미 잘 잡으므로 뺀다 — 문맥 판단이
     필요한 건 동음 많은 단일자다(사용자 결정: 오병기 최소).
@@ -138,9 +149,9 @@ def _emphasis_hanja_block(max_terms: int = 200) -> str:
         ).all()
     seen: set[tuple[str, str]] = set()
     lines: list[str] = []
-    for t in rows:
-        if not t.gloss or len(t.reading) != 1:
-            continue  # 단일자 + 뜻 있는 것만
+    for t in sorted(rows, key=lambda r: -r.count):  # 자주 병기된 것 우선
+        if not t.gloss or len(t.reading) != 1 or t.count < MIN_HINT_COUNT:
+            continue  # 단일자 + 뜻 + 충분히 병기된 것만
         key = (t.reading, t.hanja)
         if key in seen:
             continue
