@@ -98,6 +98,14 @@ class Segment(SQLModel, table=True):
     # reviewer couldn't confirm this segment yet and wants to come back to it.
     # Cleared automatically when the segment is confirmed (reviewed=True).
     review_flag: str = ""
+    # [WH-CHANGE v0.9.95 | FEAT | 2026-07-17 | CHG-20260717-135]
+    # Reason: ADR-0015 — 맞춤법 패스가 이 셀에서 병기하면 좋을 special 흑판
+    #   강조어를 문맥 판단으로 골라 여기 기록한다(텍스트는 안 바꾼다). 漢 채우기가
+    #   먼저 참고해, 단독 1글자처럼 사전만으론 문맥을 알 수 없어 못 채우던
+    #   병기(貪·嗔·癡)를 API 추가 없이 해결한다. JSON: [{"reading","hanja"}].
+    #   셀 텍스트가 바뀌면 낱말 존재 확인으로 무효화(漢 채우기에서).
+    # Related: ADR-0015, CHANGELOG CHG-20260717-135.
+    hanja_hints: str = ""  # 맞춤법이 기록한 병기 후보 JSON [{"reading","hanja"}]
 
 
 class Track(SQLModel, table=True):
@@ -142,6 +150,12 @@ class LlmCache(SQLModel, table=True):
     source_hash: str = Field(index=True)
     text: str = ""  # the resulting text (may legitimately be '' for noise)
     changed: bool = False  # False = model left the source text as-is
+    # [WH-CHANGE v0.9.95 | FEAT | 2026-07-17 | CHG-20260717-135]
+    # Reason: ADR-0015 — 맞춤법 패스가 special 흑판 강조어의 문맥 병기 후보를
+    #   곁다리로 기록한다. 캐시 히트 때 힌트도 복원해야 하므로 캐시 행에 싣는다.
+    #   spell kind만 채운다 (correct 등은 빈 값). JSON: [{"reading","hanja"}].
+    # Related: ADR-0015, CHANGELOG CHG-20260717-135.
+    hanja: str = ""  # spell kind: 한자 병기 힌트 JSON (셀 힌트의 캐시 원본)
     uncertain: bool = False
     created_at: datetime = Field(default_factory=utcnow)
 
@@ -307,6 +321,10 @@ def _ensure_columns(engine) -> None:
             "lang": "VARCHAR DEFAULT 'ko'",
             "edited": f"BOOLEAN DEFAULT {bt}",
             "review_flag": "VARCHAR DEFAULT ''",
+            "hanja_hints": "VARCHAR DEFAULT ''",  # ADR-0015
+        },
+        "llmcache": {
+            "hanja": "VARCHAR DEFAULT ''",  # ADR-0015
         },
         # 3층(ADR-0011): 사람이 단 병기를 job당 1회만 세려고 출처를 기록
         "hanjaterm": {

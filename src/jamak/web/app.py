@@ -2345,11 +2345,30 @@ def spellcheck(
     try:
         # batch>0: 미캐시 줄을 그만큼만 처리하고 remaining 반환 — 프론트가
         # 반복 호출하며 진행률 표시 (긴 영상 타임아웃 방지)
-        fixes, stats = spellcheck_lines(lines, limit=max(0, batch))
+        fixes, hints, stats = spellcheck_lines(lines, limit=max(0, batch))
     except HTTPException:
         raise
     except Exception as e:  # API/auth/network error -> clean JSON, not a 500
         raise HTTPException(502, f"맞춤법 API 오류: {e}")
+
+    # [WH-CHANGE v0.9.95 | FEAT | 2026-07-17 | CHG-20260717-135]
+    # Reason: ADR-0015 — 맞춤법이 문맥으로 고른 병기 후보를 셀에 **기록만** 한다
+    #   (텍스트는 여전히 안 건드린다 — 이 엔드포인트는 suggestions only). 漢 채우기가
+    #   나중에 이 힌트를 참고해 API 없이 문맥 병기한다. 이번 배치에서 판정한 셀만
+    #   덮어쓴다(빈 힌트도 저장 = 이전 오검 기록을 지움).
+    # Related: ADR-0015, CHANGELOG CHG-20260717-135.
+    if hints:
+        import json as _json
+
+        # 힌트가 있는 셀만 기록한다(보수적): 빈 힌트 셀은 건드리지 않아 배치 간
+        # 기록이 서로를 지우지 않는다. 텍스트는 그대로 — 병기는 漢 채우기가 한다.
+        with get_session() as session:
+            for seg_id, cell_hints in hints.items():
+                seg = session.get(Segment, seg_id)
+                if seg is not None and seg.lang == lang:
+                    seg.hanja_hints = _json.dumps(cell_hints, ensure_ascii=False)
+                    session.add(seg)
+            session.commit()
 
     suggestions = [
         {
@@ -2395,6 +2414,7 @@ def fill_hanja(
       updateSegment로). suggestions는 dry 여부와 무관하게 항상 채운다.
     Related: CHANGELOG CHG-20260715-049.
     """
+    import json as _json_hanja
     import re as _re
 
     from ..db import HanjaTerm
@@ -2456,7 +2476,7 @@ def fill_hanja(
             remaining = max(0, total - offset - batch)
             seg_rows = seg_rows[offset : offset + batch]
 
-        def fill(text: str) -> str:
+        def fill(text: str, cell_hints: list[dict]) -> str:
             # 규칙 A: "얼굴 안 자" -> "얼굴 안(顔) 자" (이미 괄호 있으면 스킵)
             def sub_glyph(m: _re.Match) -> str:
                 h = single.get((m.group(1), m.group(2)))
@@ -2468,6 +2488,22 @@ def fill_hanja(
                 out = multi_re.sub(
                     lambda m: f"{m.group(1)}({multi[m.group(1)]}){m.group(2)}", out
                 )
+            # 규칙 C (ADR-0015): 맞춤법이 이 셀에 기록한 문맥 병기 후보. 사전만으론
+            # 문맥을 몰라 못 채우던 단독 낱말(貪·嗔·癡 등)을 여기서 채운다. 낱말이
+            # 아직 이 셀에 있고, 아직 병기되지 않았을 때만(뒤에 '(' 없음). 낱말이
+            # 사라졌으면(기록 후 텍스트가 바뀜) 스킵 = 자동 무효화. 규칙 B와 같은
+            # JOSA 흡수 — 조사(탐을·치입니다)가 붙어도 그 앞에 병기하고, 낱말 내부
+            # (탐욕)는 뒤가 한글이라 매칭 안 돼 오병기하지 않는다.
+            for hint in cell_hints:
+                r, hz = hint.get("reading", ""), hint.get("hanja", "")
+                if not r or not hz:
+                    continue
+                out = _re.sub(
+                    rf"(?<![가-힣]){_re.escape(r)}((?:{JOSA})?)(?![가-힣(])",
+                    lambda m: f"{r}({hz}){m.group(1)}",
+                    out,
+                    count=1,  # 셀당 첫 등장 1회만 — 반복 낱말 과병기 방지
+                )
             return out
 
         before: list[dict] = []
@@ -2477,7 +2513,11 @@ def fill_hanja(
             cur = s.text_final or s.text_llm or ""
             if not cur or "(" in cur and cur.count("(") > 6:
                 continue
-            new = fill(cur)
+            try:
+                cell_hints = _json_hanja.loads(s.hanja_hints) if s.hanja_hints else []
+            except Exception:
+                cell_hints = []
+            new = fill(cur, cell_hints)
             if new == cur:
                 continue
             suggestions.append(

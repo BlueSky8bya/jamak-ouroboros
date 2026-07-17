@@ -1,9 +1,12 @@
 # ADR-0011 — 한자어 처리 순서: API 맞춤법이 정규화 → 무-API 한자 채우기가 병기
 
-- Status: Accepted
+- Status: Accepted (1층 역할은 ADR-0015가 보강 — 병기 후보 기록 추가)
 - Date: 2026-07-17
 - Area: correction / editor / learning
 - Supersedes: —
+- Amended by: [ADR-0015](ADR-0015-hanja-hint-from-spellcheck.md) — 1층(맞춤법)이
+  "정규화만"에서 "정규화 + special 병기 후보 기록"으로 확장. 2층에 규칙 C(힌트
+  소비) 추가. 3층 구조 자체는 불변.
 
 ## Context
 
