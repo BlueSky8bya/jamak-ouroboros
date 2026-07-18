@@ -1,5 +1,33 @@
 # Agent Change Log
 
+## v0.9.98 — 2026-07-18 (한자 발굴 후보 백엔드 — ADR-0016 P2-a/b/d)
+
+### CHG-20260718-138 — FEAT — 맞춤법이 사전 밖 한자어 발굴, promote로 검증·등록
+Change: ADR-0016 Phase 2 백엔드. 맞춤법이 **사전에 없어도** 흑판 강조어에 준하는
+한자어를 발굴하고, 漢 채우기가 그걸 관리자 검증 대기 목록으로 돌려주며,
+`/promote-hanja`가 관리자 선택을 확정(병기+등록)한다. **UI(P2-c)는 다음 턴.**
+- **스키마(P2-a)**: 맞춤법 `hanja[]` 항목에 `discovered`(사전 밖 발굴 여부)·
+  `alt`(동음 대안)·`gloss`(단일자 뜻). `Segment.hanja_hints`/`LlmCache.hanja`가
+  그대로 실음. 하위호환 — 기존 `{reading,hanja}`는 discovered 없음=false로 읽힘.
+- **프롬프트(P2-b)**: 규칙 10을 (a) 목록 매칭 + (b) **발굴**로 분리. (b)는 불교·
+  교리·고사성어·전문 한자어만, 일상어·순우리말·고유명사 제외, 줄당 최대 2개,
+  **환각 금지(모르면 발굴 안 함)**. 텍스트는 어느 경로든 안 바꿈.
+- **fill_hanja**: 규칙 C는 `discovered=false`(목록 매칭)만 자동 병기. `discovered=
+  true`는 병기하지 않고 `discoveries[]`(segment_id·reading·gloss·candidates=[추천,
+  대안…]·context)로 반환 — 낱말이 셀에 아직 있고 병기 안 된 것만(조사 흡수).
+- **/promote-hanja(P2-d)**: 관리자가 고른 `(segment_id, reading, hanja, gloss)`를
+  확정 — ① HanjaTerm 등록(tier=special, source_job_id, 멱등) → 다음 영상부터 (a)
+  목록 매칭 승격 ② 그 셀 즉시 병기(조사 흡수)+before 반환(되돌리기) ③ hanja_hints
+  에서 처리된 발굴 제거. **관리자 전용**(_require_admin). 발굴은 사람 검증을
+  통과해야만 병기·등록(환각 방지 안전장치).
+- **JOSA 모듈화**: fill_hanja 내부 조사 패턴을 모듈 상수 `_HANJA_JOSA`로 빼
+  fill·discoveries·promote가 공유 — "무상과·무상을"도 그 앞에 병기.
+Validation: 파싱 스모크 — (a)는 discovered 없이 자동병기 형식, (b)는 discovered+
+alt+gloss. 규칙 C 발굴 스킵·discoveries 수집·promote 병기·조사 흡수·낱말없으면
+제외 전부 확인. import OK, promote-hanja 라우트 등록, verify_harness OK.
+NOT VERIFIED: 실제 맞춤법 API가 규칙 10(b)로 발굴을 내는지(관리자·유료). UI 없이는
+발굴 후보를 사람이 못 고르므로 **P2-c(후보 선택 모달)까지 가야 실사용**.
+
 ## v0.9.97 — 2026-07-17 (단일자 한자 사전 오병기 청소 — ADR-0016 P2 부수)
 
 ### CHG-20260717-137 — DATA+FEAT — 단일자 special 오검 강등 + 힌트 목록 count 하한

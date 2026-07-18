@@ -11,25 +11,25 @@ Related: ADR-0016, ADR-0015, ADR-0011
 
 ## 단계
 
-### P2-a — 스키마: 발굴 후보 저장
+### P2-a — 스키마: 발굴 후보 저장 ✅ (v0.9.98)
 - 맞춤법 응답 `hanja[]` 항목에 `candidates: [hanja...]`(1~N)와 `discovered: bool`
   (사전 밖 발굴 여부) 추가. 기존 (a) 사전 매칭은 candidates 1개 + discovered=false.
 - `Segment.hanja_hints` JSON을 `[{reading, hanja, candidates?, discovered}]`로 확장
   (하위호환: 기존 `{reading, hanja}`도 읽힘).
 - `LlmCache.hanja`도 같은 JSON.
 
-### P2-b — 프롬프트: 발굴 규칙
+### P2-b — 프롬프트: 발굴 규칙 ✅ (v0.9.98)
 - spellcheck 규칙 10을 둘로: (a) 목록 매칭, (b) **목록 밖 발굴** — "흑판에 쓰였거나
   한자 병기가 유익한 강조 한자어에 준하는 것만. 일상어·고유명사 제외. 확신 없으면
   발굴 안 함." 후보는 표준 한자로, 애매하면 복수.
 - 발굴 남발 방지: 줄당 최대 1~2개, 과잉이면 규칙 강화.
 
-### P2-c — 漢 채우기 UI: 후보 검증
+### P2-c — 漢 채우기 UI: 후보 검증 ⬅️ 다음 (백엔드 완료, UI만 남음)
 - 미리보기 모달에 발굴 후보 구역: 낱말 + 후보 라디오(N개) + [무시]. 관리자가
   고른 것만 병기 + **HanjaTerm 등록**(승인 순환). (a) 사전 매칭은 지금처럼 체크.
 - 관리자 전용(Phase 1으로 이미 버튼 자체가 admin).
 
-### P2-d — 학습 연결
+### P2-d — 학습 연결 ✅ (v0.9.98, /promote-hanja)
 - 승인된 발굴어를 HanjaTerm에 tier=special로 등록(source_job_id 기록, job당 1회).
 - 다음 맞춤법부터 (a) 사전 매칭으로 승격 → 발굴 재판단 불필요.
 

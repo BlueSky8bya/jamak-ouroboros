@@ -2385,6 +2385,20 @@ def spellcheck(
     return {"suggestions": suggestions, **stats}
 
 
+# 한자 병기에서 용어 뒤에 흡수하는 조사·서술격·하다동사 종결형 (긴 것 먼저).
+# fill_hanja(규칙 B·C)·promote_hanja가 공유 — 조사 붙은 낱말도 그 앞에 병기한다.
+_HANJA_JOSA = (
+    "으로부터|에서부터|에서만|에서는|에서도|으로써|으로서|으로는|으로도"
+    "|이라고|이라는|이라도|이라면|이라서|에게서|한테서|에게로|입니다|이에요"
+    "|이예요|이지만|이라|이란|이나|이야|이랑|이고|이며|이지|인데|이면|이니"
+    "|이다|이었|였다|께서|에서|에게|한테|으로|처럼|보다|마다|부터|까지"
+    "|조차|마저|밖에|만큼|라도|라서|에는|에도|에만|로는|로도"
+    "|합니다|하세요|하시는|하시고|하는|하고|하며|하지|하면|하게|하기|하여"
+    "|하다|한다|해서|해야|해도|했다|했고|했는데"
+    "|은|는|이|가|을|를|와|과|의|에|로|도|만|께|야|아|랑|나|인"
+)
+
+
 @app.post("/api/jobs/{video_id}/fill-hanja")
 def fill_hanja(
     request: Request,
@@ -2460,16 +2474,7 @@ def fill_hanja(
         # 명사 뒤에 직접 붙는 것만: 조사(을/에서/으로), 서술격(이다/입니다),
         # 하다동사(수행하다·정진하세요). 뒤가 진짜 경계일 때만 병기하므로
         # 긴 단어(백궁전)는 분리되지 않는다.
-        JOSA = (
-            "으로부터|에서부터|에서만|에서는|에서도|으로써|으로서|으로는|으로도"
-            "|이라고|이라는|이라도|이라면|이라서|에게서|한테서|에게로|입니다|이에요"
-            "|이예요|이지만|이라|이란|이나|이야|이랑|이고|이며|이지|인데|이면|이니"
-            "|이다|이었|였다|께서|에서|에게|한테|으로|처럼|보다|마다|부터|까지"
-            "|조차|마저|밖에|만큼|라도|라서|에는|에도|에만|로는|로도"
-            "|합니다|하세요|하시는|하시고|하는|하고|하며|하지|하면|하게|하기|하여"
-            "|하다|한다|해서|해야|해도|했다|했고|했는데"
-            "|은|는|이|가|을|를|와|과|의|에|로|도|만|께|야|아|랑|나|인"
-        )
+        JOSA = _HANJA_JOSA
         multi_re = None
         if multi:
             alts = "|".join(
@@ -2508,6 +2513,8 @@ def fill_hanja(
             # JOSA 흡수 — 조사(탐을·치입니다)가 붙어도 그 앞에 병기하고, 낱말 내부
             # (탐욕)는 뒤가 한글이라 매칭 안 돼 오병기하지 않는다.
             for hint in cell_hints:
+                if hint.get("discovered"):
+                    continue  # 발굴 후보는 자동 병기 안 함 (ADR-0016: 관리자 검증)
                 r, hz = hint.get("reading", ""), hint.get("hanja", "")
                 if not r or not hz:
                     continue
@@ -2522,6 +2529,13 @@ def fill_hanja(
         before: list[dict] = []
         changed: list[Segment] = []
         suggestions: list[dict] = []
+        # [WH-CHANGE v0.9.98 | FEAT | 2026-07-18 | CHG-20260718-138]
+        # Reason: ADR-0016 P2 — 발굴 후보(discovered)는 자동 병기하지 않고 여기
+        #   모아 관리자에게 돌려준다. 관리자가 후보를 골라 /promote-hanja로 확정
+        #   하면 그때 HanjaTerm 등록 + 병기된다. 낱말이 셀에 아직 있고 병기 안 된
+        #   것만(regex) — 텍스트가 바뀌었으면 조용히 제외.
+        # Related: ADR-0016, CHANGELOG CHG-20260718-138.
+        discoveries: list[dict] = []
         for s in seg_rows:
             cur = s.text_final or s.text_llm or ""
             if not cur or "(" in cur and cur.count("(") > 6:
@@ -2530,6 +2544,31 @@ def fill_hanja(
                 cell_hints = _json_hanja.loads(s.hanja_hints) if s.hanja_hints else []
             except Exception:
                 cell_hints = []
+            for h in cell_hints:
+                if not h.get("discovered"):
+                    continue
+                r = (h.get("reading") or "").strip()
+                hz = (h.get("hanja") or "").strip()
+                if not r or not hz:
+                    continue
+                # 낱말이 아직 있고 아직 병기 안 됨(조사 흡수, 뒤에 '(' 없음)
+                if not _re.search(
+                    rf"(?<![가-힣]){_re.escape(r)}(?:{_HANJA_JOSA})?(?![가-힣(])", cur
+                ):
+                    continue
+                alt = [a for a in (h.get("alt") or []) if isinstance(a, str) and a.strip()]
+                cands = [hz] + [a for a in alt if a != hz]
+                discoveries.append(
+                    {
+                        "segment_id": s.id,
+                        "idx": s.idx,
+                        "start": s.start,
+                        "reading": r,
+                        "gloss": (h.get("gloss") or "").strip(),
+                        "candidates": cands,  # [최상위 추천, 대안…]
+                        "context": cur,
+                    }
+                )
             new = fill(cur, cell_hints)
             if new == cur:
                 continue
@@ -2560,6 +2599,7 @@ def fill_hanja(
             "total": total,
             "remaining": remaining,
             "suggestions": suggestions,
+            "discoveries": discoveries,  # ADR-0016 P2: 관리자 검증 대기 발굴 후보
             "before": before,
             "segments": [
                 {
@@ -2570,6 +2610,98 @@ def fill_hanja(
                 for s in changed
             ],
         }
+
+
+class PromoteHanjaItem(BaseModel):
+    segment_id: int
+    reading: str
+    hanja: str  # 관리자가 후보 중 고른 한자
+    gloss: str = ""  # 단일자면 뜻(訓), 다자어면 빈 문자열
+
+
+class PromoteHanjaBody(BaseModel):
+    items: list[PromoteHanjaItem]
+
+
+@app.post("/api/jobs/{video_id}/promote-hanja")
+def promote_hanja(request: Request, video_id: str, body: PromoteHanjaBody, lang: str = "ko") -> dict:
+    """[WH-CHANGE v0.9.98 | FEAT | 2026-07-18 | CHG-20260718-138]
+    ADR-0016 P2 — 관리자가 발굴 후보에서 고른 (reading→hanja)를 확정한다:
+      1) HanjaTerm에 등록(tier=special) — 다음 영상부터 (a) 목록 매칭으로 승격.
+      2) 그 셀에 즉시 병기 + before 반환(되돌리기). 낱말이 아직 있고 병기 안 된
+         것만. 다자어는 단어 경계, 단일자는 gloss로 (뜻,음)→한자.
+      3) Segment.hanja_hints에서 처리된 발굴 항목 제거(재제안 방지).
+    발굴은 사람 검증을 통과해야만 여기서 병기·등록된다(환각 방지).
+    Related: ADR-0016, CHANGELOG CHG-20260718-138.
+    """
+    import json as _pj
+    import re as _pre
+
+    from ..db import HanjaTerm
+
+    _require_admin(request)
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.video_id == video_id)).first()
+        if job is None:
+            raise HTTPException(404, f"no job for {video_id}")
+
+        before: list[dict] = []
+        applied = 0
+        registered = 0
+        for it in body.items:
+            r, hz, g = it.reading.strip(), it.hanja.strip(), it.gloss.strip()
+            if not r or not hz:
+                continue
+            seg = session.get(Segment, it.segment_id)
+            if seg is None or seg.lang != lang or seg.job_id != job.id:
+                continue
+            cur = seg.text_final or seg.text_llm or ""
+            # 병기: 낱말이 아직 있고 병기 안 됨. 조사 흡수(무상과→무상(無常)과). 첫 1회.
+            new, n = _pre.subn(
+                rf"(?<![가-힣]){_pre.escape(r)}((?:{_HANJA_JOSA})?)(?![가-힣(])",
+                lambda m: f"{r}({hz}){m.group(1)}",
+                cur,
+                count=1,
+            )
+            if n:
+                before.append(
+                    {"id": seg.id, "text_final": seg.text_final, "reviewed": seg.reviewed}
+                )
+                if seg.text_final:
+                    seg.text_final = new
+                else:
+                    seg.text_llm = new
+                # 처리된 발굴 항목을 hints에서 제거(재제안 방지)
+                try:
+                    hints = _pj.loads(seg.hanja_hints) if seg.hanja_hints else []
+                    hints = [
+                        h for h in hints
+                        if not (h.get("discovered") and (h.get("reading") or "").strip() == r)
+                    ]
+                    seg.hanja_hints = _pj.dumps(hints, ensure_ascii=False) if hints else ""
+                except Exception:
+                    pass
+                session.add(seg)
+                applied += 1
+
+            # HanjaTerm 등록(멱등): 같은 (reading, gloss, hanja) 없으면 추가.
+            dup = session.exec(
+                select(HanjaTerm).where(
+                    HanjaTerm.reading == r,
+                    HanjaTerm.gloss == g,
+                    HanjaTerm.hanja == hz,
+                )
+            ).first()
+            if dup is None:
+                session.add(
+                    HanjaTerm(
+                        reading=r, gloss=g, hanja=hz,
+                        count=1, tier="special", source_job_id=job.id,
+                    )
+                )
+                registered += 1
+        session.commit()
+    return {"applied": applied, "registered": registered, "before": before}
 
 
 class TimingDoneBody(BaseModel):
