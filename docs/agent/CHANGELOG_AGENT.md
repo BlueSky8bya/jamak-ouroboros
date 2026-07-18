@@ -1,5 +1,21 @@
 # Agent Change Log
 
+## v0.9.100 — 2026-07-18 (漢 발굴 병기 경합 방지 — 리뷰 F2)
+
+### CHG-20260718-140 — FIX — 사전 병기 저장과 발굴 promote 순서 보장
+Change: 코드 리뷰(P2-c 커밋)에서 발견한 write 경합. 한 셀에 사전 병기(chosen,
+fire-forget `queueSave`)와 발굴(picks, `await promoteHanja`)이 함께 있으면,
+promote가 chosen 저장보다 먼저 서버에 닿을 때 원본에 발굴만 병기 → 뒤늦은
+chosen 저장이 그 위를 덮어 **발굴 병기가 소실**될 수 있었다(교리 강연: 한 문장에
+사전어+새 용어 공존). `applyHanja`에서 promote 직전 겹치는 셀의 `saveQueuesRef`
+promise를 await해 순서를 고정. picks-only 경로는 빈 map await=즉시라 동작 불변.
+- 리뷰 나머지(F1 pushOpUndo 시점·F3 빈 before undo 스킵·F5 before 스냅샷)는
+  기존 applySpell 패턴과 동일하거나 의도된 동작으로 오탐 판정. F4(모달 닫힌 뒤
+  실패 재시도)는 hints가 남아 재실행 가능한 경미 UX로 유지.
+Validation: 스크래치 재현(auth off=admin) — 셀 "무상과 식을 알라" 발굴 2행 독립,
+식 識→式 변경 후 적용 → 클론 셀 `무상(無常)과 식(式)을 알라`, HanjaTerm 無常·式
+등록, hints 소비. picks-only 경로 회귀 없음. tsc --noEmit + build clean.
+
 ## v0.9.99 — 2026-07-18 (한자 발굴 후보 선택 UI — ADR-0016 P2-c)
 
 ### CHG-20260718-139 — FEAT — 漢 채우기 모달에 발굴 후보 선택 구역

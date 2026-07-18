@@ -3884,6 +3884,15 @@ export function Editor({
     // 2) 발굴 후보 확정 — 서버가 병기 + HanjaTerm 등록(다음 영상부터 자동)
     if (picks.length) {
       try {
+        // [WH-CHANGE v0.9.100 | FIX | 2026-07-18 | CHG-20260718-140]
+        // Reason: 같은 셀에 사전 병기(chosen, fire-forget queueSave)와 발굴(picks,
+        //   promote)이 함께 있으면, promote가 chosen 저장보다 먼저 서버에 닿을 때
+        //   원본 위에 발굴만 병기 → 뒤늦은 chosen 저장이 그걸 덮어 발굴 병기 소실.
+        //   promote 전에 겹치는 셀 저장을 반영시켜 순서를 보장한다.
+        // Related: ADR-0016 P2-c, 리뷰 F2.
+        await Promise.all(
+          picks.map((p) => saveQueuesRef.current.get(p.segment_id) ?? Promise.resolve()),
+        );
         const before = segmentsRef.current.filter((s) =>
           picks.some((p) => p.segment_id === s.id),
         );
