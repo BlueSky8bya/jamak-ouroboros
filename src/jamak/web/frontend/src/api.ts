@@ -418,6 +418,7 @@ export async function fillHanja(
   total: number;
   remaining: number;
   suggestions: SpellSuggestion[];
+  discoveries: HanjaDiscovery[];
   before: { id: number; text_final: string; reviewed: boolean }[];
   segments: { id: number; text_final: string; text_llm: string }[];
 }> {
@@ -426,6 +427,36 @@ export async function fillHanja(
     { method: "POST" },
   );
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? `hanja: ${r.status}`);
+  return r.json();
+}
+
+// ADR-0016 P2: 맞춤법이 사전 밖에서 발굴한 병기 후보 (관리자 검증 대기)
+export interface HanjaDiscovery {
+  segment_id: number;
+  idx: number;
+  start: number;
+  reading: string;
+  gloss: string;
+  candidates: string[]; // [최상위 추천, 대안…]
+  context: string;
+}
+
+// 관리자가 고른 발굴 후보를 확정: 그 셀에 병기 + HanjaTerm 등록
+export async function promoteHanja(
+  videoId: string,
+  items: { segment_id: number; reading: string; hanja: string; gloss: string }[],
+  lang = "ko",
+): Promise<{
+  applied: number;
+  registered: number;
+  before: { id: number; text_final: string; reviewed: boolean }[];
+}> {
+  const r = await fetch(`/api/jobs/${videoId}/promote-hanja?lang=${lang}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ items }),
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? `promote: ${r.status}`);
   return r.json();
 }
 

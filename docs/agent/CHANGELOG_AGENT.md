@@ -1,5 +1,31 @@
 # Agent Change Log
 
+## v0.9.99 — 2026-07-18 (한자 발굴 후보 선택 UI — ADR-0016 P2-c)
+
+### CHG-20260718-139 — FEAT — 漢 채우기 모달에 발굴 후보 선택 구역
+Change: ADR-0016 Phase 2 프론트. 漢 채우기(관리자 전용)가 맞춤법 발굴 한자어를
+후보 라디오로 띄우고, 관리자가 고른 것만 `/promote-hanja`로 확정한다. 발굴은
+자동 병기 안 됨 — 사람 선택이 환각 방지 게이트(ADR-0016).
+- **api.ts**: `HanjaDiscovery`(segment_id·idx·start·reading·gloss·candidates·
+  context) 타입 + `fillHanja` 반환에 `discoveries[]` + `promoteHanja(videoId,
+  items[])` 함수.
+- **Editor.tsx**: 모달에 `.disc-section` 추가 — 발굴 행마다 ▶재생·낱말(뜻)·
+  문맥·후보 라디오(추천+동음 대안+무시). `runFillHanja`가 배치 루프에서
+  discoveries 모으고 첫 후보 기본 선택. `applyHanja`(async)가 제안(규칙 A/B)
+  적용 후 고른 발굴을 `promoteHanja`로 확정 → pushOpUndo + refreshSegments.
+  적용 버튼 카운트 = 제안 + 고른 발굴.
+- **복합키 버그 수정**: 한 셀에 발굴 2개면(예 "무상과 식을 알라": 무상→無常,
+  식→識/式/食) `discPick`를 `segment_id`만으로 키잉해 서로 덮어쓰고 라디오
+  `name`이 같아 한 그룹으로 묶였음 → `discKey(d)=\`${segment_id}\x1f${reading}\``
+  복합키로 상태·초기화·picks·라디오 name/checked·카운트 전부 교체.
+Validation: 스크래치 DB 브라우저 검증. 셀 "무상과 식을 알라"에 발굴 2행 독립
+라디오(name `disc-<sid>\x1f무상`/`disc-<sid>\x1f식`) 확인. 식을 기본 識→式로
+바꿔도 무상=無常 유지. 적용 → 클론 셀 text_llm=`무상(無常)과 식(式)을 알라`
+(선택값 반영), HanjaTerm 無常/무상·式/식 등록, hints 소비. 이전 버그 `識(무상)`
+오등록 사라짐. tsc --noEmit EXIT=0.
+NOT VERIFIED: 실제 맞춤법 API 발굴 생성(관리자·유료, ADR-0016 P2-e). 연습6 漢
+스텝 제거(관리자 전용화 fallout) 미완 — P2-e.
+
 ## v0.9.98 — 2026-07-18 (한자 발굴 후보 백엔드 — ADR-0016 P2-a/b/d)
 
 ### CHG-20260718-138 — FEAT — 맞춤법이 사전 밖 한자어 발굴, promote로 검증·등록

@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   absorbFeedback,
   fillHanja,
+  promoteHanja,
   boundaryNext,
   boundaryPrev,
   edgeDrag,
@@ -25,7 +26,7 @@ import {
   tightenTiming,
   updateSegment,
 } from "./api";
-import type { AbsorbResult, QcReport, SpellSuggestion, WordTime } from "./api";
+import type { AbsorbResult, HanjaDiscovery, QcReport, SpellSuggestion, WordTime } from "./api";
 import { Dropdown } from "./Dropdown";
 import { ThemeToggle } from "./theme";
 import { useConfirm } from "./confirm";
@@ -2074,6 +2075,10 @@ export function Editor({
   const [hanjaModal, setHanjaModal] = useState<{
     suggestions: SpellSuggestion[];
     accepted: Set<number>;
+    // ADR-0016 P2: 사전 밖 발굴 후보 + 관리자 선택(키 = segment_id\x1freading,
+    // 값 = 고른 한자, ""=무시). 한 셀에 발굴 여럿이라 복합키.
+    discoveries: HanjaDiscovery[];
+    discPick: Record<string, string>;
   } | null>(null);
   const [toolMsg, setToolMsg] = useState("");
   useEffect(() => {
@@ -3775,19 +3780,28 @@ export function Editor({
       const BATCH = 200;
       let offset = 0;
       const suggestions: SpellSuggestion[] = [];
+      const discoveries: HanjaDiscovery[] = [];
       for (;;) {
         const r = await fillHanja(videoId, lang, BATCH, offset, true);
         suggestions.push(...r.suggestions);
+        discoveries.push(...(r.discoveries ?? []));
         offset += BATCH;
         setHanjaProg({ done: Math.min(offset, r.total), total: r.total });
         if (r.remaining <= 0) break;
       }
-      if (!suggestions.length) {
+      if (!suggestions.length && !discoveries.length) {
         setToolMsg("漢 채울 한자어를 찾지 못했어요 — 사전에 있는 표현이 없거나 이미 병기됨");
       } else {
+        // 발굴 후보는 기본값 = 최상위 추천(candidates[0])이 미리 선택된 상태.
+        // 관리자가 대안으로 바꾸거나 무시("")로 뺄 수 있다.
+        const discPick: Record<string, string> = {};
+        for (const d of discoveries)
+          discPick[`${d.segment_id}\x1f${d.reading}`] = d.candidates[0] ?? "";
         setHanjaModal({
           suggestions,
           accepted: new Set(suggestions.map((s) => s.segment_id)),
+          discoveries,
+          discPick,
         });
       }
     } catch (e) {
@@ -3800,7 +3814,28 @@ export function Editor({
     }
   }
 
-  function applyHanja() {
+  // [WH-CHANGE v0.9.99 | FEAT | 2026-07-18 | CHG-20260718-139]
+  // Reason: 한 셀에 발굴이 여럿이면 segment_id만으론 discPick·라디오가 충돌.
+  // Related: ADR-0016 P2-c.
+  // ADR-0016 P2: 발굴 후보 키 — 한 셀에 발굴이 여럿일 수 있어 (segment_id,
+  // reading) 복합키여야 서로 덮어쓰지 않는다(무상·식이 같은 셀).
+  const discKey = (d: { segment_id: number; reading: string }) =>
+    `${d.segment_id}\x1f${d.reading}`;
+  // 관리자 선택 갱신 (한자 고르기 / 무시="")
+  function setDiscPick(key: string, hanja: string) {
+    setHanjaModal((m) =>
+      m ? { ...m, discPick: { ...m.discPick, [key]: hanja } } : m,
+    );
+  }
+  // 적용될 발굴 수 (무시 아닌 것)
+  function pickedDiscCount(m: {
+    discoveries: HanjaDiscovery[];
+    discPick: Record<string, string>;
+  }) {
+    return m.discoveries.filter((d) => (m.discPick[discKey(d)] ?? "").trim()).length;
+  }
+
+  async function applyHanja() {
     // applySpell과 같은 흐름: 낙관적 화면 반영 + 배치 하나로 undo + queueSave
     const m = hanjaModal;
     if (!m) return;
@@ -3811,29 +3846,61 @@ export function Editor({
     const finalOf = (c: SpellSuggestion) =>
       (previewEdits[c.segment_id] ?? c.after).trim() || c.after;
     const chosen = appliedSuggestions(m.suggestions);
+    // ADR-0016 P2: 관리자가 고른 발굴 후보(무시="" 제외) → promote로 병기+등록
+    const picks = m.discoveries
+      .filter((d) => (m.discPick[discKey(d)] ?? "").trim())
+      .map((d) => ({
+        segment_id: d.segment_id,
+        reading: d.reading,
+        hanja: m.discPick[discKey(d)],
+        gloss: d.gloss,
+      }));
     setHanjaModal(null);
-    if (!chosen.length) return;
-    const before = segmentsRef.current.filter((s) =>
-      chosen.some((c) => c.segment_id === s.id),
-    );
-    pushOpUndo("한자 채우기", before);
-    applyRows(
-      chosen.map((c) => {
-        const old = before.find((s) => s.id === c.segment_id)!;
-        return { ...old, text_final: finalOf(c) };
-      }),
-    );
-    for (const c of chosen) {
-      void queueSave(c.segment_id, async () => {
-        try {
-          const updated = await updateSegment(c.segment_id, { text_final: finalOf(c) });
-          applyRows([updated]);
-        } catch (e) {
-          setError(String(e));
-        }
-      });
+
+    // 1) 사전 병기 (기존 결정적 치환)
+    if (chosen.length) {
+      const before = segmentsRef.current.filter((s) =>
+        chosen.some((c) => c.segment_id === s.id),
+      );
+      pushOpUndo("한자 채우기", before);
+      applyRows(
+        chosen.map((c) => {
+          const old = before.find((s) => s.id === c.segment_id)!;
+          return { ...old, text_final: finalOf(c) };
+        }),
+      );
+      for (const c of chosen) {
+        void queueSave(c.segment_id, async () => {
+          try {
+            const updated = await updateSegment(c.segment_id, { text_final: finalOf(c) });
+            applyRows([updated]);
+          } catch (e) {
+            setError(String(e));
+          }
+        });
+      }
     }
-    setToolMsg(`漢 한자 병기 ${chosen.length}개 자막에 채웠어요 (↶로 전체 되돌리기 가능)`);
+
+    // 2) 발굴 후보 확정 — 서버가 병기 + HanjaTerm 등록(다음 영상부터 자동)
+    if (picks.length) {
+      try {
+        const before = segmentsRef.current.filter((s) =>
+          picks.some((p) => p.segment_id === s.id),
+        );
+        const r = await promoteHanja(videoId, picks, lang);
+        if (r.before.length && before.length) {
+          pushOpUndo("한자 발굴 병기", before); // 텍스트 되돌리기 (등록은 유지)
+        }
+        await refreshSegments(); // 서버가 병기한 셀 반영
+        setToolMsg(
+          `漢 병기 완료 — 사전 ${chosen.length}곳 · 발굴 ${r.applied}곳 채우고 사전에 ${r.registered}개 등록했어요`,
+        );
+      } catch (e) {
+        setError(`발굴 한자어 병기 중 오류 — ${String(e)}`);
+      }
+    } else if (chosen.length) {
+      setToolMsg(`漢 한자 병기 ${chosen.length}개 자막에 채웠어요 (↶로 전체 되돌리기 가능)`);
+    }
   }
 
   async function runTighten() {
@@ -5219,9 +5286,13 @@ export function Editor({
           <div className="srt-modal qc-modal review-modal" onClick={(e) => e.stopPropagation()}>
             <h3>漢 한자 채우기 — 미리보기</h3>
             <p className="srt-summary">
-              채울 곳 <strong>{hanjaModal.suggestions.length}곳</strong>. <strong>▶</strong>로
-              들으며 흑판 한자·동음이의 확인 → 칸에서 바로 고치세요. <strong>↺ 원래대로</strong>면
-              그 줄은 안 바뀌어요. (적용 후 ↶로 되돌리기 가능)
+              사전 병기 <strong>{hanjaModal.suggestions.length}곳</strong>
+              {hanjaModal.discoveries.length > 0 && (
+                <> · 발굴 후보 <strong>{hanjaModal.discoveries.length}개</strong></>
+              )}
+              . <strong>▶</strong>로 들으며 흑판 한자·동음이의 확인 → 칸에서 바로
+              고치세요. <strong>↺ 원래대로</strong>면 그 줄은 안 바뀌어요. (적용 후 ↶로
+              되돌리기 가능)
             </p>
             <div className="modal-player">
               {previewSec === null ? (
@@ -5240,16 +5311,86 @@ export function Editor({
               )}
             </div>
             <div className="spell-list">{hanjaModal.suggestions.map(reviewRow)}</div>
+            {/* ADR-0016 P2: 사전 밖 발굴 후보 — 관리자가 한자를 고르거나 무시.
+                고른 것만 이 자막에 병기 + 사전에 등록(다음 영상부터 자동 병기). */}
+            {hanjaModal.discoveries.length > 0 && (
+              <div className="disc-section">
+                <h4>
+                  사전에 없던 한자어 <span className="disc-badge">발굴 · 관리자 검증</span>
+                </h4>
+                <p className="disc-help">
+                  맞춤법 AI가 문맥으로 찾은 후보예요. <strong>▶</strong>로 들어보고 맞는
+                  한자를 고르면 이 자막에 병기하고 <strong>사전에 등록</strong>해요(다음
+                  영상부터 자동). 아니면 <strong>무시</strong>.
+                </p>
+                {hanjaModal.discoveries.map((d) => (
+                  <div className="disc-row" key={`${d.segment_id}-${d.reading}`}>
+                    <button
+                      type="button"
+                      className="cue-play"
+                      title="이 자막 시점으로 영상 재생"
+                      onClick={() => previewCue(d.start)}
+                    >
+                      ▶ {fmt(d.start)}
+                    </button>
+                    <div className="disc-body">
+                      <div className="disc-word">
+                        <b>{d.reading}</b>
+                        {d.gloss ? <span className="disc-gloss"> ({d.gloss})</span> : null}
+                      </div>
+                      <div className="disc-context">{d.context}</div>
+                      <div className="disc-cands">
+                        {d.candidates.map((hz) => (
+                          <label
+                            key={hz}
+                            className={
+                              "disc-cand" +
+                              (hanjaModal.discPick[discKey(d)] === hz ? " on" : "")
+                            }
+                          >
+                            <input
+                              type="radio"
+                              name={`disc-${discKey(d)}`}
+                              checked={hanjaModal.discPick[discKey(d)] === hz}
+                              onChange={() => setDiscPick(discKey(d), hz)}
+                            />
+                            {d.reading}({hz})
+                          </label>
+                        ))}
+                        <label
+                          className={
+                            "disc-cand disc-ignore" +
+                            (!(hanjaModal.discPick[discKey(d)] ?? "") ? " on" : "")
+                          }
+                        >
+                          <input
+                            type="radio"
+                            name={`disc-${discKey(d)}`}
+                            checked={!(hanjaModal.discPick[discKey(d)] ?? "")}
+                            onChange={() => setDiscPick(discKey(d), "")}
+                          />
+                          무시
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="srt-actions">
               <button className="srt-cancel" onClick={() => setHanjaModal(null)}>
                 취소
               </button>
               <button
                 className="srt-apply"
-                disabled={appliedSuggestions(hanjaModal.suggestions).length === 0}
-                onClick={() => applyHanja()}
+                disabled={
+                  appliedSuggestions(hanjaModal.suggestions).length === 0 &&
+                  pickedDiscCount(hanjaModal) === 0
+                }
+                onClick={() => void applyHanja()}
               >
-                {appliedSuggestions(hanjaModal.suggestions).length}곳 적용
+                {appliedSuggestions(hanjaModal.suggestions).length + pickedDiscCount(hanjaModal)}곳
+                적용
               </button>
             </div>
           </div>

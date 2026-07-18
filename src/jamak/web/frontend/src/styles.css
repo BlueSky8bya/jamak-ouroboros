@@ -3520,6 +3520,88 @@ kbd {
   overflow-y: auto;
   margin: 10px 0;
 }
+/* ADR-0016 P2: 사전 밖 발굴 후보 검증 구역 (관리자 전용 모달) */
+.disc-section {
+  margin: 12px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--amber) 7%, var(--surface));
+}
+.disc-section > h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.disc-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--amber);
+  border: 1px solid var(--amber);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.disc-help {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.disc-row {
+  display: flex;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.disc-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.disc-word {
+  font-size: 15px;
+}
+.disc-gloss {
+  color: var(--muted);
+  font-size: 13px;
+}
+.disc-context {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 2px 0 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.disc-cands {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.disc-cand {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.disc-cand.on {
+  border-color: var(--teal);
+  background: color-mix(in srgb, var(--teal) 14%, transparent);
+  color: var(--text);
+}
+.disc-cand.disc-ignore.on {
+  border-color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+}
+.disc-cand input {
+  margin: 0;
+}
 .spell-row {
   display: flex;
   align-items: center;
